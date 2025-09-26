@@ -2,6 +2,43 @@
 
 Local privacy-preserving blockchain simulator that generates real zero-knowledge proofs. Create wallets, send private transactions, and test ZK applications without setting up a real blockchain.
 
+
+### program hash mechanism
+
+how programmable spending conditions work with privacy:
+
+**locking coins**: when you create a puzzle-locked coin
+```bash
+cargo run -- sim spend-to-puzzle alice 1000 "(> secret_amount 500)"
+```
+
+1. simulator compiles chialisp in TEMPLATE mode
+2. strips parameter names, keeps logic structure only
+3. generates deterministic program hash = sha256(template_bytecode)
+4. coin gets locked to this SPECIFIC program hash
+
+**spending coins**: to unlock later
+1. compile same program in INSTANCE mode with actual secret values
+2. generate zk proof: "i executed program X with hidden inputs"
+3. proof links to original program hash but hides the actual values
+4. verifier confirms proof matches the program hash without seeing logic
+
+**privacy guarantee**: verifier only sees "valid proof for program ABC123..." but never sees:
+- the actual spending condition logic
+- the secret parameters used
+- how the computation worked
+
+**nullifier protocol**: prevents double-spending and replay attacks
+```
+nullifier = hash(spend_secret + program_hash + coin_data)
+```
+
+this means same secret produces DIFFERENT nullifiers for different programs:
+- password puzzle (hash ABC) → nullifier X
+- signature puzzle (hash DEF) → nullifier Y
+
+so you can't replay proofs across different puzzle types - the program hash BINDS the nullifier to specific spending conditions.
+
 ## Quick start
 
 ```bash
