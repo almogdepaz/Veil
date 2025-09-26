@@ -40,6 +40,61 @@ cargo test --no-default-features --features sp1
 
 ```
 
+### Examples
+
+```rust
+use clvm_zk::{ClvmZkProver, ProgramParameter};
+
+// Basic proof generation
+let chialisp_source = "(mod (amount fee) (+ amount fee))";
+let parameters = &[
+    ProgramParameter::int(1000),
+    ProgramParameter::int(50),
+];
+
+let proof_result = ClvmZkProver::prove(chialisp_source, parameters)?;
+```
+
+See `examples/` for complete working code including `alice_bob_lock.rs` for ECDSA signatures.
+
+
+
+
+## Supported chialisp
+
+**Arithmetic**: `+`, `-`, `*`, `divmod`, `modpow`
+**Comparison**: `=`, `>`, `<`
+**Control flow**: `i` (if-then-else), `if`
+**Lists**: `c` (cons), `f` (first), `r` (rest), `l` (length)
+**Cryptography**: `sha256`, `ecdsa_verify`, `bls_verify`
+**Blockchain**: `create_coin`, `agg_sig_unsafe`, `reserve_fee`, etc
+**Modules**: `mod` wrapper syntax for named parameters
+
+BLS signature verification (`bls_verify`) works on RISC0 and SP1 backends.
+
+### Program structure
+
+```chialisp
+;; Simple expression
+(+ 1 2)
+
+;; Named parameters with mod wrapper
+(mod (amount fee)
+  (+ amount fee))
+
+;; nested expressions
+(mod (threshold values)
+  (if (> (length values) threshold)
+    (sha256 (c threshold values))
+    0))
+```
+
+See `tests/` for examples of supported operations.
+
+
+
+## Architecture
+
 ### Project structure
 
 ```
@@ -93,6 +148,7 @@ clvm-zk/
 └── Cargo.toml                     # workspace configuration
 ```
 
+
 ### Core components
 
 #### `clvm_zk_core/` - Backend-agnostic compilation and execution
@@ -128,6 +184,7 @@ Handles chialisp compilation and CLVM execution with dependency injection:
 
 #### `tests/` - test suite
 Comprehensive tests including fuzz tests, simulator tests, signature verification, and security tests.
+## Development
 
 ### Basic usage
 
@@ -135,38 +192,8 @@ Comprehensive tests including fuzz tests, simulator tests, signature verificatio
 
 **Flow**: Host sends chialisp source to guest → guest compiles and executes → returns proof with program hash.
 
-## Supported chialisp
 
-**Arithmetic**: `+`, `-`, `*`, `divmod`, `modpow`
-**Comparison**: `=`, `>`, `<`
-**Control flow**: `i` (if-then-else), `if`
-**Lists**: `c` (cons), `f` (first), `r` (rest), `l` (length)
-**Cryptography**: `sha256`, `ecdsa_verify`, `bls_verify`
-**Blockchain**: `create_coin`, `agg_sig_unsafe`, `reserve_fee`, etc
-**Modules**: `mod` wrapper syntax for named parameters
 
-BLS signature verification (`bls_verify`) works on RISC0 and SP1 backends.
-
-### Program structure
-
-```chialisp
-;; Simple expression
-(+ 1 2)
-
-;; Named parameters with mod wrapper
-(mod (amount fee)
-  (+ amount fee))
-
-;; nested expressions
-(mod (threshold values)
-  (if (> (length values) threshold)
-    (sha256 (c threshold values))
-    0))
-```
-
-See `tests/` for examples of supported operations.
-
-## Development
 
 ```bash
 
