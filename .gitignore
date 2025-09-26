@@ -1,0 +1,63 @@
+# Rust build artifacts
+/target/
+**/target/
+Cargo.lock
+
+# RISC-V guest build artifacts
+/methods/target/
+/methods/guest/target/
+/methods/target/riscv-guest/
+*.bin
+*.elf
+
+# Build system generated files
+/methods/src/methods.rs
+**/out/methods.rs
+**/build/*/out/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test artifacts
+*.profraw
+/coverage/
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Python artifacts (for test scripts)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Generated documentation
+/doc/
+/docs/_build/
+
+# Local configuration
+.env
+.env.local
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+
+# Proof artifacts (may be large)
+*.proof
+proof.bin
+program.bin
+output.bin
+
+# Debug and development files
+*.log
+debug/
+test_real_zk.py

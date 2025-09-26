@@ -1,0 +1,18 @@
+[package]
+name = "clvm-zk-sp1-program"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sp1-zkvm = "5.0.8"
+clvm-zk-core = { path = "../../../clvm_zk_core", default-features = false, features = ["sha2-hasher"] }
+borsh = { version = "1.5.7", default-features = false }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+# ecdsa signature verification support for sp1
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
+sha2 = { version = "0.10", default-features = false }
+# BLS signature verification support with SP1 precompiles
+bls12_381 = { git = "https://github.com/sp1-patches/bls12_381.git", branch = "patch-v0.8.0", default-features = false, features = ["groups", "pairings", "experimental", "alloc"] }
+# Use compatible digest version for BLS - use sha2 v0.9 to match digest v0.9
+sha2_v09 = { package = "sha2", version = "0.9", default-features = false }
+

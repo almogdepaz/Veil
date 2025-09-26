@@ -1,6 +1,6 @@
-# clvm-zk: Zero-Knowledge Privacy Protocol for Chia Blockchain
+# clvm-zk: Zero-Knowledge Privacy Protocol for Chialisp
 
-zero-knowledge proof system for running chia lisp (CLVM) programs privately. you can take a chialisp program, prove it executed correctly, and verify that proof without revealing the inputs or program logic.
+zero-knowledge proof system for running chialisp (CLVM) programs privately. you can take a chialisp program, prove it executed correctly, and verify that proof without revealing the inputs or program logic.
 
 general purpose zkvm approach - supports arbitrary chialisp programs instead of hardcoded circuits for specific operations.
 

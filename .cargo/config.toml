@@ -1,0 +1,13 @@
+# Cargo configuration for clvm-zk project
+
+[build]
+# Enable some optimizations for faster test compilation
+incremental = true
+
+[env]
+# Test configuration environment variables
+RUST_TEST_THREADS = "4"  # Limit concurrent tests to avoid resource contention
+ZK_TEST_TIMEOUT_SECONDS = "180"  # 3 minutes timeout for individual ZK proof tests
+
+# For better test output
+RUST_BACKTRACE = "1"
