@@ -1,4 +1,4 @@
-# clvm-zk
+# Veil
 
 **Work in progress research project**
 
@@ -8,7 +8,7 @@ General purpose zkvm approach - supports arbitrary chialisp programs instead of 
 
 ## What it does
 
-- Run chialisp programs in RISC0 or SP1 zkvm
+- Run chialisp programs in zkvm (currently suppourts RISC0 or SP1 zkvm's)
 - Generate proofs that hide inputs and program logic
 - Verify proofs without seeing the private data
 - BLS and ECDSA signature verification support
@@ -105,7 +105,7 @@ Handles chialisp compilation and CLVM execution with dependency injection:
 - **`compile_chialisp_to_bytecode()`**: main compilation function used by guests
 - **`compile_chialisp_template_hash()`**: generates deterministic program hashes
 
-**Execution with dependency injection:**
+**Execution:**
 - **`ClvmEvaluator`**: main evaluation struct with injected backend dependencies
   - `hasher: fn(&[u8]) -> [u8; 32]` - hash function for general operations
   - `bls_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>` - BLS signature verification
@@ -114,14 +114,7 @@ Handles chialisp compilation and CLVM execution with dependency injection:
 - **`ClvmEvaluator::with_backends()`**: creates evaluator with optimized implementations
 - **All opcode handlers as evaluator methods**: `handle_op_add()`, `handle_op_sha256()`, etc.
 - **`evaluate_clvm_program_with_params()`**: executes bytecode with parameter substitution
-
-**Features:**
-- Core has no backend dependencies, gets optimizations via injection
-- RISC0 gets precompiles, SP1/Mock get defaults
-- no_std compatible, works in any zkvm environment
-- Handles mod syntax, function definitions, complex expressions
-- Deterministic hashing - same source produces same program hash
-- Unified types across host and guest
+  
 #### `src/cli.rs` - command line interface
 - `demo` - interactive demonstration
 - `prove` - generate proofs from command line
@@ -176,8 +169,6 @@ See `tests/` for examples of supported operations.
 ## Development
 
 ```bash
-# Run tests
-cargo test
 
 # Run examples
 cargo run --example <name>
@@ -196,21 +187,7 @@ cargo run -- sim init
 
 Privacy-preserving blockchain simulator for local testing. Create wallets, send private transactions, and generate real ZK proofs without setting up a real blockchain.
 
-```bash
-# Initialize simulator
-cargo run -- sim init
-
-# Create wallet
-cargo run -- sim wallet alice create
-
-# Fund wallet
-cargo run -- sim faucet alice --amount 5000
-
-# Check balance
-cargo run -- sim wallet alice show
-```
-
-The simulator tests all pass (10/10). See **[SIMULATOR.md](SIMULATOR.md)** for detailed documentation.
+See **[SIMULATOR.md](SIMULATOR.md)** for detailed documentation.
 
 
 ## Adding new zkvm backends
