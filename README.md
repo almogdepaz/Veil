@@ -33,30 +33,28 @@ curl -L https://risczero.com/install | bash && rzup
 # Default: risc0 backend
 cargo build
 cargo test
-
+cargo test --test <test file name> 
 # Use sp1 backend
+
 cargo build --no-default-features --features sp1
-cargo test --no-default-features --features sp1
+cargo test --no-default-features --features "sp1,testing"
+cargo test --test <test file name> --features sp1
+
+
+# Run examples
+cargo run --example <name>
+
+# Interactive demo
+cargo run -- demo
+
+# Generate proofs
+cargo run -- prove --expression "(+ amount fee)" --arg1 5 --arg2 3
+
+# Start simulator
+cargo run -- sim init
+
 
 ```
-
-### Examples
-
-```rust
-use clvm_zk::{ClvmZkProver, ProgramParameter};
-
-// Basic proof generation
-let chialisp_source = "(mod (amount fee) (+ amount fee))";
-let parameters = &[
-    ProgramParameter::int(1000),
-    ProgramParameter::int(50),
-];
-
-let proof_result = ClvmZkProver::prove(chialisp_source, parameters)?;
-```
-
-See `examples/` for complete working code including `alice_bob_lock.rs` for ECDSA signatures.
-
 
 
 
@@ -183,32 +181,34 @@ Handles chialisp compilation and CLVM execution with dependency injection:
 - `backend_benchmark.rs` - compare backends
 
 #### `tests/` - test suite
-Comprehensive tests including fuzz tests, simulator tests, signature verification, and security tests.
+fuzz tests, simulator tests, signature verification, and security tests.
 ## Development
 
 ### Basic usage
 
 `ClvmZkProver::prove(expression, parameters)` generates proofs. `ClvmZkProver::verify_proof()` verifies them. Expressions support named variables and `mod` wrapper syntax. Check `examples/` for working code.
 
+### Examples
+
+```rust
+use clvm_zk::{ClvmZkProver, ProgramParameter};
+
+// Basic proof generation
+let chialisp_source = "(mod (amount fee) (+ amount fee))";
+let parameters = &[
+    ProgramParameter::int(1000),
+    ProgramParameter::int(50),
+];
+
+let proof_result = ClvmZkProver::prove(chialisp_source, parameters)?;
+```
+
+See `examples/` for complete working code including `alice_bob_lock.rs` for ECDSA signatures.
+
+
 **Flow**: Host sends chialisp source to guest → guest compiles and executes → returns proof with program hash.
 
 
-
-
-```bash
-
-# Run examples
-cargo run --example <name>
-
-# Interactive demo
-cargo run -- demo
-
-# Generate proofs
-cargo run -- prove --expression "(+ amount fee)" --arg1 5 --arg2 3
-
-# Start simulator
-cargo run -- sim init
-```
 
 ## Blockchain simulator
 
