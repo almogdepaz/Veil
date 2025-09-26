@@ -1,54 +1,43 @@
-# CLVM-ZK Simulator
+# CLVM-ZK Blockchain Simulator
 
-**✅ FULLY FUNCTIONAL & TESTED** - All core features working with comprehensive test coverage.
+Local privacy-preserving blockchain simulator that generates real zero-knowledge proofs. Create wallets, send private transactions, and test ZK applications without setting up a real blockchain.
 
-## what it is
+## Quick start
 
-A local privacy-preserving blockchain simulator that generates real zero-knowledge proofs. Create wallets, send private transactions, and test ZK applications without setting up a real blockchain.
+```bash
+# Initialize the simulator
+cargo run -- sim init
 
-### ✅ verified functionality
-All simulator features have been tested and confirmed working:
-- ✅ **Nullifier protocol** - prevents double-spending (tested)
-- ✅ **Multi-coin transactions** - batch spending with ZK proofs (tested)
-- ✅ **Cross-puzzle nullifier separation** - prevents replay attacks (tested)
-- ✅ **Large-scale nullifier uniqueness** - collision resistance (tested)
-- ✅ **Observer wallet functionality** - monitoring without spending (tested)
-- ✅ **HD wallet derivation** - cryptographic key management (tested)
-- ✅ **State persistence** - survives restarts (tested)
+# Create wallet
+cargo run -- sim wallet alice create
 
-**Test Status**: 10/10 simulator tests pass
+# Fund it from the faucet
+cargo run -- sim faucet alice --amount 5000
+
+# Check your balance
+cargo run -- sim wallet alice show
+```
+
+Run tests with:
 ```bash
 cargo test --test simulator_tests --release
 ```
 
-## how it works
+## How it works
 
-### state
-everything gets saved to `./simulator_data/state.json`:
-- wallets with real cryptographic keys  
-- observer wallets for monitoring
-- coins and transaction history
-- puzzle-locked coins
+Everything gets saved to `./simulator_data/state.json`:
+- HD wallets with real cryptographic keys
+- Observer wallets for monitoring
+- Coins and transaction history
+- Puzzle-locked coins
 
-### wallets
-each wallet has proper crypto keys for spending and viewing. observer wallets can see activity but can't spend.
+**Full wallets** can spend and view. **Observer wallets** can only view.
 
-## observer wallets
+**Privacy**: spend secrets, program parameters, execution traces stay private. Program hashes, nullifiers, outputs, proofs are public.
 
-monitor wallet activity without being able to spend coins.
+## Examples
 
-### how it works
-1. export viewing key from full wallet
-2. create observer wallet from viewing key
-3. scan blockchain for coins 
-4. track balances and activity
-
-observer wallets use viewing tags to find coins - these look random unless you have the viewing key.
-
-
-## examples
-
-### basic setup
+### Basic setup
 ```bash
 # Initialize simulator
 cargo run -- sim init
@@ -65,25 +54,7 @@ cargo run -- sim wallet alice show
 cargo run -- sim status
 ```
 
-### observer workflow
-```bash
-# 1. Export viewing key from full wallet
-cargo run -- sim wallet alice export-viewing-key
-# Output: viewing key: 647e633eab3028e1c36815932b8f4b26c6fcfbc8e34e64f5e9e7c088ccab68c2
-
-# 2. Create observer wallet
-cargo run -- sim observer create alice_watcher \
-  --viewing-key 647e633eab3028e1c36815932b8f4b26c6fcfbc8e34e64f5e9e7c088ccab68c2
-
-# 3. Scan for coins
-cargo run -- sim observer scan alice_watcher --max-index 100
-
-# 4. View discovered coins
-cargo run -- sim observer show alice_watcher
-cargo run -- sim observer list
-```
-
-### private transactions
+### Private transactions
 ```bash
 # Generate password puzzle program
 cargo run -- hash-password mysecret
@@ -100,7 +71,7 @@ cargo run -- sim spend-to-wallet \
   bob 3000 --params "mysecret"
 ```
 
-### more examples
+### More examples
 ```bash
 # Send between wallets
 cargo run -- sim send alice bob 2000 --coins "0,1"
@@ -120,71 +91,41 @@ cargo run -- sim wallet alice unspent       # Show unspent coins
 cargo run -- sim wallet alice balance       # Show balance only
 ```
 
-## key features
+## Features
 
-**All features fully implemented and tested:**
+- Real ZK proof generation using RISC0/SP1 backends
+- Custom chialisp programs compiled inside zkvm guests
+- HD wallets with cryptographic seeds
+- Nullifier protocol prevents double-spending
+- Observer mode for auditing without spending access
+- Multi-coin transactions with batch ZK proof generation
 
-- ✅ **Real ZK proof generation** using RISC0/SP1 backends with guest-side compilation
-- ✅ **Custom Chialisp programs** compiled inside zkvm guests using `clvm_zk_core::chialisp`
-- ✅ **HD wallets with cryptographic seeds** (proper key derivation)
-- ✅ **Nullifier protocol** prevents double-spending using deterministic program hashes
-- ✅ **Observer mode** for auditing without spending access
-- ✅ **Multi-coin transactions** with batch ZK proof generation
-- ✅ **Cross-puzzle security** prevents replay attacks using program hash binding
-- ✅ **Guest compilation consistency** - same chialisp source produces same program hash
-- ✅ **Large-scale testing** verified with 5000+ unique nullifiers
-
-### choosing zk backend
+### Choose zk backend
 ```bash
-# default: risc0 backend
+# Default: risc0 backend
 cargo run -- sim init
 
-# use sp1 backend instead
+# Use sp1 backend
 cargo run --no-default-features --features sp1 -- sim init
 
-# skip zk proof generation for faster testing
+# Skip zk proof generation for faster testing
 RISC0_SKIP_BUILD=1 cargo run -- sim init
 ```
 
-## testing & verification
+## Troubleshooting
 
-The simulator has undergone comprehensive testing to ensure reliability:
+Use `RISC0_SKIP_BUILD=1` for faster development (skips proof generation).
+Reset corrupted state with `cargo run -- sim init`.
+Switch backends with `--features sp1`.
+Use `--release` mode for large operations.
 
-### test coverage
-```bash
-# Run all simulator tests
-cargo test --test simulator_tests --release
-
-# Test results: ✅ 10/10 tests pass
-# - Basic coin creation and nullifiers
-# - Cross-puzzle nullifier separation
-# - Double-spend prevention
-# - Multi-user privacy mixing
-# - Nullifier uniqueness across amounts
-# - Simulator state tracking
-# - Nullifier determinism
-# - Puzzle hash binding in nullifiers
-# - Large-scale nullifier uniqueness (5000+ tested)
-# - Simulator reset functionality
-```
-
-### security guarantees
-- **Nullifier uniqueness**: Tested with 5000+ coins, zero collisions
-- **Double-spend prevention**: Mathematically enforced through nullifier protocol
-- **Cross-puzzle isolation**: Same spend secret produces different nullifiers for different puzzles
-- **Cryptographic integrity**: All operations use SHA-256 and proper ECDSA
-
-## state persistence
-
-Everything saves to `./simulator_data/state.json` automatically. State survives restarts. Use `sim init` to reset everything.
-
-## use cases
+## Use cases
 
 Perfect for:
-- **Privacy application development** - test guest-side compilation locally before mainnet
-- **Custom puzzle program development** - rapid iteration with real guest-compiled ZK proofs
-- **Observer functionality prototyping** - monitoring without spending access
-- **Compliance and auditing** - transparent monitoring with privacy preservation
-- **Escrow and multi-sig services** - complex spending conditions with deterministic program hashes
-- **Research and education** - understand zero-knowledge privacy protocols and guest compilation
-- **Backend testing** - verify risc0 and sp1 compilation consistency
+- Privacy application development - test guest-side compilation locally before mainnet
+- Custom puzzle program development - rapid iteration with real guest-compiled ZK proofs
+- Observer functionality prototyping - monitoring without spending access
+- Compliance and auditing - transparent monitoring with privacy preservation
+- Escrow and multi-sig services - complex spending conditions with deterministic program hashes
+- Research and education - understand zero-knowledge privacy protocols and guest compilation
+- Backend testing - verify risc0 and sp1 compilation consistency
