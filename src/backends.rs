@@ -51,7 +51,11 @@ pub fn backend() -> Result<Box<dyn ZKCLVMBackend>, ClvmZkError> {
         println!("🔧 initializing risc0 zkvm backend (default when both available)");
         return Ok(Box::new(Risc0Backend::new()?));
     }
-    #[cfg(not(any(feature = "risc0", feature = "sp1")))]
+    #[cfg(feature = "mock")]
+    {
+        return Ok(Box::new(MockBackend::new()?));
+    }
+    #[cfg(not(any(feature = "risc0", feature = "sp1", feature = "mock")))]
     {
         Err(ClvmZkError::ConfigurationError(
             "no zkvm backend enabled - enable either 'risc0' or 'sp1' feature".to_string(),
@@ -65,6 +69,9 @@ use clvm_zk_risc0::Risc0Backend;
 
 #[cfg(feature = "sp1")]
 use clvm_zk_sp1::Sp1Backend;
+
+#[cfg(feature = "mock")]
+use clvm_zk_mock::MockBackend;
 
 // implement the trait for the risc0 backend
 #[cfg(feature = "risc0")]
@@ -123,9 +130,9 @@ impl ZKCLVMBackend for Sp1Backend {
         &self,
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
-        legacy_parameters: &[ProgramParameter], // SP1 backend expects this parameter
+        _legacy_parameters: &[ProgramParameter], // ignored for consistency with trait
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        let result = self.prove_chialisp_program(chialisp_source, program_parameters, legacy_parameters)?;
+        let result = self.prove_chialisp_program(chialisp_source, program_parameters)?;
         Ok(ZKClvmResult {
             result: result.result,
             cost: result.cost,
@@ -137,13 +144,12 @@ impl ZKCLVMBackend for Sp1Backend {
         &self,
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
-        legacy_parameters: &[ProgramParameter], // SP1 backend expects this parameter
+        _legacy_parameters: &[ProgramParameter], // ignored for consistency with trait
         spend_secret: [u8; 32],
     ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
         let result = self.prove_chialisp_with_nullifier(
             chialisp_source,
             program_parameters,
-            legacy_parameters,
             spend_secret,
         )?;
         Ok(ZKClvmNullifierResult {
@@ -152,6 +158,41 @@ impl ZKCLVMBackend for Sp1Backend {
             cost: result.cost,
             proof: result.proof,
         })
+    }
+
+    fn verify_proof(&self, proof: &[u8]) -> Result<(bool, [u8; 32], Vec<u8>), ClvmZkError> {
+        self.verify_proof_and_extract(proof)
+    }
+
+    fn backend_name(&self) -> &'static str {
+        self.backend_name()
+    }
+
+    fn is_available(&self) -> bool {
+        self.is_available()
+    }
+}
+
+// implement the trait for the mock backend
+#[cfg(feature = "mock")]
+impl ZKCLVMBackend for MockBackend {
+    fn prove_program(
+        &self,
+        chialisp_source: &str,
+        program_parameters: &[ProgramParameter],
+        _legacy_parameters: &[ProgramParameter], // ignored for mock
+    ) -> Result<ZKClvmResult, ClvmZkError> {
+        self.prove_chialisp_program(chialisp_source, program_parameters)
+    }
+
+    fn prove_with_nullifier(
+        &self,
+        chialisp_source: &str,
+        program_parameters: &[ProgramParameter],
+        _legacy_parameters: &[ProgramParameter], // ignored for mock
+        spend_secret: [u8; 32],
+    ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
+        self.prove_chialisp_with_nullifier(chialisp_source, program_parameters, spend_secret)
     }
 
     fn verify_proof(&self, proof: &[u8]) -> Result<(bool, [u8; 32], Vec<u8>), ClvmZkError> {

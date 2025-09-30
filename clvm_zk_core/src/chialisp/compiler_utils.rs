@@ -4,7 +4,6 @@ extern crate alloc;
 
 use alloc::{
     boxed::Box,
-    format,
     string::{String, ToString},
     vec,
     vec::Vec,
@@ -40,6 +39,35 @@ pub fn number_to_clvm_value(num: i64) -> ClvmValue {
     }
 }
 
+/// Convert ClvmValue to i64 number - reverse of number_to_clvm_value
+pub fn clvm_value_to_number(value: &ClvmValue) -> Result<i64, &'static str> {
+    match value {
+        ClvmValue::Atom(bytes) => {
+            if bytes.is_empty() {
+                Ok(0)
+            } else if bytes.len() == 1 {
+                Ok(bytes[0] as i64)
+            } else {
+                // Multi-byte number - decode from big endian
+                let mut result = 0i64;
+                let is_negative = bytes.first().map_or(false, |&b| b & 0x80 != 0);
+
+                for &byte in bytes {
+                    result = result.checked_shl(8).ok_or("number too large")?;
+                    result += (byte & 0x7F) as i64; // Clear sign bit for calculation
+                }
+
+                if is_negative {
+                    result = -result;
+                }
+
+                Ok(result)
+            }
+        }
+        ClvmValue::Cons(_, _) => Err("cannot convert cons pair to number"),
+    }
+}
+
 /// Create a cons list from operator and arguments: (operator arg1 arg2 ...)
 pub fn create_cons_list(
     operator: ClvmValue,
@@ -68,12 +96,12 @@ pub fn create_list_from_values(values: Vec<ClvmValue>) -> Result<ClvmValue, Comp
     Ok(result)
 }
 
-/// Validate function call arguments and check for recursion
+/// Validate function call arguments
 pub fn validate_function_call(
     name: &str,
     arguments: &[Expression],
     expected_params: usize,
-    call_stack: &[String],
+    _call_stack: &[String],
 ) -> Result<(), CompileError> {
     // Validate argument count
     if arguments.len() != expected_params {
@@ -82,14 +110,6 @@ pub fn validate_function_call(
             expected: expected_params,
             actual: arguments.len(),
         });
-    }
-
-    // Check for recursion
-    if call_stack.contains(&name.to_string()) {
-        return Err(CompileError::RecursionNotSupported(format!(
-            "Recursive function call detected: '{}'. Recursion is not supported in this CLVM compiler.",
-            name
-        )));
     }
 
     Ok(())
@@ -161,15 +181,13 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_function_call_recursion() {
+    fn test_validate_function_call_recursion_allowed() {
         let args = vec![Expression::Number(1)];
         let call_stack = vec!["test".to_string()];
         let result = validate_function_call("test", &args, 1, &call_stack);
 
-        assert!(matches!(
-            result,
-            Err(CompileError::RecursionNotSupported(_))
-        ));
+        // Recursion is now allowed at compile time, handled at runtime
+        assert!(result.is_ok());
     }
 
     #[test]

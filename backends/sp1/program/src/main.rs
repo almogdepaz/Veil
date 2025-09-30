@@ -112,7 +112,7 @@ fn main() {
     ).expect("Chialisp compilation failed");
 
     // Create evaluator with SP1-specific optimized implementations (guest-only)
-    let evaluator = ClvmEvaluator::with_backends(
+    let mut evaluator = ClvmEvaluator::with_backends(
         sp1_hash_data_guest,              // SP1 SHA-256 optimization
         sp1_verify_bls_signature_guest,   // SP1 BLS verification with precompiles
         sp1_verify_ecdsa_signature_guest, // SP1 ECDSA verification with optimized hasher

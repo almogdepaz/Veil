@@ -123,6 +123,51 @@ pub fn compile_chialisp_template_hash(source: &str) -> Result<[u8; 32], CompileE
     Ok(program_hash)
 }
 
+/// Compile Chialisp to bytecode and function table
+pub fn compile_chialisp_with_function_table(
+    source: &str,
+    program_parameters: &[crate::ProgramParameter],
+) -> Result<(Vec<u8>, [u8; 32], crate::RuntimeFunctionTable), CompileError> {
+    let (module, template_bytecode, program_hash) = compile_chialisp_common(source)?;
+
+    // Build function table from module
+    let mut function_table = crate::RuntimeFunctionTable::new();
+    for helper in &module.helpers {
+        match helper {
+            HelperDefinition::Function { name, parameters, body, .. } => {
+                // Compile function body to ClvmValue
+                let mut func_context = CompilerContext::with_parameters_and_mode(
+                    parameters.clone(),
+                    CompilationMode::Template
+                );
+                // Include all module functions in context for recursive calls
+                for other_helper in &module.helpers {
+                    match other_helper {
+                        HelperDefinition::Function { name: other_name, parameters: other_params, body: other_body, .. } => {
+                            func_context.add_function(other_name.clone(), other_params.clone(), other_body.clone());
+                        }
+                    }
+                }
+                let compiled_body = compile_expression_unified(body, &mut func_context)?;
+
+                let runtime_function = crate::RuntimeFunction {
+                    parameters: parameters.clone(),
+                    body: compiled_body,
+                };
+                function_table.add_function(name.clone(), runtime_function);
+            }
+        }
+    }
+
+    let instance_bytecode = if module.parameters.is_empty() {
+        template_bytecode.clone()
+    } else {
+        compile_module_with_functions(&module, program_parameters)?
+    };
+
+    Ok((instance_bytecode, program_hash, function_table))
+}
+
 /// Compile module with function definitions and parameter substitution
 fn compile_module_with_functions(
     module: &ModuleAst,
@@ -176,65 +221,6 @@ fn substitute_values_in_module(
     })
 }
 
-fn substitute_function_args_in_expression(
-    expr: &Expression,
-    param_names: &[String],
-    arg_expressions: &[Expression],
-) -> Result<Expression, CompileError> {
-    match expr {
-        Expression::Variable(name) => {
-            if let Some(index) = param_names.iter().position(|p| p == name) {
-                Ok(arg_expressions[index].clone())
-            } else {
-                Ok(expr.clone())
-            }
-        }
-        Expression::Number(_) | Expression::String(_) | Expression::Bytes(_) | Expression::Nil => {
-            Ok(expr.clone())
-        }
-        Expression::Operation {
-            operator,
-            arguments,
-        } => {
-            let substituted_args = arguments
-                .iter()
-                .map(|arg| {
-                    substitute_function_args_in_expression(arg, param_names, arg_expressions)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(Expression::Operation {
-                operator: operator.clone(),
-                arguments: substituted_args,
-            })
-        }
-        Expression::FunctionCall { name, arguments } => {
-            let substituted_args = arguments
-                .iter()
-                .map(|arg| {
-                    substitute_function_args_in_expression(arg, param_names, arg_expressions)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(Expression::FunctionCall {
-                name: name.clone(),
-                arguments: substituted_args,
-            })
-        }
-        Expression::List(items) => {
-            let substituted_items = items
-                .iter()
-                .map(|item| {
-                    substitute_function_args_in_expression(item, param_names, arg_expressions)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(Expression::List(substituted_items))
-        }
-        Expression::Quote(inner) => {
-            let substituted_inner =
-                substitute_function_args_in_expression(inner, param_names, arg_expressions)?;
-            Ok(Expression::Quote(Box::new(substituted_inner)))
-        }
-    }
-}
 
 fn substitute_values_in_expression(
     expr: &Expression,
@@ -369,52 +355,34 @@ fn compile_function_call_unified(
     arguments: &[Expression],
     context: &mut CompilerContext,
 ) -> Result<ClvmValue, CompileError> {
-    let (func_params, func_body) = context
+    let (func_params, _func_body) = context
         .get_function(name)
         .ok_or_else(|| CompileError::UnknownFunction(name.to_string()))?;
     let func_params = func_params.clone();
-    let func_body = func_body.clone();
 
     validate_function_call(name, arguments, func_params.len(), context.get_call_stack())?;
 
-    match context.get_mode() {
-        CompilationMode::Template => {
-            // Template mode: CLVM apply operator
-            let compiled_args = arguments
-                .iter()
-                .map(|arg| compile_expression_unified(arg, context))
-                .collect::<Result<Vec<_>, _>>()?;
+    // Both Template and Instance modes now use CALL_FUNCTION opcode
+    // Recursion is handled at runtime, not compile time
 
-            context.push_call(name.to_string());
+    let compiled_args = arguments
+        .iter()
+        .map(|arg| compile_expression_unified(arg, context))
+        .collect::<Result<Vec<_>, _>>()?;
 
-            let mut func_context =
-                CompilerContext::with_parameters_and_mode(func_params, context.get_mode());
-            func_context.functions = context.functions.clone();
-            func_context.call_stack = context.call_stack.clone();
+    // Create CALL_FUNCTION opcode with function name and arguments
+    let call_function_op = ClvmValue::Atom(vec![150]); // CALL_FUNCTION opcode
 
-            let compiled_body = compile_expression_unified(&func_body, &mut func_context)?;
+    // Use function name directly as atom (no quoting needed in CALL_FUNCTION context)
+    let function_name_atom = ClvmValue::Atom(name.as_bytes().to_vec());
 
-            context.pop_call();
+    // Build argument list: [function_name, arg1, arg2, ...]
+    let mut call_args = vec![function_name_atom];
+    call_args.extend(compiled_args);
+    let args_list = create_list_from_values(call_args)?;
 
-            let apply_op = ClvmValue::Atom(vec![97]); // 'a' opcode
-            let args_list = create_list_from_values(compiled_args)?;
-
-            create_cons_list(apply_op, vec![compiled_body, args_list])
-        }
-        CompilationMode::Instance => {
-            // Instance mode: inline function
-            context.push_call(name.to_string());
-
-            let substituted_body =
-                substitute_function_args_in_expression(&func_body, &func_params, arguments)?;
-
-            let result = compile_expression_unified(&substituted_body, context);
-
-            context.pop_call();
-
-            result
-        }
-    }
+    // Create (CALL_FUNCTION . args_list) directly - don't wrap args_list in another list
+    Ok(ClvmValue::Cons(Box::new(call_function_op), Box::new(args_list)))
 }
 
 /// Create CLVM code to access parameter at given index (for Template mode)

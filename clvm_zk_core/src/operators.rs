@@ -57,6 +57,9 @@ pub enum ClvmOperator {
     CreatePuzzleAnnouncement, // 76
     AssertPuzzleAnnouncement, // 77
 
+    // Runtime function calls
+    CallFunction, // 250 (custom opcode for runtime function calls)
+
     // Host-only helpers (not real CLVM opcodes)
     List, // Host-only: expands to nested cons operations
 }
@@ -114,6 +117,9 @@ impl ClvmOperator {
             ClvmOperator::AssertCoinAnnouncement => 75,
             ClvmOperator::CreatePuzzleAnnouncement => 76,
             ClvmOperator::AssertPuzzleAnnouncement => 77,
+
+            // Runtime function calls
+            ClvmOperator::CallFunction => 150,
 
             // Host-only helpers - these should never be compiled to opcodes
             ClvmOperator::List => panic!("List is a host-only helper and has no opcode"),
@@ -232,6 +238,9 @@ impl ClvmOperator {
             76 => Some(ClvmOperator::CreatePuzzleAnnouncement),
             77 => Some(ClvmOperator::AssertPuzzleAnnouncement),
 
+            // Runtime function calls
+            150 => Some(ClvmOperator::CallFunction),
+
             _ => None,
         }
     }
@@ -279,6 +288,7 @@ impl ClvmOperator {
             | ClvmOperator::BlsVerify => Some(3),
 
             // Variable arity operators (any number of arguments)
+            ClvmOperator::CallFunction => None, // Function calls can take any number of arguments
             ClvmOperator::List => None, // List can take any number of arguments
         }
     }
@@ -319,6 +329,7 @@ impl ClvmOperator {
             ClvmOperator::AssertCoinAnnouncement => "assert_coin_announcement",
             ClvmOperator::CreatePuzzleAnnouncement => "create_puzzle_announcement",
             ClvmOperator::AssertPuzzleAnnouncement => "assert_puzzle_announcement",
+            ClvmOperator::CallFunction => "call_function",
             ClvmOperator::List => "list",
         }
     }
@@ -336,6 +347,21 @@ impl FromStr for ClvmOperator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_call_function_opcode_mapping() {
+        // Test opcode to operator
+        let op = ClvmOperator::from_opcode(150);
+        assert!(op.is_some(), "Opcode 150 should map to some operator");
+
+        if let Some(operator) = op {
+            assert!(matches!(operator, ClvmOperator::CallFunction), "Opcode 150 should map to CallFunction");
+        }
+
+        // Test operator to opcode
+        let opcode = ClvmOperator::CallFunction.opcode();
+        assert_eq!(opcode, 150, "CallFunction should map to opcode 150");
+    }
 
     #[test]
     fn test_operator_roundtrip() {

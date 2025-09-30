@@ -118,7 +118,7 @@ fn main() {
     .expect("Chialisp compilation failed");
 
     // Create evaluator with RISC0-specific optimized implementations (guest-only)
-    let evaluator = ClvmEvaluator::with_backends(
+    let mut evaluator = ClvmEvaluator::with_backends(
         risc0_hash_data_guest,              // RISC0 SHA-256 precompiles in guest
         risc0_verify_bls_signature_guest,   // RISC0 BLS verification with precompiles in guest
         risc0_verify_ecdsa_signature_guest, // RISC0 ECDSA verification with guest hasher
