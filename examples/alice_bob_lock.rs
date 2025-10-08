@@ -1,5 +1,7 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
 use clvm_zk_core::chialisp::compile_chialisp_template_hash;
+use clvm_zk_core::chialisp::hash_data;
+
 use k256::ecdsa::{signature::Signer, Signature, SigningKey, VerifyingKey};
 use rand::thread_rng;
 use sha2::{Digest, Sha256};
@@ -170,7 +172,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // === ZK PROOF VERIFICATION ===
             println!("\nVerifying ZK proof publicly...");
-            let program_hash = compile_chialisp_template_hash(&signature_program).unwrap();
+            let program_hash =
+                compile_chialisp_template_hash(hash_data, &signature_program).unwrap();
             match ClvmZkProver::verify_proof(program_hash, &result.zk_proof, Some(result.result()))
             {
                 Ok((true, _)) => {

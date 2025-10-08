@@ -6,6 +6,7 @@
 use clvm_zk::protocol::PrivateCoin;
 use clvm_zk::simulator::*;
 use clvm_zk_core::chialisp::compile_chialisp_template_hash;
+use clvm_zk_core::hash_data;
 use sha2::{Digest, Sha256};
 /// Convert string to deterministic 32-byte spend secret
 fn string_to_spend_secret(s: &str) -> [u8; 32] {
@@ -22,7 +23,7 @@ fn string_to_puzzle_hash(s: &str) -> [u8; 32] {
 fn create_test_puzzle(puzzle_id: &str) -> (String, [u8; 32]) {
     let program = format!("{}", puzzle_id);
     // Calculate hash the same way the CLVM system does
-    let hash = compile_chialisp_template_hash(&program).unwrap();
+    let hash = compile_chialisp_template_hash(hash_data, &program).unwrap();
     (program, hash)
 }
 

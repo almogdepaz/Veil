@@ -2,6 +2,8 @@ use clvm_zk::{ClvmZkProver, ProgramParameter};
 use tokio::task;
 mod common;
 use clvm_zk_core::chialisp::compile_chialisp_template_hash;
+use clvm_zk_core::chialisp::hash_data;
+
 use common::BATCH_SIZE;
 
 /// Test that proofs are actually different for different inputs
@@ -84,7 +86,7 @@ fn test_verification_rejects_wrong_program() -> Result<(), Box<dyn std::error::E
 
     // Verify proof1 against correct template (should succeed)
     let (result1, _) = ClvmZkProver::verify_proof(
-        compile_chialisp_template_hash("(mod (a b) (+ a b))").unwrap(),
+        compile_chialisp_template_hash(hash_data, "(mod (a b) (+ a b))").unwrap(),
         &proof1,
         Some(&output1),
     )?;
@@ -94,7 +96,7 @@ fn test_verification_rejects_wrong_program() -> Result<(), Box<dyn std::error::E
 
     // Try to verify proof1 against wrong template (should fail)
     let result2 = ClvmZkProver::verify_proof(
-        compile_chialisp_template_hash("(mod (a b) (* a b))").unwrap(),
+        compile_chialisp_template_hash(hash_data, "(mod (a b) (* a b))").unwrap(),
         &proof1,
         Some(&output1),
     );
@@ -134,7 +136,7 @@ fn test_verification_rejects_tampered_proof() -> Result<(), String> {
 
     // Verify original proof works
     let (result, _) = ClvmZkProver::verify_proof(
-        compile_chialisp_template_hash(expression)
+        compile_chialisp_template_hash(hash_data, expression)
             .map_err(|e| format!("Failed to hash template: {e:?}"))?,
         &proof,
         Some(&output),
@@ -150,7 +152,7 @@ fn test_verification_rejects_tampered_proof() -> Result<(), String> {
 
     // Verification should fail
     let result = ClvmZkProver::verify_proof(
-        compile_chialisp_template_hash(expression)
+        compile_chialisp_template_hash(hash_data, expression)
             .map_err(|e| format!("Failed to hash template: {e:?}"))?,
         &proof,
         Some(&output),
@@ -224,7 +226,7 @@ async fn test_complex_nested_expressions() -> Result<(), String> {
 
                         // Verify proof
                         let (verified, _) = ClvmZkProver::verify_proof(
-                            compile_chialisp_template_hash(expression).map_err(|e| format!("Failed to hash template: {:?}", e))?,
+                            compile_chialisp_template_hash(hash_data,expression).map_err(|e| format!("Failed to hash template: {:?}", e))?,
                             &proof,
                             Some(&output)
                         ).map_err(|e| format!("Failed to verify complex proof {a},{b},{c},{d}: {e}"))?;
@@ -324,7 +326,7 @@ async fn test_arithmetic_operations() -> Result<(), String> {
                     }
 
                     let (verified, _) = ClvmZkProver::verify_proof(
-                        compile_chialisp_template_hash(&expression)
+                        compile_chialisp_template_hash(hash_data, &expression)
                             .map_err(|e| format!("Failed to hash template: {:?}", e))?,
                         &proof,
                         Some(&output),
@@ -414,7 +416,7 @@ async fn test_modpow_operator() -> Result<(), String> {
                     }
 
                     let (verified, _) = ClvmZkProver::verify_proof(
-                        compile_chialisp_template_hash(&expression).map_err(|e| format!("Failed to hash template: {:?}", e))?,
+                        compile_chialisp_template_hash(hash_data,&expression).map_err(|e| format!("Failed to hash template: {:?}", e))?,
                         &proof,
                         Some(&output)
                     ).map_err(|e| format!("Failed to verify modpow proof: {e:?}"))?;
@@ -607,7 +609,7 @@ async fn test_divmod_operator() -> Result<(), String> {
                     }
 
                     let (verified, _) = ClvmZkProver::verify_proof(
-                        compile_chialisp_template_hash(&expression).map_err(|e| format!("Failed to hash template: {:?}", e))?,
+                        compile_chialisp_template_hash(hash_data,&expression).map_err(|e| format!("Failed to hash template: {:?}", e))?,
                         &proof,
                         Some(&output)
                     ).map_err(|e| format!("Failed to verify divmod proof: {e:?}"))?;
@@ -689,7 +691,7 @@ async fn test_invalid_expression_rejection() -> Result<(), String> {
                             .iter()
                             .map(|&x| ProgramParameter::int(x))
                             .collect();
-                        let result = compile_chialisp_template_hash(expr);
+                        let result = compile_chialisp_template_hash(hash_data,expr);
                         match result {
                             Err(_) => {
                                 // This is expected - invalid expressions should fail
@@ -768,14 +770,14 @@ fn test_output_determinism() -> Result<(), String> {
 
     // Both proofs should verify (even if they contain different randomness)
     let (verified1, _) = ClvmZkProver::verify_proof(
-        compile_chialisp_template_hash(expr)
+        compile_chialisp_template_hash(hash_data, expr)
             .map_err(|e| format!("Failed to hash template: {:?}", e))?,
         &proof1,
         Some(&output1),
     )
     .map_err(|e| format!("Failed to verify first proof: {e}"))?;
     let (verified2, _) = ClvmZkProver::verify_proof(
-        compile_chialisp_template_hash(expr)
+        compile_chialisp_template_hash(hash_data, expr)
             .map_err(|e| format!("Failed to hash template: {:?}", e))?,
         &proof2,
         Some(&output2),

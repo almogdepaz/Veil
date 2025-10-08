@@ -1,5 +1,7 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
 use clvm_zk_core::chialisp::compile_chialisp_template_hash;
+use clvm_zk_core::chialisp::hash_data;
+
 use tokio::task;
 
 mod common;
@@ -142,7 +144,7 @@ async fn fuzz_complex_nested_expressions() -> Result<(), String> {
                             let output = proof_result.clvm_output.result;
                             let _proof = proof_result.zk_proof;
                             // Verify the proof
-                            let program_hash = compile_chialisp_template_hash(&expr)
+                            let program_hash = compile_chialisp_template_hash(hash_data,&expr)
                                 .map_err(|e| format!("Hash template failed: {:?}", e))?;
                             let (verified, _) = ClvmZkProver::verify_proof(program_hash, &_proof, Some(&output))
                                 .map_err(|e| format!("Verification error: {e}"))?;
