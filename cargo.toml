@@ -6,7 +6,8 @@ members = [
     "backends/risc0",              # risc0 backend implementation
     "backends/risc0/guest",        # risc0 guest program
     "backends/sp1",                # sp1 backend implementation
-    "backends/sp1/program"         # sp1 guest
+    "backends/sp1/program",        # sp1 guest
+    "backends/mock"                # mock backend for testing
 ]
 
 [package]
@@ -24,6 +25,7 @@ default = ["risc0", "testing"]
 # zkvm backend selection (exactly one should be enabled)
 risc0 = ["dep:clvm-zk-risc0", "clvm-zk-core/risc0"]  # risc0 zkvm backend with precompiles
 sp1 = ["dep:clvm-zk-sp1", "clvm-zk-core/sp1"]        # sp1 zkvm backend
+mock = ["dep:clvm-zk-mock"]                           # mock backend for testing
 
 # testing utilities (enabled by default for tests)
 testing = []
@@ -47,6 +49,7 @@ k256 = { version = "0.13", features = ["ecdsa", "sha256"] }  # For ECDSA signatu
 # Backend implementations
 clvm-zk-risc0 = { path = "backends/risc0", optional = true }
 clvm-zk-sp1 = { path = "backends/sp1", optional = true }
+clvm-zk-mock = { path = "backends/mock", optional = true }
 
 
 [dev-dependencies]
