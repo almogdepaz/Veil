@@ -119,91 +119,56 @@ impl ClvmEvaluator {
 
         // evaluate the parsed structure with parameter resolution (this may generate conditions)
         let mut conditions = Vec::new();
-        let result =
-            self.evaluate_parsed_expression_with_params(&parsed, &mut conditions, parameters)?;
+        let result = self.evaluate(&parsed, &mut conditions, parameters)?;
 
         // convert result back to clvm bytes format
         Ok((encode_clvm_value(result), conditions))
     }
 
-    /// evaluate a parsed clvm expression with parameter resolution, potentially generating conditions
-    pub fn evaluate_parsed_expression_with_params(
+    /// evaluate clvm expressions with proper quote handling
+    fn evaluate(
         &self,
         expr: &ClvmValue,
         conditions: &mut Vec<Condition>,
         parameters: &[ProgramParameter],
-    ) -> Result<ClvmValue, &'static str> {
-        self.evaluate_with_context(expr, conditions, parameters, false)
-    }
-
-    /// evaluate with explicit context about whether we're in function body
-    fn evaluate_with_context(
-        &self,
-        expr: &ClvmValue,
-        conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
-        is_function_body: bool,
     ) -> Result<ClvmValue, &'static str> {
         match expr {
             ClvmValue::Atom(bytes) => {
-                if is_function_body && bytes.len() == 1 && bytes[0] == 1 {
-                    // In function body context, 1 means environment reference
-                    self.create_clvm_environment(parameters)
-                } else {
-                    // Otherwise, treat as literal constant
-                    Ok(ClvmValue::Atom(bytes.clone()))
-                }
+                // Atoms are always literal values unless explicitly handled as environment references
+                // Environment references are handled via the quote mechanism in CLVM
+                Ok(ClvmValue::Atom(bytes.clone()))
             }
             ClvmValue::Cons(op, args) => {
-                let op_evaluated =
-                    self.evaluate_with_context(op, conditions, parameters, is_function_body)?;
-                self.apply_clvm_operator_with_evaluator_context(&op_evaluated, args, conditions, parameters, is_function_body)
+                let op_evaluated = self.evaluate(op, conditions, parameters)?;
+                self.apply_clvm_operator_with_evaluator_context(
+                    &op_evaluated,
+                    args,
+                    conditions,
+                    parameters,
+                )
             }
         }
     }
 
-    /// Apply CLVM operator using evaluator's injected dependencies
-    fn apply_clvm_operator_with_evaluator(
-        &self,
-        op: &ClvmValue,
-        args: &ClvmValue,
-        conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
-    ) -> Result<ClvmValue, &'static str> {
-        self.apply_clvm_operator_with_evaluator_context(op, args, conditions, parameters, false)
-    }
-
-    /// Apply CLVM operator with context awareness
+    /// Apply CLVM operator
     fn apply_clvm_operator_with_evaluator_context(
         &self,
         op: &ClvmValue,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
         parameters: &[ProgramParameter],
-        is_function_body: bool,
     ) -> Result<ClvmValue, &'static str> {
         match op {
             ClvmValue::Atom(op_bytes) => {
                 if op_bytes.len() == 1 {
                     let opcode = op_bytes[0];
-                    self.apply_operator_context(opcode, args, conditions, parameters, is_function_body)
+                    self.apply_operator_context(opcode, args, conditions, parameters)
                 } else {
                     Err("operator must be single byte")
                 }
             }
             _ => Err("operator must be an atom"),
         }
-    }
-
-    /// Apply CLVM operator by opcode using injected dependencies
-    fn apply_operator(
-        &self,
-        opcode: u8,
-        args: &ClvmValue,
-        conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
-    ) -> Result<ClvmValue, &'static str> {
-        self.apply_operator_context(opcode, args, conditions, parameters, false)
     }
 
     /// Apply CLVM operator by opcode with context awareness
@@ -213,7 +178,6 @@ impl ClvmEvaluator {
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
         parameters: &[ProgramParameter],
-        is_function_body: bool,
     ) -> Result<ClvmValue, &'static str> {
         match ClvmOperator::from_opcode(opcode) {
             Some(operator) => match operator {
@@ -238,7 +202,9 @@ impl ClvmEvaluator {
                 ClvmOperator::Apply => self.handle_op_apply(args, conditions, parameters),
                 ClvmOperator::DivMod => self.handle_op_divmod(args, conditions, parameters),
                 ClvmOperator::ModPow => self.handle_op_modpow(args, conditions, parameters),
-                ClvmOperator::CallFunction => self.handle_op_call_function_context(args, conditions, parameters, is_function_body),
+                ClvmOperator::CallFunction => {
+                    self.handle_op_call_function_context(args, conditions, parameters)
+                }
                 ClvmOperator::List => {
                     // List is host-only and shouldn't appear in guest execution
                     Err("List operator is for host compilation only")
@@ -397,9 +363,7 @@ impl ClvmEvaluator {
         parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
         match cons {
-            ClvmValue::Cons(first_arg, _) => {
-                self.evaluate_with_context(first_arg, conditions, parameters, true)
-            }
+            ClvmValue::Cons(first_arg, _) => self.evaluate(first_arg, conditions, parameters),
             _ => Err("expected cons structure for argument"),
         }
     }
@@ -413,14 +377,11 @@ impl ClvmEvaluator {
     ) -> Result<(ClvmValue, ClvmValue), &'static str> {
         match cons {
             ClvmValue::Cons(first_arg, rest) => {
-                let arg1 =
-                    self.evaluate_parsed_expression_with_params(first_arg, conditions, parameters)?;
+                let arg1 = self.evaluate(first_arg, conditions, parameters)?;
 
                 match rest.as_ref() {
                     ClvmValue::Cons(second_arg, _) => {
-                        let arg2 = self.evaluate_parsed_expression_with_params(
-                            second_arg, conditions, parameters,
-                        )?;
+                        let arg2 = self.evaluate(second_arg, conditions, parameters)?;
                         Ok((arg1, arg2))
                     }
                     _ => Err("expected second argument"),
@@ -439,20 +400,15 @@ impl ClvmEvaluator {
     ) -> Result<(ClvmValue, ClvmValue, ClvmValue), &'static str> {
         match cons {
             ClvmValue::Cons(first_arg, rest1) => {
-                let arg1 =
-                    self.evaluate_parsed_expression_with_params(first_arg, conditions, parameters)?;
+                let arg1 = self.evaluate(first_arg, conditions, parameters)?;
 
                 match rest1.as_ref() {
                     ClvmValue::Cons(second_arg, rest2) => {
-                        let arg2 = self.evaluate_parsed_expression_with_params(
-                            second_arg, conditions, parameters,
-                        )?;
+                        let arg2 = self.evaluate(second_arg, conditions, parameters)?;
 
                         match rest2.as_ref() {
                             ClvmValue::Cons(third_arg, _) => {
-                                let arg3 = self.evaluate_parsed_expression_with_params(
-                                    third_arg, conditions, parameters,
-                                )?;
+                                let arg3 = self.evaluate(third_arg, conditions, parameters)?;
                                 Ok((arg1, arg2, arg3))
                             }
                             _ => Err("expected third argument"),
@@ -713,9 +669,7 @@ impl ClvmEvaluator {
         let (program, _args) =
             self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
 
-        // For now, just evaluate the program directly using the evaluator
-        // TODO: Properly handle environment binding with args
-        self.evaluate_parsed_expression_with_params(&program, conditions, parameters)
+        self.evaluate(&program, conditions, parameters)
     }
 
     /// Handle unsafe aggregate signature verification
@@ -742,7 +696,7 @@ impl ClvmEvaluator {
         };
 
         // verify the signature within the zk proof using evaluator's ECDSA verifier
-        let is_valid = (self.ecdsa_verifier)(&pk_bytes, &msg_bytes, &sig_bytes).map_err(|e| e)?;
+        let is_valid = (self.ecdsa_verifier)(&pk_bytes, &msg_bytes, &sig_bytes)?;
 
         if !is_valid {
             return Err("agg_sig_unsafe: signature verification failed");
@@ -975,16 +929,15 @@ impl ClvmEvaluator {
         conditions: &mut Vec<Condition>,
         parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_op_call_function_context(args, conditions, parameters, false)
+        self.handle_op_call_function_context(args, conditions, parameters)
     }
 
-    /// Handle runtime function call with context awareness
+    /// Handle runtime function call
     fn handle_op_call_function_context(
         &self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
         parameters: &[ProgramParameter],
-        _is_function_body: bool,
     ) -> Result<ClvmValue, &'static str> {
         // Parse arguments: function_name followed by function arguments
         let args_list = extract_list_from_clvm(args)?;
@@ -1004,7 +957,9 @@ impl ClvmEvaluator {
         // TODO: Add recursion depth checking if needed
 
         // Look up function
-        let function = self.function_table.get_function(&function_name)
+        let function = self
+            .function_table
+            .get_function(&function_name)
             .ok_or("function not found")?;
 
         // Validate argument count
@@ -1016,7 +971,7 @@ impl ClvmEvaluator {
         // Evaluate function arguments in current context
         let mut evaluated_args = Vec::new();
         for arg in function_args {
-            let evaluated_arg = self.evaluate_parsed_expression_with_params(arg, conditions, parameters)?;
+            let evaluated_arg = self.evaluate(arg, conditions, parameters)?;
             evaluated_args.push(evaluated_arg);
         }
 
@@ -1032,7 +987,9 @@ impl ClvmEvaluator {
                         // Negative numbers must use bytes representation
                         match arg {
                             ClvmValue::Atom(bytes) => ProgramParameter::Bytes(bytes),
-                            ClvmValue::Cons(_, _) => ProgramParameter::Bytes(encode_clvm_value(arg)),
+                            ClvmValue::Cons(_, _) => {
+                                ProgramParameter::Bytes(encode_clvm_value(arg))
+                            }
                         }
                     }
                 } else {
@@ -1054,44 +1011,7 @@ impl ClvmEvaluator {
             function_table: self.function_table.clone(),
         };
 
-        temp_evaluator.evaluate_with_context(
-            &function.body,
-            conditions,
-            &function_parameters,
-            true  // <- this is function body context!
-        )
-    }
-
-    /// Create a CLVM environment structure from parameters
-    fn create_clvm_environment(&self, parameters: &[ProgramParameter]) -> Result<ClvmValue, &'static str> {
-        let mut env = ClvmValue::Atom(vec![]); // Start with nil
-
-        // Build environment from right to left: (param1 . (param2 . (param3 . nil)))
-        for param in parameters.iter().rev() {
-            let param_value = match param {
-                ProgramParameter::Int(n) => {
-                    if *n == 0 {
-                        ClvmValue::Atom(vec![])
-                    } else if *n <= 255 {
-                        ClvmValue::Atom(vec![*n as u8])
-                    } else {
-                        // Multi-byte integers - encode as big-endian
-                        let mut bytes = Vec::new();
-                        let mut n = *n;
-                        while n > 0 {
-                            bytes.insert(0, (n & 0xff) as u8);
-                            n >>= 8;
-                        }
-                        ClvmValue::Atom(bytes)
-                    }
-                }
-                ProgramParameter::Bytes(bytes) => ClvmValue::Atom(bytes.clone()),
-            };
-
-            env = ClvmValue::Cons(Box::new(param_value), Box::new(env));
-        }
-
-        Ok(env)
+        temp_evaluator.evaluate(&function.body, conditions, &function_parameters)
     }
 }
 
