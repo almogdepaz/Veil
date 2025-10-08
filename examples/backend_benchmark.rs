@@ -1,6 +1,5 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash;
-use clvm_zk_core::hash_data;
+use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 use std::time::{Duration, Instant};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -83,7 +82,7 @@ fn run_benchmark(
         // verify
         let verify_start = Instant::now();
         match ClvmZkProver::verify_proof(
-            compile_chialisp_template_hash(hash_data, expression).unwrap(),
+            compile_chialisp_template_hash_default(expression).unwrap(),
             &proof_result.zk_proof,
             Some(&proof_result.clvm_output.result),
         ) {

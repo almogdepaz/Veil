@@ -11,7 +11,7 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::{encode_clvm_value, types::ClvmValue, Hasher};
+use crate::{encode_clvm_value, hash_data, types::ClvmValue, Hasher};
 
 pub mod ast;
 pub mod compiler_utils;
@@ -127,6 +127,11 @@ pub fn compile_chialisp_template_hash(
     source: &str,
 ) -> Result<[u8; 32], CompileError> {
     let (_module, _template_bytecode, program_hash) = compile_chialisp_common(hasher, source)?;
+    Ok(program_hash)
+}
+
+pub fn compile_chialisp_template_hash_default(source: &str) -> Result<[u8; 32], CompileError> {
+    let (_module, _template_bytecode, program_hash) = compile_chialisp_common(hash_data, source)?;
     Ok(program_hash)
 }
 

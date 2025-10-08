@@ -3,8 +3,7 @@ use crate::simulator::{CLVMZkSimulator, CoinMetadata, CoinType};
 use crate::wallet::{CLVMHDWallet, Network, WalletError};
 use crate::{ClvmZkError, ClvmZkProver, ProgramParameter};
 use clap::{Parser, Subcommand};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash;
-use clvm_zk_core::hash_data;
+use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 use clvm_zk_core::{atom_to_number, ClvmParser};
 use rand::{thread_rng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -540,10 +539,9 @@ fn run_verify(
         println!("Compiling template to verify program hash...");
 
         // Compile the template to get the expected program hash (without parameter values)
-        let expected_hash =
-            compile_chialisp_template_hash(hash_data, template_str).map_err(|e| {
-                ClvmZkError::InvalidProgram(format!("Template compilation failed: {:?}", e))
-            })?;
+        let expected_hash = compile_chialisp_template_hash_default(template_str).map_err(|e| {
+            ClvmZkError::InvalidProgram(format!("Template compilation failed: {:?}", e))
+        })?;
 
         if extracted_hash != expected_hash {
             println!("ERROR: Template hash mismatch!");

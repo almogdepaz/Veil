@@ -3,8 +3,7 @@ use clvm_zk::{ClvmZkProver, ProgramParameter};
 use tokio::task;
 
 use crate::common::BATCH_SIZE;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash;
-use clvm_zk_core::chialisp::hash_data;
+use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 
 use std::collections::HashSet;
 
@@ -36,7 +35,7 @@ fn fuzz_performance_limits() -> Result<(), Box<dyn std::error::Error>> {
         // Test verification time
         let verify_start = std::time::Instant::now();
         let (verified, _) = ClvmZkProver::verify_proof(
-            compile_chialisp_template_hash(hash_data, expr).unwrap(),
+            compile_chialisp_template_hash_default(expr).unwrap(),
             &proof,
             Some(&output),
         )
@@ -123,8 +122,8 @@ async fn fuzz_deterministic_behavior() -> Result<(), String> {
                             })?;
                         let output = proof_result.clvm_output.result;
                         let proof = proof_result.zk_proof;
-                        let program_hash = compile_chialisp_template_hash(hash_data, &expr)
-                            .map_err(|e| {
+                        let program_hash =
+                            compile_chialisp_template_hash_default(&expr).map_err(|e| {
                                 format!(
                                     "Hash template failed on iteration {i} for {actual_expr}: {:?}",
                                     e
