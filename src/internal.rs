@@ -1,6 +1,5 @@
 use crate::ClvmZkError;
 
-
 /// Check if real ELF is available (cached check) - risc0 only  
 #[cfg(feature = "risc0")]
 pub fn is_real_elf_available() -> bool {

@@ -1,6 +1,7 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
 mod common;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash;
+use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+
 /// Test unified API with mixed byte and integer parameters
 #[test]
 fn fuzz_mixed_parameters() -> Result<(), Box<dyn std::error::Error>> {
@@ -68,7 +69,7 @@ fn fuzz_mixed_parameters() -> Result<(), Box<dyn std::error::Error>> {
 
         // Verify the proof
         let (verified, _) = ClvmZkProver::verify_proof(
-            compile_chialisp_template_hash(&expression).unwrap(),
+            compile_chialisp_template_hash_default(&expression).unwrap(),
             &proof,
             Some(&output),
         )

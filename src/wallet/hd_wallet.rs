@@ -52,7 +52,7 @@ impl CLVMHDWallet {
         for &child_number in path {
             current_key = current_key
                 .derive_child(child_number)
-                .map_err(|e| crate::wallet::WalletError::Bip32Error(e))?;
+                .map_err(crate::wallet::WalletError::Bip32Error)?;
         }
 
         Ok(current_key)
@@ -79,8 +79,8 @@ impl CLVMHDWallet {
         let spending_key = {
             let mut hasher = Sha256::new();
             hasher.update(b"clvm_zk_spend_auth_v1");
-            hasher.update(&account_bytes);
-            hasher.update(&self.network.to_bytes());
+            hasher.update(account_bytes);
+            hasher.update(self.network.to_bytes());
             hasher.finalize().into()
         };
 
@@ -88,7 +88,7 @@ impl CLVMHDWallet {
         let viewing_key = {
             let mut hasher = Sha256::new();
             hasher.update(b"clvm_zk_view_key_v1");
-            hasher.update(&spending_key);
+            hasher.update(spending_key);
             hasher.finalize().into()
         };
 
@@ -96,7 +96,7 @@ impl CLVMHDWallet {
         let nullifier_key = {
             let mut hasher = Sha256::new();
             hasher.update(b"clvm_zk_nullifier_key_v1");
-            hasher.update(&spending_key);
+            hasher.update(spending_key);
             hasher.finalize().into()
         };
 

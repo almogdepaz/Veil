@@ -1,6 +1,6 @@
 //! Common utilities shared between different zkVM backends
 
-use clvm_zk_core::{ClvmZkError, Input, ProofOutput, PublicInputs, ProgramParameter};
+use clvm_zk_core::{ClvmZkError, Input, ProgramParameter, ProofOutput, PublicInputs};
 
 /// Prepare inputs for guest-side compilation
 pub fn prepare_guest_inputs(

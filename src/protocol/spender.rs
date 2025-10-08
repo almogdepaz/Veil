@@ -38,7 +38,6 @@ use sha2::{Digest, Sha256};
 /// ```
 pub struct Spender;
 
-
 impl Spender {
     /// spend a private coin and get back a secure bundle
     ///
@@ -200,5 +199,3 @@ impl Spender {
     //     unimplemented!("puzzle hash extraction needs backend trait extension")
     // }
 }
-
-

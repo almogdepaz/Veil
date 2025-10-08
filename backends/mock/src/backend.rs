@@ -1,9 +1,53 @@
+use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
     compile_chialisp_to_bytecode, generate_nullifier, ClvmEvaluator, ClvmOutput, ClvmZkError,
     ProgramParameter, ProofOutput, PublicInputs, ZKClvmNullifierResult, ZKClvmResult,
 };
+use sha2::{Digest, Sha256};
+
+use blst::min_pk as blst_core;
+use blst::BLST_ERROR;
 
 pub struct MockBackend;
+
+impl MockBackend {}
+
+pub fn default_bls_verifier(
+    public_key_bytes: &[u8],
+    message_bytes: &[u8],
+    signature_bytes: &[u8],
+) -> Result<bool, &'static str> {
+    // Deserialize public key
+    let pk = blst_core::PublicKey::from_bytes(public_key_bytes)
+        .map_err(|_| "invalid public key bytes")?;
+
+    // Deserialize signature
+    let sig =
+        blst_core::Signature::from_bytes(signature_bytes).map_err(|_| "invalid signature bytes")?;
+
+    // Domain separation tag (Ethereum-style)
+    const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
+
+    // The verify() function signature is:
+    // verify(hash_or_encode: bool, msg: &[u8], dst: &[u8], aug: &[u8], pk: &PublicKey, validate: bool)
+    let res: BLST_ERROR = sig.verify(true, message_bytes, DST, &[], &pk, true);
+
+    Ok(res == BLST_ERROR::BLST_SUCCESS)
+}
+
+fn hash_data(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
+fn ecdsa_verifier(
+    public_key_bytes: &[u8],
+    message_bytes: &[u8],
+    signature_bytes: &[u8],
+) -> Result<bool, &'static str> {
+    verify_ecdsa_signature_with_hasher(hash_data, public_key_bytes, message_bytes, signature_bytes)
+}
 
 impl MockBackend {
     pub fn new() -> Result<Self, ClvmZkError> {
@@ -17,13 +61,19 @@ impl MockBackend {
         program_parameters: &[ProgramParameter],
     ) -> Result<ZKClvmResult, ClvmZkError> {
         // compile chialisp source to bytecode (same as guest)
-        let (instance_bytecode, program_hash) =
-            compile_chialisp_to_bytecode(chialisp_source, program_parameters).map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
-            })?;
+        let (instance_bytecode, program_hash) = compile_chialisp_to_bytecode(
+            hash_data,
+            chialisp_source,
+            program_parameters,
+        )
+        .map_err(|e| {
+            ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
+        })?;
 
         // execute the compiled bytecode using default evaluator (same as SP1 guest)
-        let evaluator = ClvmEvaluator::new();
+
+        let evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
+
         let (output_bytes, _conditions) = evaluator
             .evaluate_clvm_program_with_params(&instance_bytecode, program_parameters)
             .map_err(|e| {
@@ -62,13 +112,17 @@ impl MockBackend {
         spend_secret: [u8; 32],
     ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
         // compile chialisp source to bytecode (same as guest)
-        let (instance_bytecode, program_hash) =
-            compile_chialisp_to_bytecode(chialisp_source, program_parameters).map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
-            })?;
+        let (instance_bytecode, program_hash) = compile_chialisp_to_bytecode(
+            hash_data,
+            chialisp_source,
+            program_parameters,
+        )
+        .map_err(|e| {
+            ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
+        })?;
 
         // execute the compiled bytecode using default evaluator (same as SP1 guest)
-        let evaluator = ClvmEvaluator::new();
+        let evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
         let (output_bytes, _conditions) = evaluator
             .evaluate_clvm_program_with_params(&instance_bytecode, program_parameters)
             .map_err(|e| {
@@ -76,7 +130,7 @@ impl MockBackend {
             })?;
 
         // generate nullifier using program hash (same as guest)
-        let computed_nullifier = generate_nullifier(&spend_secret, &program_hash);
+        let computed_nullifier = generate_nullifier(hash_data, &spend_secret, &program_hash);
 
         let clvm_output = ClvmOutput {
             result: output_bytes,

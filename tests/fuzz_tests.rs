@@ -1,6 +1,7 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
 mod common;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash;
+use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+
 use common::{test_expression, TestResult};
 use tokio::task;
 
@@ -279,7 +280,7 @@ async fn fuzz_conditions_basic() -> Result<(), String> {
                     let output = proof_result.clvm_output.result;
                     let proof = proof_result.zk_proof;
                     let (verified, _) = ClvmZkProver::verify_proof(
-                        compile_chialisp_template_hash(&expr).unwrap(),
+                        compile_chialisp_template_hash_default(&expr).unwrap(),
                         &proof,
                         Some(&output),
                     )
@@ -372,7 +373,7 @@ async fn fuzz_conditions_malformed() -> Result<(), String> {
                     ProgramParameter::int(3),
                 ];
                 // Check that program compilation fails as expected
-                match compile_chialisp_template_hash(&expr) {
+                match compile_chialisp_template_hash_default(&expr) {
                     Ok(_hash) => {
                         test_error!("   Unexpectedly created program hash for '{expr}'");
                     }
@@ -456,7 +457,7 @@ async fn fuzz_conditions_edge_cases() -> Result<(), String> {
                     let output = proof_result.clvm_output.result;
                     let proof = proof_result.zk_proof;
                     let (verified, _) = ClvmZkProver::verify_proof(
-                        compile_chialisp_template_hash(&expr).unwrap(),
+                        compile_chialisp_template_hash_default(&expr).unwrap(),
                         &proof,
                         Some(&output),
                     )
@@ -505,7 +506,7 @@ fn test_condition_validation_logic() -> Result<(), String> {
                 let proof = proof_result.zk_proof;
                 // Verify the proof is valid
                 match ClvmZkProver::verify_proof(
-                    compile_chialisp_template_hash(expr)
+                    compile_chialisp_template_hash_default(expr)
                         .map_err(|e| format!("Hash template failed:  {:?}", e))?,
                     &proof,
                     Some(&output),
@@ -542,7 +543,7 @@ fn test_condition_validation_logic() -> Result<(), String> {
 
             // Tampered proof should fail verification
             match ClvmZkProver::verify_proof(
-                compile_chialisp_template_hash(expr).unwrap(),
+                compile_chialisp_template_hash_default(expr).unwrap(),
                 &proof,
                 Some(&output),
             ) {
@@ -569,7 +570,7 @@ fn test_condition_validation_logic() -> Result<(), String> {
             let wrong_output = b"wrong_output".to_vec();
 
             match ClvmZkProver::verify_proof(
-                compile_chialisp_template_hash(expr).unwrap(),
+                compile_chialisp_template_hash_default(expr).unwrap(),
                 &proof,
                 Some(&wrong_output),
             ) {
@@ -723,7 +724,7 @@ fn comprehensive_fuzz_conditions_security() -> Result<(), String> {
 
             // Attempt verification with tampered proof
             match ClvmZkProver::verify_proof(
-                compile_chialisp_template_hash(expr).unwrap(),
+                compile_chialisp_template_hash_default(expr).unwrap(),
                 &tampered_proof,
                 Some(&output),
             ) {

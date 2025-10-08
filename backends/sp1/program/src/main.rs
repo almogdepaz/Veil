@@ -6,8 +6,8 @@ extern crate alloc;
 
 // Use our no-std Chialisp compiler and evaluation engine
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, generate_nullifier, ClvmEvaluator,
-    ClvmOutput, Input, ProofOutput, PublicInputs,
+    compile_chialisp_to_bytecode, generate_nullifier, ClvmEvaluator, ClvmOutput, Input,
+    ProofOutput, PublicInputs,
 };
 
 // BLS12-381 cryptographic operations with SP1 precompiles
@@ -109,7 +109,8 @@ fn main() {
     let (instance_bytecode, program_hash) = compile_chialisp_to_bytecode(
         &private_inputs.chialisp_source,
         &private_inputs.program_parameters,
-    ).expect("Chialisp compilation failed");
+    )
+    .expect("Chialisp compilation failed");
 
     // Create evaluator with SP1-specific optimized implementations (guest-only)
     let evaluator = ClvmEvaluator::with_backends(
@@ -122,7 +123,8 @@ fn main() {
     let parameters = private_inputs.program_parameters;
 
     // Execute the compiled bytecode using evaluator with injected SP1 backends
-    let (output_bytes, conditions) = evaluator.evaluate_clvm_program_with_params(&instance_bytecode, &parameters)
+    let (output_bytes, conditions) = evaluator
+        .evaluate_clvm_program_with_params(&instance_bytecode, &parameters)
         .expect("CLVM execution failed");
 
     // Generate nullifier using program hash if needed
@@ -131,9 +133,7 @@ fn main() {
             // Use program hash for nullifier, not instance bytecode
             generate_nullifier(&spend_secret, &program_hash)
         }
-        None => {
-            [0u8; 32]
-        }
+        None => [0u8; 32],
     };
 
     // Conditions are validated internally but not exposed publicly

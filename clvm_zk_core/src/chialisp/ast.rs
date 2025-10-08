@@ -193,7 +193,10 @@ impl Expression {
     pub fn has_variables(&self) -> bool {
         match self {
             Expression::Variable(_) => true,
-            Expression::Number(_) | Expression::String(_) | Expression::Bytes(_) | Expression::Nil => false,
+            Expression::Number(_)
+            | Expression::String(_)
+            | Expression::Bytes(_)
+            | Expression::Nil => false,
             Expression::Operation { arguments, .. }
             | Expression::FunctionCall { arguments, .. }
             | Expression::List(arguments) => arguments.iter().any(|arg| arg.has_variables()),
@@ -222,7 +225,10 @@ impl Expression {
                 }
             }
             Expression::Quote(expr) => expr.collect_variables(vars),
-            Expression::Number(_) | Expression::String(_) | Expression::Bytes(_) | Expression::Nil => {}
+            Expression::Number(_)
+            | Expression::String(_)
+            | Expression::Bytes(_)
+            | Expression::Nil => {}
         }
     }
 }

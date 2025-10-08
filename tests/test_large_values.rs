@@ -1,6 +1,6 @@
 // Test that values >= 128 get correctly encoded with 2-byte CLVM format
 use clvm_zk::ProgramParameter;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash;
+use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 #[test]
 fn test_large_value_encoding() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing CLVM encoding for values >= 128...\n");
@@ -71,7 +71,7 @@ fn test_large_value_encoding() -> Result<(), Box<dyn std::error::Error>> {
             args.iter().map(|&x| ProgramParameter::int(x)).collect();
 
         // Test template hashing (this tests encoding during template creation)
-        match compile_chialisp_template_hash(expr) {
+        match compile_chialisp_template_hash_default(expr) {
             Ok(hash) => {
                 println!("  ✓ Template hash created: {} bytes", hash.len());
 

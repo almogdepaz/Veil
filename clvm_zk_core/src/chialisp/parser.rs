@@ -5,7 +5,10 @@
 
 extern crate alloc;
 
-use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 
 /// Parsed S-expression - the raw syntax tree
 #[derive(Debug, Clone, PartialEq)]
@@ -211,67 +214,82 @@ mod tests {
     #[test]
     fn test_parse_simple_list() {
         let result = parse_chialisp("(+ 1 2)").unwrap();
-        assert_eq!(result, SExp::List(vec![
-            SExp::Atom("+".to_string()),
-            SExp::Atom("1".to_string()),
-            SExp::Atom("2".to_string()),
-        ]));
+        assert_eq!(
+            result,
+            SExp::List(vec![
+                SExp::Atom("+".to_string()),
+                SExp::Atom("1".to_string()),
+                SExp::Atom("2".to_string()),
+            ])
+        );
     }
 
     #[test]
     fn test_parse_nested_list() {
         let result = parse_chialisp("(+ (* 2 3) 4)").unwrap();
-        assert_eq!(result, SExp::List(vec![
-            SExp::Atom("+".to_string()),
+        assert_eq!(
+            result,
             SExp::List(vec![
-                SExp::Atom("*".to_string()),
-                SExp::Atom("2".to_string()),
-                SExp::Atom("3".to_string()),
-            ]),
-            SExp::Atom("4".to_string()),
-        ]));
+                SExp::Atom("+".to_string()),
+                SExp::List(vec![
+                    SExp::Atom("*".to_string()),
+                    SExp::Atom("2".to_string()),
+                    SExp::Atom("3".to_string()),
+                ]),
+                SExp::Atom("4".to_string()),
+            ])
+        );
     }
 
     #[test]
     fn test_parse_mod_expression() {
         let result = parse_chialisp("(mod (x y) (+ x y))").unwrap();
-        assert_eq!(result, SExp::List(vec![
-            SExp::Atom("mod".to_string()),
+        assert_eq!(
+            result,
             SExp::List(vec![
-                SExp::Atom("x".to_string()),
-                SExp::Atom("y".to_string()),
-            ]),
-            SExp::List(vec![
-                SExp::Atom("+".to_string()),
-                SExp::Atom("x".to_string()),
-                SExp::Atom("y".to_string()),
-            ]),
-        ]));
+                SExp::Atom("mod".to_string()),
+                SExp::List(vec![
+                    SExp::Atom("x".to_string()),
+                    SExp::Atom("y".to_string()),
+                ]),
+                SExp::List(vec![
+                    SExp::Atom("+".to_string()),
+                    SExp::Atom("x".to_string()),
+                    SExp::Atom("y".to_string()),
+                ]),
+            ])
+        );
     }
 
     #[test]
     fn test_parse_defun() {
         let result = parse_chialisp("(defun double (x) (* x 2))").unwrap();
-        assert_eq!(result, SExp::List(vec![
-            SExp::Atom("defun".to_string()),
-            SExp::Atom("double".to_string()),
-            SExp::List(vec![SExp::Atom("x".to_string())]),
+        assert_eq!(
+            result,
             SExp::List(vec![
-                SExp::Atom("*".to_string()),
-                SExp::Atom("x".to_string()),
-                SExp::Atom("2".to_string()),
-            ]),
-        ]));
+                SExp::Atom("defun".to_string()),
+                SExp::Atom("double".to_string()),
+                SExp::List(vec![SExp::Atom("x".to_string())]),
+                SExp::List(vec![
+                    SExp::Atom("*".to_string()),
+                    SExp::Atom("x".to_string()),
+                    SExp::Atom("2".to_string()),
+                ]),
+            ])
+        );
     }
 
     #[test]
     fn test_parse_with_comments() {
         let result = parse_chialisp("(+ 1 2) ; this is a comment").unwrap();
-        assert_eq!(result, SExp::List(vec![
-            SExp::Atom("+".to_string()),
-            SExp::Atom("1".to_string()),
-            SExp::Atom("2".to_string()),
-        ]));
+        assert_eq!(
+            result,
+            SExp::List(vec![
+                SExp::Atom("+".to_string()),
+                SExp::Atom("1".to_string()),
+                SExp::Atom("2".to_string()),
+            ])
+        );
     }
 
     #[test]
@@ -301,11 +319,14 @@ mod tests {
     #[test]
     fn test_parse_whitespace_handling() {
         let result = parse_chialisp("  (  +   1    2  )  ").unwrap();
-        assert_eq!(result, SExp::List(vec![
-            SExp::Atom("+".to_string()),
-            SExp::Atom("1".to_string()),
-            SExp::Atom("2".to_string()),
-        ]));
+        assert_eq!(
+            result,
+            SExp::List(vec![
+                SExp::Atom("+".to_string()),
+                SExp::Atom("1".to_string()),
+                SExp::Atom("2".to_string()),
+            ])
+        );
     }
 
     #[test]

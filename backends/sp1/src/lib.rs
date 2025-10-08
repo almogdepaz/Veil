@@ -1,7 +1,7 @@
 //! SP1 backend library - provides self-contained sp1 integration
 
-mod methods;
 mod backend;
+mod methods;
 
 // include common backend utilities
 mod common;

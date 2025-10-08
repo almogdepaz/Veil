@@ -11,7 +11,7 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::{encode_clvm_value, hash_data, types::ClvmValue};
+use crate::{encode_clvm_value, hash_data, types::ClvmValue, Hasher};
 
 pub mod ast;
 pub mod compiler_utils;
@@ -92,21 +92,25 @@ impl CompilerContext {
     }
 }
 
-fn compile_chialisp_common(source: &str) -> Result<(ModuleAst, Vec<u8>, [u8; 32]), CompileError> {
+fn compile_chialisp_common(
+    hasher: Hasher,
+    source: &str,
+) -> Result<(ModuleAst, Vec<u8>, [u8; 32]), CompileError> {
     let sexp = parse_chialisp(source).map_err(|e| CompileError::ParseError(format!("{:?}", e)))?;
     let module = sexp_to_module(sexp)?;
     let template_bytecode = compile_module_unified(&module, CompilationMode::Template)?;
-    let program_hash = generate_program_hash(&template_bytecode);
+    let program_hash = generate_program_hash(hasher, &template_bytecode);
 
     Ok((module, template_bytecode, program_hash))
 }
 
 /// Compile Chialisp to bytecode with parameter substitution
 pub fn compile_chialisp_to_bytecode(
+    hasher: Hasher,
     source: &str,
     program_parameters: &[crate::ProgramParameter],
 ) -> Result<(Vec<u8>, [u8; 32]), CompileError> {
-    let (module, template_bytecode, program_hash) = compile_chialisp_common(source)?;
+    let (module, template_bytecode, program_hash) = compile_chialisp_common(hasher, source)?;
 
     let instance_bytecode = if module.parameters.is_empty() {
         template_bytecode.clone()
@@ -118,8 +122,16 @@ pub fn compile_chialisp_to_bytecode(
 }
 
 /// Get program hash for template
-pub fn compile_chialisp_template_hash(source: &str) -> Result<[u8; 32], CompileError> {
-    let (_module, _template_bytecode, program_hash) = compile_chialisp_common(source)?;
+pub fn compile_chialisp_template_hash(
+    hasher: Hasher,
+    source: &str,
+) -> Result<[u8; 32], CompileError> {
+    let (_module, _template_bytecode, program_hash) = compile_chialisp_common(hasher, source)?;
+    Ok(program_hash)
+}
+
+pub fn compile_chialisp_template_hash_default(source: &str) -> Result<[u8; 32], CompileError> {
+    let (_module, _template_bytecode, program_hash) = compile_chialisp_common(hash_data, source)?;
     Ok(program_hash)
 }
 
@@ -343,18 +355,13 @@ fn compile_variable_unified(
 ) -> Result<ClvmValue, CompileError> {
     if let Some(index) = context.get_parameter_index(name) {
         match context.get_mode() {
-            CompilationMode::Template => {
-                Ok(create_parameter_access(index))
-            }
-            CompilationMode::Instance => {
-                Err(CompileError::UndefinedVariable(format!(
-                    "Parameter {} should have been substituted in Instance mode",
-                    name
-                )))
-            }
+            CompilationMode::Template => Ok(create_parameter_access(index)),
+            CompilationMode::Instance => Err(CompileError::UndefinedVariable(format!(
+                "Parameter {} should have been substituted in Instance mode",
+                name
+            ))),
         }
-    }
-    else if context.get_function(name).is_some() {
+    } else if context.get_function(name).is_some() {
         Err(CompileError::InvalidModStructure(format!(
             "Bare function reference not supported: {}",
             name
@@ -484,18 +491,26 @@ pub fn compile_module_unified(
     Ok(encode_clvm_value(clvm_value))
 }
 
-pub fn generate_program_hash(template_bytecode: &[u8]) -> [u8; 32] {
-    hash_data(template_bytecode)
+pub fn generate_program_hash(hasher: Hasher, template_bytecode: &[u8]) -> [u8; 32] {
+    hasher(template_bytecode)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ProgramParameter;
+    use sha2::{Digest, Sha256};
+
+    fn hash_data(data: &[u8]) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        hasher.finalize().into()
+    }
 
     #[test]
     fn test_basic_compilation() {
         let result = compile_chialisp_to_bytecode(
+            hash_data,
             "(mod (x y) (+ x y))",
             &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
         );
@@ -514,7 +529,7 @@ mod tests {
                 (double n))
         "#;
 
-        let result = compile_chialisp_to_bytecode(source, &[ProgramParameter::Int(5)]);
+        let result = compile_chialisp_to_bytecode(hash_data, source, &[ProgramParameter::Int(5)]);
         assert!(result.is_ok());
 
         let (bytecode, program_hash) = result.unwrap();
@@ -527,10 +542,12 @@ mod tests {
         let source = "(mod (x y) (+ x y))";
 
         let result1 = compile_chialisp_to_bytecode(
+            hash_data,
             source,
             &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
         );
         let result2 = compile_chialisp_to_bytecode(
+            hash_data,
             source,
             &[ProgramParameter::Int(10), ProgramParameter::Int(20)],
         );
@@ -551,10 +568,12 @@ mod tests {
         let source2 = "(mod (x y) (* x y))";
 
         let result1 = compile_chialisp_to_bytecode(
+            hash_data,
             source1,
             &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
         );
         let result2 = compile_chialisp_to_bytecode(
+            hash_data,
             source2,
             &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
         );
@@ -572,6 +591,7 @@ mod tests {
     #[test]
     fn test_invalid_syntax() {
         let result = compile_chialisp_to_bytecode(
+            hash_data,
             "(mod (x y) (+ x y",
             &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
         );
@@ -580,8 +600,11 @@ mod tests {
 
     #[test]
     fn test_parameter_mismatch() {
-        let result =
-            compile_chialisp_to_bytecode("(mod (x y) (+ x y))", &[ProgramParameter::Int(5)]);
+        let result = compile_chialisp_to_bytecode(
+            hash_data,
+            "(mod (x y) (+ x y))",
+            &[ProgramParameter::Int(5)],
+        );
         assert!(result.is_err());
     }
 
@@ -649,9 +672,9 @@ mod tests {
         let template2 = compile_module_unified(&module2, CompilationMode::Template).unwrap();
         let template3 = compile_module_unified(&module3, CompilationMode::Template).unwrap();
 
-        let hash1 = generate_program_hash(&template1);
-        let hash2 = generate_program_hash(&template2);
-        let hash3 = generate_program_hash(&template3);
+        let hash1 = generate_program_hash(hash_data, &template1);
+        let hash2 = generate_program_hash(hash_data, &template2);
+        let hash3 = generate_program_hash(hash_data, &template3);
 
         // Key finding: Parameter names don't affect bytecode!
         // Only positional indices are stored: (f env), (f (r env)), etc.
@@ -664,7 +687,7 @@ mod tests {
         let program4 = "(mod (x y) (* x y))"; // Multiplication instead of addition
         let module4 = sexp_to_module(parse_chialisp(program4).unwrap()).unwrap();
         let template4 = compile_module_unified(&module4, CompilationMode::Template).unwrap();
-        let hash4 = generate_program_hash(&template4);
+        let hash4 = generate_program_hash(hash_data, &template4);
 
         assert_ne!(hash1, hash4);
 
@@ -672,7 +695,7 @@ mod tests {
         let program5 = "(mod (x) (* x 2))"; // Single parameter
         let module5 = sexp_to_module(parse_chialisp(program5).unwrap()).unwrap();
         let template5 = compile_module_unified(&module5, CompilationMode::Template).unwrap();
-        let hash5 = generate_program_hash(&template5);
+        let hash5 = generate_program_hash(hash_data, &template5);
 
         assert_ne!(hash1, hash5);
 
@@ -691,8 +714,8 @@ mod tests {
         let template6 = compile_module_unified(&module6, CompilationMode::Template).unwrap();
         let template7 = compile_module_unified(&module7, CompilationMode::Template).unwrap();
 
-        let hash6 = generate_program_hash(&template6);
-        let hash7 = generate_program_hash(&template7);
+        let hash6 = generate_program_hash(hash_data, &template6);
+        let hash7 = generate_program_hash(hash_data, &template7);
 
         // Surprising finding: Function names DON'T affect template bytecode!
         // Functions are compiled as apply operations, not stored by name

@@ -1,6 +1,6 @@
 mod common;
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash;
+use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 /// Generate valid ECDSA signature data for testing
 /// Returns (public_key_bytes, message_bytes, signature_bytes)
 pub fn generate_valid_sig_data() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
@@ -66,7 +66,7 @@ fn fuzz_agg_sig_unsafe_valid() -> Result<(), Box<dyn std::error::Error>> {
     let proof = proof_result.zk_proof;
 
     test_info!("Verifying proof for agg_sig_unsafe...");
-    let program_hash = compile_chialisp_template_hash(expr)
+    let program_hash = compile_chialisp_template_hash_default(expr)
         .map_err(|e| format!("Hash template failed: {:?}", e))?;
     let (verified, _) = ClvmZkProver::verify_proof(program_hash, &proof, Some(&output))
         .map_err(|e| format!("Verification error for agg_sig_unsafe: {e}"))?;
@@ -113,7 +113,7 @@ fn fuzz_agg_sig_unsafe_invalid() -> Result<(), Box<dyn std::error::Error>> {
             test_info!("Proof generation succeeded, checking if verification catches the invalid signature...");
 
             // The proof might succeed but verification should fail or return invalid result
-            let program_hash = compile_chialisp_template_hash(expr)
+            let program_hash = compile_chialisp_template_hash_default(expr)
                 .map_err(|e| format!("Hash template failed: {:?}", e))?;
             let (verified, _) = ClvmZkProver::verify_proof(program_hash, &proof, Some(&output))
                 .map_err(|e| format!("Verification error for invalid agg_sig_unsafe: {e}"))?;

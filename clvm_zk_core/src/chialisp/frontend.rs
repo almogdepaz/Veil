@@ -246,9 +246,10 @@ pub fn sexp_to_expression(sexp: SExp) -> Result<Expression, CompileError> {
 fn parse_atom_expression(atom: String) -> Result<Expression, CompileError> {
     // Check for invalid floating point syntax before parsing as integer
     if atom.contains('.') {
-        return Err(CompileError::ParseError(
-            format!("Floating point numbers not supported: {}", atom)
-        ));
+        return Err(CompileError::ParseError(format!(
+            "Floating point numbers not supported: {}",
+            atom
+        )));
     }
 
     // Try to parse as number
