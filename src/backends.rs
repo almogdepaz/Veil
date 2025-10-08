@@ -37,28 +37,28 @@ pub trait ZKCLVMBackend {
 
 /// Pick which zkvm to use based on features
 pub fn backend() -> Result<Box<dyn ZKCLVMBackend>, ClvmZkError> {
-    #[cfg(all(feature = "risc0", not(feature = "sp1")))]
+    #[cfg(feature = "risc0")]
     {
+        println!("🔧 initializing risc0 zkvm backend");
         return Ok(Box::new(Risc0Backend::new()?));
     }
-    #[cfg(all(feature = "sp1", not(feature = "risc0")))]
+
+    #[cfg(feature = "sp1")]
     {
+        println!("🔧 initializing sp1 zkvm backend");
         return Ok(Box::new(Sp1Backend::new()?));
     }
-    #[cfg(all(feature = "risc0", feature = "sp1"))]
-    {
-        // prefer risc0 when both are available
-        println!("🔧 initializing risc0 zkvm backend (default when both available)");
-        return Ok(Box::new(Risc0Backend::new()?));
-    }
+
     #[cfg(feature = "mock")]
     {
+        println!("🔧 initializing mock zkvm backend");
         return Ok(Box::new(MockBackend::new()?));
     }
+
     #[cfg(not(any(feature = "risc0", feature = "sp1", feature = "mock")))]
     {
         Err(ClvmZkError::ConfigurationError(
-            "no zkvm backend enabled - enable either 'risc0' or 'sp1' feature".to_string(),
+            "no zkvm backend enabled - enable one of 'risc0', 'sp1', or 'mock'".to_string(),
         ))
     }
 }
@@ -97,11 +97,8 @@ impl ZKCLVMBackend for Risc0Backend {
         _legacy_parameters: &[ProgramParameter], // Unused in new implementation
         spend_secret: [u8; 32],
     ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
-        let result = self.prove_chialisp_with_nullifier(
-            chialisp_source,
-            program_parameters,
-            spend_secret,
-        )?;
+        let result =
+            self.prove_chialisp_with_nullifier(chialisp_source, program_parameters, spend_secret)?;
         Ok(ZKClvmNullifierResult {
             nullifier: result.nullifier,
             result: result.result,
@@ -147,11 +144,8 @@ impl ZKCLVMBackend for Sp1Backend {
         _legacy_parameters: &[ProgramParameter], // ignored for consistency with trait
         spend_secret: [u8; 32],
     ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
-        let result = self.prove_chialisp_with_nullifier(
-            chialisp_source,
-            program_parameters,
-            spend_secret,
-        )?;
+        let result =
+            self.prove_chialisp_with_nullifier(chialisp_source, program_parameters, spend_secret)?;
         Ok(ZKClvmNullifierResult {
             nullifier: result.nullifier,
             result: result.result,
