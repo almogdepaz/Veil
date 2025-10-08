@@ -117,7 +117,7 @@ impl fmt::Display for PrivateCoin {
             "PrivateCoin {{ amount: {}, nullifier: {}, puzzle: \"{}...\" }}",
             self.amount,
             &self.nullifier_hex()[..16], // show first 16 chars of nullifier
-            &hex::encode(&self.puzzle_hash)[..16]  // show first 16 chars of puzzle hash
+            &hex::encode(self.puzzle_hash)[..16]  // show first 16 chars of puzzle hash
         )
     }
 }

@@ -35,8 +35,8 @@ impl CoinFactory {
         (0..count)
             .map(|i| {
                 let mut hasher = Sha256::new();
-                hasher.update(&base_secret);
-                hasher.update(&i.to_le_bytes());
+                hasher.update(base_secret);
+                hasher.update(i.to_le_bytes());
                 let derived_secret: [u8; 32] = hasher.finalize().into();
                 Self::create_coin(derived_secret, puzzle_type, amount)
             })
@@ -67,7 +67,7 @@ impl CoinFactory {
         let mut hasher = Sha256::new();
         hasher.update(b"user_spend_secret_v1");
         hasher.update(user.as_bytes());
-        hasher.update(&index.to_le_bytes());
+        hasher.update(index.to_le_bytes());
         hasher.finalize().into()
     }
 
@@ -360,8 +360,8 @@ impl TestScenarios {
         let mut nullifiers = Vec::new();
         for i in 0u32..5 {
             let mut hasher = sha2::Sha256::new();
-            hasher.update(&base_secret);
-            hasher.update(&i.to_le_bytes());
+            hasher.update(base_secret);
+            hasher.update(i.to_le_bytes());
             let derived_secret: [u8; 32] = hasher.finalize().into();
             let coin = PrivateCoin::new(derived_secret, puzzle_hash, 1000);
 

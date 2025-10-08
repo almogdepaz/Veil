@@ -52,7 +52,7 @@ pub fn backend() -> Result<Box<dyn ZKCLVMBackend>, ClvmZkError> {
     #[cfg(feature = "mock")]
     {
         println!("🔧 initializing mock zkvm backend");
-        return Ok(Box::new(MockBackend::new()?));
+        Ok(Box::new(MockBackend::new()?))
     }
 
     #[cfg(not(any(feature = "risc0", feature = "sp1", feature = "mock")))]

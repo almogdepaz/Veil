@@ -17,31 +17,45 @@ pub use operators::*;
 pub use parser::*;
 pub use types::*;
 
+/// Type alias for hash function
+type Hasher = fn(&[u8]) -> [u8; 32];
+/// Type alias for BLS signature verification function
+type BlsVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
+/// Type alias for ECDSA signature verification function
+type EcdsaVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
+
 /// CLVM evaluator with injected dependencies for backend-specific operations
 pub struct ClvmEvaluator {
     /// Hash function for general hashing operations
-    pub hasher: fn(&[u8]) -> [u8; 32],
+    pub hasher: Hasher,
     /// BLS signature verification function
-    pub bls_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>,
+    pub bls_verifier: BlsVerifier,
     /// ECDSA signature verification function
-    pub ecdsa_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>,
+    pub ecdsa_verifier: EcdsaVerifier,
+}
+
+impl Default for ClvmEvaluator {
+    /// Create a new evaluator with default implementations
+    fn default() -> Self {
+        Self {
+            hasher: hash_data_default,
+            bls_verifier: |_, _, _| Err("BLS verification not available in default evaluator"),
+            ecdsa_verifier: default_ecdsa_verifier,
+        }
+    }
 }
 
 impl ClvmEvaluator {
     /// Create a new evaluator with default implementations
     pub fn new() -> Self {
-        Self {
-            hasher: hash_data_default,
-            bls_verifier: |_, _, _| Err("BLS verification not available - no backend configured"),
-            ecdsa_verifier: default_ecdsa_verifier,
-        }
+        Self::default()
     }
 
     /// Create a new evaluator with custom implementations
     pub fn with_backends(
-        hasher: fn(&[u8]) -> [u8; 32],
-        bls_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>,
-        ecdsa_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>,
+        hasher: Hasher,
+        bls_verifier: BlsVerifier,
+        ecdsa_verifier: EcdsaVerifier,
     ) -> Self {
         Self {
             hasher,
@@ -646,7 +660,7 @@ impl ClvmEvaluator {
         };
 
         // verify the signature within the zk proof using evaluator's ECDSA verifier
-        let is_valid = (self.ecdsa_verifier)(&pk_bytes, &msg_bytes, &sig_bytes).map_err(|e| e)?;
+        let is_valid = (self.ecdsa_verifier)(&pk_bytes, &msg_bytes, &sig_bytes)?;
 
         if !is_valid {
             return Err("agg_sig_unsafe: signature verification failed");
