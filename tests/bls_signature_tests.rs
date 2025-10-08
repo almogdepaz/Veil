@@ -87,24 +87,24 @@ fn test_bls_verify_invalid_arguments() {
     assert!(result.is_err(), "BLS verify should require 3 arguments");
 }
 
-#[cfg(not(target_os = "zkvm"))]
-#[test]
-fn test_bls_verify_fallback() {
-    // Test the evaluator's BLS verification with default implementation
-    use clvm_zk_core::ClvmEvaluator;
+// #[cfg(not(target_os = "zkvm"))]
+// #[test]
+// fn test_bls_verify_fallback() {
+//     // Test the evaluator's BLS verification with default implementation
+//     use clvm_zk_core::ClvmEvaluator;
 
-    let evaluator = ClvmEvaluator::new();
-    let pk = vec![0u8; 48]; // 48 bytes for BLS public key
-    let msg = b"test message";
-    let sig = vec![0u8; 96]; // 96 bytes for BLS signature
+//     let evaluator = ClvmEvaluator::new();
+//     let pk = vec![0u8; 48]; // 48 bytes for BLS public key
+//     let msg = b"test message";
+//     let sig = vec![0u8; 96]; // 96 bytes for BLS signature
 
-    let result = (evaluator.bls_verifier)(&pk, msg, &sig);
-    assert!(result.is_err());
-    assert_eq!(
-        result.unwrap_err(),
-        "BLS verification not available - no backend configured"
-    );
-}
+//     let result = (evaluator.bls_verifier)(&pk, msg, &sig);
+//     assert!(result.is_err());
+//     assert_eq!(
+//         result.unwrap_err(),
+//         "BLS verification not available - no backend configured"
+//     );
+// }
 
 #[test]
 fn test_bls_program_with_backend() {

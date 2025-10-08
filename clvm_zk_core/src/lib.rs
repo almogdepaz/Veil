@@ -6,6 +6,7 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec, vec::Vec};
 
+use k256::ecdsa::signature::Verifier;
 use k256::ecdsa::{Signature, VerifyingKey};
 pub mod chialisp;
 pub mod operators;
@@ -18,11 +19,11 @@ pub use parser::*;
 pub use types::*;
 
 /// Type alias for hash function
-type Hasher = fn(&[u8]) -> [u8; 32];
+pub type Hasher = fn(&[u8]) -> [u8; 32];
 /// Type alias for BLS signature verification function
-type BlsVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
+pub type BlsVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
 /// Type alias for ECDSA signature verification function
-type EcdsaVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
+pub type EcdsaVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
 
 /// CLVM evaluator with injected dependencies for backend-specific operations
 pub struct ClvmEvaluator {
@@ -33,30 +34,9 @@ pub struct ClvmEvaluator {
     /// ECDSA signature verification function
     pub ecdsa_verifier: EcdsaVerifier,
 }
-
-impl Default for ClvmEvaluator {
-    /// Create a new evaluator with default implementations
-    fn default() -> Self {
-        Self {
-            hasher: hash_data_default,
-            bls_verifier: |_, _, _| Err("BLS verification not available in default evaluator"),
-            ecdsa_verifier: default_ecdsa_verifier,
-        }
-    }
-}
-
 impl ClvmEvaluator {
-    /// Create a new evaluator with default implementations
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Create a new evaluator with custom implementations
-    pub fn with_backends(
-        hasher: Hasher,
-        bls_verifier: BlsVerifier,
-        ecdsa_verifier: EcdsaVerifier,
-    ) -> Self {
+    /// Create a new evaluator with custom backends
+    pub fn new(hasher: Hasher, bls_verifier: BlsVerifier, ecdsa_verifier: EcdsaVerifier) -> Self {
         Self {
             hasher,
             bls_verifier,
@@ -887,20 +867,6 @@ impl ClvmEvaluator {
     }
 }
 
-/// Default ECDSA verifier using injected hasher
-fn default_ecdsa_verifier(
-    public_key_bytes: &[u8],
-    message_bytes: &[u8],
-    signature_bytes: &[u8],
-) -> Result<bool, &'static str> {
-    verify_ecdsa_signature_impl(
-        &hash_data_default,
-        public_key_bytes,
-        message_bytes,
-        signature_bytes,
-    )
-}
-
 /// convert a clvmvalue atom to an integer for arithmetic operations
 pub fn atom_to_number(value: &ClvmValue) -> Result<i64, &'static str> {
     match value {
@@ -953,51 +919,12 @@ pub fn nil() -> ClvmValue {
 }
 
 /// verify ecdsa signature using provided hasher
-pub fn verify_ecdsa_signature_with_hasher<H>(
-    hasher: &H,
+pub fn verify_ecdsa_signature_with_hasher(
+    hasher: Hasher,
     public_key_bytes: &[u8],
     message_bytes: &[u8],
     signature_bytes: &[u8],
-) -> Result<bool, &'static str>
-where
-    H: Fn(&[u8]) -> [u8; 32],
-{
-    verify_ecdsa_signature_impl(hasher, public_key_bytes, message_bytes, signature_bytes)
-}
-
-/// Default hash implementation using sha2 crate
-fn hash_data_default(data: &[u8]) -> [u8; 32] {
-    #[cfg(feature = "sha2-hasher")]
-    {
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        hasher.finalize().into()
-    }
-
-    #[cfg(not(feature = "sha2-hasher"))]
-    {
-        // Simple deterministic hash for no-std environments - not cryptographically secure
-        let mut hash = [0u8; 32];
-        for (i, &byte) in data.iter().enumerate() {
-            hash[i % 32] ^= byte.wrapping_add(i as u8);
-        }
-        hash
-    }
-}
-
-/// ECDSA verification implementation with injectable hasher
-fn verify_ecdsa_signature_impl<H>(
-    hasher: &H,
-    public_key_bytes: &[u8],
-    message_bytes: &[u8],
-    signature_bytes: &[u8],
-) -> Result<bool, &'static str>
-where
-    H: Fn(&[u8]) -> [u8; 32],
-{
-    use k256::ecdsa::signature::Verifier;
-
+) -> Result<bool, &'static str> {
     // accept both compressed (33 bytes) and uncompressed (65 bytes) public keys
     if public_key_bytes.len() != 33 && public_key_bytes.len() != 65 {
         return Err("invalid public key size - expected 33 or 65 bytes");
@@ -1069,24 +996,36 @@ pub fn modular_pow(mut base: i64, mut exponent: i64, modulus: i64) -> i64 {
 
 /// compute sha-256 hash - unified interface
 pub fn hash_data(data: &[u8]) -> [u8; 32] {
-    hash_data_impl(data)
+    #[cfg(feature = "sha2-hasher")]
+    {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        hasher.finalize().into()
+    }
+
+    #[cfg(not(feature = "sha2-hasher"))]
+    {
+        // Simple deterministic hash for no-std environments - not cryptographically secure
+        let mut hash = [0u8; 32];
+        for (i, &byte) in data.iter().enumerate() {
+            hash[i % 32] ^= byte.wrapping_add(i as u8);
+        }
+        hash
+    }
 }
 
 /// generate nullifier using canonical algorithm - works in both risc0 and sp1
-pub fn generate_nullifier(spend_secret: &[u8; 32], puzzle_hash: &[u8; 32]) -> [u8; 32] {
+pub fn generate_nullifier(
+    hasher: Hasher,
+    spend_secret: &[u8; 32],
+    puzzle_hash: &[u8; 32],
+) -> [u8; 32] {
     let mut combined = Vec::with_capacity(64 + 32);
     combined.extend_from_slice(b"clvm_zk_nullifier_v1.0");
     combined.extend_from_slice(spend_secret);
     combined.extend_from_slice(puzzle_hash);
-    hash_data(&combined)
-}
-
-// Note: Custom hash functions are now injected through the evaluator pattern
-// See handle_op_sha256_with_evaluator for the implementation
-
-/// compute sha-256 hash - uses default hasher
-fn hash_data_impl(data: &[u8]) -> [u8; 32] {
-    hash_data_default(data)
+    hasher(&combined)
 }
 
 /// encode a clvmvalue as clvm bytes following the standard serialization format
@@ -1157,8 +1096,8 @@ pub fn encode_clvm_value(value: ClvmValue) -> Vec<u8> {
 
 #[cfg(test)]
 mod security_tests {
+    use crate::hash_data;
     use crate::ProgramParameter;
-
     #[test]
     fn test_template_program_consistency_check() {
         // Test the new guest compilation approach
@@ -1167,11 +1106,13 @@ mod security_tests {
         // Test that same program produces same hash
         let source = "(mod (x y) (+ x y))";
         let (_, hash1) = compile_chialisp_to_bytecode(
+            hash_data,
             source,
             &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
         )
         .unwrap();
         let (_, hash2) = compile_chialisp_to_bytecode(
+            hash_data,
             source,
             &[ProgramParameter::Int(10), ProgramParameter::Int(20)],
         )
@@ -1183,6 +1124,7 @@ mod security_tests {
         // Different programs should produce different hashes
         let source2 = "(mod (x y) (* x y))";
         let (_, hash3) = compile_chialisp_to_bytecode(
+            hash_data,
             source2,
             &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
         )

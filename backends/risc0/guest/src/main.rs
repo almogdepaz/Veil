@@ -93,7 +93,7 @@ fn risc0_verify_ecdsa_signature_guest(
     signature_bytes: &[u8],
 ) -> Result<bool, &'static str> {
     clvm_zk_core::verify_ecdsa_signature_with_hasher(
-        &risc0_hash_data_guest,
+        risc0_hash_data_guest,
         public_key_bytes,
         message_bytes,
         signature_bytes,
@@ -112,13 +112,14 @@ fn main() {
 
     // Compile Chialisp source to bytecode in the guest
     let (instance_bytecode, program_hash) = compile_chialisp_to_bytecode(
+        risc0_hash_data_guest,
         &private_inputs.chialisp_source,
         &private_inputs.program_parameters,
     )
     .expect("Chialisp compilation failed");
 
     // Create evaluator with RISC0-specific optimized implementations (guest-only)
-    let evaluator = ClvmEvaluator::with_backends(
+    let evaluator = ClvmEvaluator::new(
         risc0_hash_data_guest,              // RISC0 SHA-256 precompiles in guest
         risc0_verify_bls_signature_guest,   // RISC0 BLS verification with precompiles in guest
         risc0_verify_ecdsa_signature_guest, // RISC0 ECDSA verification with guest hasher
@@ -136,7 +137,7 @@ fn main() {
     let computed_nullifier = match private_inputs.spend_secret {
         Some(spend_secret) => {
             // Use program hash for nullifier, not instance bytecode
-            generate_nullifier(&spend_secret, &program_hash)
+            generate_nullifier(risc0_hash_data_guest, &spend_secret, &program_hash)
         }
         None => [0u8; 32],
     };

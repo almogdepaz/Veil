@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use clvm_zk::{ClvmZkProver, ProgramParameter};
 use clvm_zk_core::chialisp::compile_chialisp_template_hash;
+use clvm_zk_core::hash_data;
 use once_cell::sync::Lazy;
 use std::env;
 use std::sync::Once;
@@ -77,7 +78,7 @@ pub fn test_expression(expr: &str, params: &[i64]) -> TestResult {
             let proof = proof_result.zk_proof;
 
             // Verify proof using new approach
-            let program_hash = match compile_chialisp_template_hash(expr) {
+            let program_hash = match compile_chialisp_template_hash(hash_data, expr) {
                 Ok(hash) => hash,
                 Err(e) => {
                     return TestResult::VerifyFailed(format!(
