@@ -11,11 +11,11 @@ use sha2::{Digest, Sha256};
 /// returns the first 4 bytes of the hash as the tag
 pub fn generate_viewing_tag(viewing_key: &[u8; 32], coin_index: u32) -> [u8; 4] {
     let mut hasher = Sha256::new();
-    hasher.update(b"clvm_zk_viewing_tag_v1");  // domain separator
-    hasher.update(viewing_key);                 // account viewing key
-    hasher.update(coin_index.to_le_bytes());   // coin index
+    hasher.update(b"clvm_zk_viewing_tag_v1"); // domain separator
+    hasher.update(viewing_key); // account viewing key
+    hasher.update(coin_index.to_le_bytes()); // coin index
     let hash: [u8; 32] = hasher.finalize().into();
-    [hash[0], hash[1], hash[2], hash[3]]        // first 4 bytes as tag
+    [hash[0], hash[1], hash[2], hash[3]] // first 4 bytes as tag
 }
 
 /// make viewing tag from string identifier (for testing)
@@ -36,9 +36,9 @@ pub fn generate_viewing_tag_from_string(identifier: &str, index: u32) -> [u8; 4]
 /// used for wallet recovery to scan for coins belonging to an account.
 /// returns the index if found, otherwise none
 pub fn find_coin_index_by_viewing_tag(
-    target_tag: &[u8; 4], 
-    viewing_key: &[u8; 32], 
-    max_index: u32
+    target_tag: &[u8; 4],
+    viewing_key: &[u8; 32],
+    max_index: u32,
 ) -> Option<u32> {
     for index in 0..max_index {
         let generated_tag = generate_viewing_tag(viewing_key, index);
@@ -67,9 +67,9 @@ pub fn find_coin_index_by_viewing_tag(
 /// returns 32-byte nullifier that uniquely identifies this spend
 pub fn generate_nullifier(spend_secret: &[u8; 32], puzzle_hash: &[u8; 32]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"clvm_zk_nullifier_v1.0");  // domain separator for protocol version
-    hasher.update(spend_secret);                // unique spend secret
-    hasher.update(puzzle_hash);                 // defensive puzzle binding for future features
+    hasher.update(b"clvm_zk_nullifier_v1.0"); // domain separator for protocol version
+    hasher.update(spend_secret); // unique spend secret
+    hasher.update(puzzle_hash); // defensive puzzle binding for future features
     hasher.finalize().into()
 }
 
@@ -81,21 +81,24 @@ mod tests {
     fn test_viewing_tag_deterministic() {
         let viewing_key = [0x42; 32];
         let index = 123;
-        
+
         let tag1 = generate_viewing_tag(&viewing_key, index);
         let tag2 = generate_viewing_tag(&viewing_key, index);
-        
+
         assert_eq!(tag1, tag2, "Viewing tags should be deterministic");
     }
 
     #[test]
     fn test_viewing_tag_uniqueness() {
         let viewing_key = [0x42; 32];
-        
+
         let tag1 = generate_viewing_tag(&viewing_key, 1);
         let tag2 = generate_viewing_tag(&viewing_key, 2);
-        
-        assert_ne!(tag1, tag2, "Different indices should produce different tags");
+
+        assert_ne!(
+            tag1, tag2,
+            "Different indices should produce different tags"
+        );
     }
 
     #[test]
@@ -103,23 +106,26 @@ mod tests {
         let tag1 = generate_viewing_tag_from_string("alice", 0);
         let tag2 = generate_viewing_tag_from_string("alice", 0);
         let tag3 = generate_viewing_tag_from_string("bob", 0);
-        
+
         assert_eq!(tag1, tag2, "Same string should produce same tag");
-        assert_ne!(tag1, tag3, "Different strings should produce different tags");
+        assert_ne!(
+            tag1, tag3,
+            "Different strings should produce different tags"
+        );
     }
 
     #[test]
     fn test_find_coin_index_by_viewing_tag() {
         let viewing_key = [0x99; 32];
         let target_index = 42;
-        
+
         // Generate a tag for index 42
         let target_tag = generate_viewing_tag(&viewing_key, target_index);
-        
+
         // Should find the correct index
         let found_index = find_coin_index_by_viewing_tag(&target_tag, &viewing_key, 100);
         assert_eq!(found_index, Some(target_index));
-        
+
         // Should not find if max_index is too small
         let not_found = find_coin_index_by_viewing_tag(&target_tag, &viewing_key, 10);
         assert_eq!(not_found, None);
@@ -129,7 +135,7 @@ mod tests {
     fn test_viewing_tag_collision_resistance() {
         let viewing_key = [0x77; 32];
         let mut tags = std::collections::HashSet::new();
-        
+
         // Generate 1000 tags and ensure no collisions
         for i in 0..1000 {
             let tag = generate_viewing_tag(&viewing_key, i);

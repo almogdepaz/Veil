@@ -32,13 +32,13 @@ impl Network {
 pub enum WalletError {
     #[error("Invalid seed (must be 16-64 bytes)")]
     InvalidSeed,
-    
+
     #[error("Invalid BIP32 child number")]
     Bip32Error(#[from] bip32::Error),
-    
+
     #[error("Key derivation failed")]
     DerivationFailed,
-    
+
     #[error("Cryptographic operation failed")]
     CryptoError,
 }

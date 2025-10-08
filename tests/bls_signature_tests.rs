@@ -1,8 +1,11 @@
-use clvm_zk::*;
 use clvm_zk::backends::{backend, ZKClvmResult};
+use clvm_zk::*;
 
 // Helper function to compile and test programs with the current backend
-fn compile_and_test_program(program: &str, params: &[ProgramParameter]) -> Result<ZKClvmResult, ClvmZkError> {
+fn compile_and_test_program(
+    program: &str,
+    params: &[ProgramParameter],
+) -> Result<ZKClvmResult, ClvmZkError> {
     let backend = backend()?;
     backend.prove_program(program, params, &[])
 }
@@ -68,7 +71,8 @@ fn test_bls_verify_compilation() {
                 error_msg.contains("risc0 zkvm not available") ||
                 error_msg.contains("sp1 zkvm not available") ||
                 error_msg.contains("not available"),
-                "Unexpected error (expected BLS verification failure or zkVM setup issue): {}", error_msg
+                "Unexpected error (expected BLS verification failure or zkVM setup issue): {}",
+                error_msg
             );
         }
     }
@@ -90,13 +94,16 @@ fn test_bls_verify_fallback() {
     use clvm_zk_core::ClvmEvaluator;
 
     let evaluator = ClvmEvaluator::new();
-    let pk = vec![0u8; 48];  // 48 bytes for BLS public key
+    let pk = vec![0u8; 48]; // 48 bytes for BLS public key
     let msg = b"test message";
     let sig = vec![0u8; 96]; // 96 bytes for BLS signature
 
     let result = (evaluator.bls_verifier)(&pk, msg, &sig);
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err(), "BLS verification not available - no backend configured");
+    assert_eq!(
+        result.unwrap_err(),
+        "BLS verification not available - no backend configured"
+    );
 }
 
 #[test]
@@ -132,7 +139,10 @@ fn test_bls_program_with_backend() {
             // so the program should return 0 (false branch)
             let output = &proof_result.result;
             assert_eq!(output.len(), 1, "BLS program should return single value");
-            assert_eq!(output[0], 0, "Dummy BLS signature should fail verification, returning 0");
+            assert_eq!(
+                output[0], 0,
+                "Dummy BLS signature should fail verification, returning 0"
+            );
             println!("BLS program executed successfully, dummy signature correctly rejected");
         }
         Err(e) => {
@@ -150,7 +160,8 @@ fn test_bls_program_with_backend() {
                 error_msg.contains("risc0 zkvm not available") ||
                 error_msg.contains("sp1 zkvm not available") ||
                 error_msg.contains("not available"),
-                "Unexpected error (expected BLS-related error or zkVM setup issue): {}", error_msg
+                "Unexpected error (expected BLS-related error or zkVM setup issue): {}",
+                error_msg
             );
         }
     }

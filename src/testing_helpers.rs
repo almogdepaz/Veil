@@ -3,8 +3,8 @@
 //! This module contains utilities and helpers specifically designed for testing
 //! the CLVM-ZK protocol, including coin factories, recovery simulators, and test scenarios.
 
+use crate::protocol::{create_spend_signature, create_test_signature_setup, PrivateCoin};
 use crate::simulator::{CLVMZkSimulator, CoinMetadata, CoinType, SimulatorError};
-use crate::protocol::{create_test_signature_setup, create_spend_signature, PrivateCoin};
 use sha2::{Digest, Sha256};
 
 // ============================================================================

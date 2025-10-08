@@ -343,18 +343,13 @@ fn compile_variable_unified(
 ) -> Result<ClvmValue, CompileError> {
     if let Some(index) = context.get_parameter_index(name) {
         match context.get_mode() {
-            CompilationMode::Template => {
-                Ok(create_parameter_access(index))
-            }
-            CompilationMode::Instance => {
-                Err(CompileError::UndefinedVariable(format!(
-                    "Parameter {} should have been substituted in Instance mode",
-                    name
-                )))
-            }
+            CompilationMode::Template => Ok(create_parameter_access(index)),
+            CompilationMode::Instance => Err(CompileError::UndefinedVariable(format!(
+                "Parameter {} should have been substituted in Instance mode",
+                name
+            ))),
         }
-    }
-    else if context.get_function(name).is_some() {
+    } else if context.get_function(name).is_some() {
         Err(CompileError::InvalidModStructure(format!(
             "Bare function reference not supported: {}",
             name
