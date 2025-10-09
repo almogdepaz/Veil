@@ -783,7 +783,8 @@ impl ClvmEvaluator {
         match ClvmOperator::from_opcode(opcode) {
             Some(operator) => match operator {
                 ClvmOperator::Quote => {
-                    // Quote returns argument without evaluation
+                    // Quote returns its argument directly without evaluation
+                    // In CLVM: (q . value) where args = value (not wrapped in list)
                     Ok(args.clone())
                 }
                 ClvmOperator::First => {

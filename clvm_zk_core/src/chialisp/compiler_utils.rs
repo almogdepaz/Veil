@@ -115,7 +115,8 @@ pub fn validate_function_call(
     Ok(())
 }
 
-/// Compile basic expression types that are identical across both pipelines
+/// Compile basic expression types - returns raw values
+/// Note: In Template mode, these should be wrapped with quote operator
 pub fn compile_basic_expression_types(
     expr: &Expression,
 ) -> Option<Result<ClvmValue, CompileError>> {
@@ -126,6 +127,14 @@ pub fn compile_basic_expression_types(
         Expression::Nil => Some(Ok(ClvmValue::Atom(vec![]))),
         _ => None, // Let specific pipeline handle complex cases
     }
+}
+
+/// Wrap a ClvmValue with quote operator: (q . value)
+pub fn quote_value(value: ClvmValue) -> ClvmValue {
+    ClvmValue::Cons(
+        Box::new(ClvmValue::Atom(vec![113])), // 'q' opcode  
+        Box::new(value)
+    )
 }
 
 #[cfg(test)]

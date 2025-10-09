@@ -1,4 +1,4 @@
-use clvm_zk_core::{ProgramParameter, compile_chialisp_with_function_table};
+use clvm_zk_core::ProgramParameter;
 
 #[cfg(not(any(feature = "risc0", feature = "sp1")))]
 use clvm_zk_mock::MockBackend;
@@ -37,11 +37,8 @@ fn test_mock_recursive_factorial() {
             }
 
             // Test verification
-            let verification_result = mock.verify_mock_proof(
-                factorial_source,
-                &params,
-                &zk_result.result,
-            );
+            let verification_result =
+                mock.verify_mock_proof(factorial_source, &params, &zk_result.result);
 
             assert!(verification_result.is_ok(), "Verification should work");
             assert!(verification_result.unwrap(), "Verification should pass");
@@ -139,7 +136,10 @@ fn test_mock_factorial_like_non_recursive() {
             if zk_result.result.len() == 1 && zk_result.result[0] == 3 {
                 println!("🎉 factorial_like(3) = 3 ✓");
             } else {
-                println!("❌ Expected factorial_like(3) = 3, got {:?}", zk_result.result);
+                println!(
+                    "❌ Expected factorial_like(3) = 3, got {:?}",
+                    zk_result.result
+                );
             }
         }
         Err(e) => {

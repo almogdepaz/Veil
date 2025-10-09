@@ -64,6 +64,7 @@ cargo run -- sim init
 **Comparison**: `=`, `>`, `<`
 **Control flow**: `i` (if-then-else), `if`
 **Lists**: `c` (cons), `f` (first), `r` (rest), `l` (length)
+**Functions**: helper functions with recursion support
 **Cryptography**: `sha256`, `ecdsa_verify`, `bls_verify`
 **Blockchain**: `create_coin`, `agg_sig_unsafe`, `reserve_fee`, etc
 **Modules**: `mod` wrapper syntax for named parameters
@@ -80,7 +81,20 @@ BLS signature verification (`bls_verify`) works on RISC0 and SP1 backends.
 (mod (amount fee)
   (+ amount fee))
 
-;; nested expressions
+;; Helper functions
+(mod (x)
+  (defun double (n) (* n 2))
+  (double x))
+
+;; Recursion
+(mod (n)
+  (defun factorial (x)
+    (if (= x 0)
+      1
+      (* x (factorial (- x 1)))))
+  (factorial n))
+
+;; Nested expressions
 (mod (threshold values)
   (if (> (length values) threshold)
     (sha256 (c threshold values))

@@ -296,8 +296,12 @@ pub fn compile_expression_unified(
     expr: &Expression,
     context: &mut CompilerContext,
 ) -> Result<ClvmValue, CompileError> {
+    // Handle literals - these are always quoted in BOTH modes
+    // because they should be treated as values, not environment references
     if let Some(result) = compile_basic_expression_types(expr) {
-        return result;
+        let value = result?;
+        // Always quote literals so they're not treated as operators or environment refs
+        return Ok(quote_value(value));
     }
 
     match expr {
@@ -362,34 +366,65 @@ fn compile_function_call_unified(
     arguments: &[Expression],
     context: &mut CompilerContext,
 ) -> Result<ClvmValue, CompileError> {
-    let (func_params, _func_body) = context
+    let (func_params, func_body) = context
         .get_function(name)
         .ok_or_else(|| CompileError::UnknownFunction(name.to_string()))?;
     let func_params = func_params.clone();
+    let func_body = func_body.clone();
 
     validate_function_call(name, arguments, func_params.len(), context.get_call_stack())?;
 
-    // Both Template and Instance modes now use CALL_FUNCTION opcode
-    // Recursion is handled at runtime, not compile time
+    // Compile function call using standard CLVM apply operator: (a (q . function_body) args_env)
+    // This is how CLVM actually handles function calls
 
-    let compiled_args = arguments
+    // Compile the function body in Template mode (expecting CLVM environment)
+    let mut func_context = CompilerContext::with_parameters_and_mode(
+        func_params.clone(),
+        CompilationMode::Template,
+    );
+    // Add all functions to context for recursive calls
+    for (fn_name, (fn_params, fn_body)) in context.functions.iter() {
+        func_context.add_function(fn_name.clone(), fn_params.clone(), fn_body.clone());
+    }
+    let compiled_function_body = compile_expression_unified(&func_body, &mut func_context)?;
+
+    // Quote the function body so it doesn't get evaluated
+    let quote_op = ClvmValue::Atom(vec![113]); // 'q' opcode
+    let quoted_function_body = ClvmValue::Cons(
+        Box::new(quote_op),
+        Box::new(compiled_function_body)
+    );
+
+    // Compile arguments WITHOUT auto-quoting them
+    // We need raw values in Instance mode, not quoted ones
+    let compiled_args: Vec<ClvmValue> = arguments
         .iter()
-        .map(|arg| compile_expression_unified(arg, context))
+        .map(|arg| {
+            // Temporarily override compile to not quote literals
+            match arg {
+                Expression::Number(n) => Ok(number_to_clvm_value(*n)),
+                Expression::String(s) => Ok(ClvmValue::Atom(s.as_bytes().to_vec())),
+                Expression::Bytes(b) => Ok(ClvmValue::Atom(b.clone())),
+                Expression::Nil => Ok(ClvmValue::Atom(vec![])),
+                _ => compile_expression_unified(arg, context)
+            }
+        })
         .collect::<Result<Vec<_>, _>>()?;
+    
+    // Create environment list
+    let args_list = create_list_from_values(compiled_args)?;
+    
+    // In Instance mode, quote the ENTIRE environment list
+    // In Template mode, leave it unquoted so expressions can be evaluated
+    let args_env = if context.get_mode() == CompilationMode::Instance {
+        quote_value(args_list)
+    } else {
+        args_list
+    };
 
-    // Create CALL_FUNCTION opcode with function name and arguments
-    let call_function_op = ClvmValue::Atom(vec![150]); // CALL_FUNCTION opcode
-
-    // Use function name directly as atom (no quoting needed in CALL_FUNCTION context)
-    let function_name_atom = ClvmValue::Atom(name.as_bytes().to_vec());
-
-    // Build argument list: [function_name, arg1, arg2, ...]
-    let mut call_args = vec![function_name_atom];
-    call_args.extend(compiled_args);
-    let args_list = create_list_from_values(call_args)?;
-
-    // Create (CALL_FUNCTION . args_list) directly - don't wrap args_list in another list
-    Ok(ClvmValue::Cons(Box::new(call_function_op), Box::new(args_list)))
+    // Create apply call: (a quoted_function_body args_env)
+    let apply_op = ClvmValue::Atom(vec![97]); // 'a' opcode (apply)
+    create_cons_list(apply_op, vec![quoted_function_body, args_env])
 }
 
 /// Create CLVM code to access parameter at given index (for Template mode)
@@ -399,13 +434,15 @@ fn create_parameter_access(index: usize) -> ClvmValue {
     // Parameter 1: (f (r 1)) - first of rest of environment
     // Parameter 2: (f (r (r 1))) - first of rest of rest of environment
     // etc.
+    //
+    // The 1 is a special environment reference and should NOT be quoted!
 
     if index == 0 {
-        // (f 1) -> (102 1)
+        // (f 1)
         ClvmValue::Cons(
             Box::new(ClvmValue::Atom(vec![102])), // 'f' opcode
             Box::new(ClvmValue::Cons(
-                Box::new(ClvmValue::Atom(vec![1])), // environment reference
+                Box::new(ClvmValue::Atom(vec![1])), // environment reference (NOT quoted)
                 Box::new(ClvmValue::Atom(vec![])),  // nil
             )),
         )
