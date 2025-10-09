@@ -11,7 +11,7 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::{encode_clvm_value, hash_data, types::ClvmValue, Hasher};
+use crate::{encode_clvm_value, types::ClvmValue, Hasher};
 
 pub mod ast;
 pub mod compiler_utils;
@@ -25,8 +25,8 @@ pub use parser::*;
 
 /// Compilation context for tracking functions and variables
 pub struct CompilerContext {
-    /// Function definitions: name -> (parameters, body)
-    pub functions: BTreeMap<String, (Vec<String>, Expression)>,
+    /// Function signatures: name -> parameter count
+    pub functions: BTreeMap<String, usize>,
     /// Current parameter names in scope
     parameters: Vec<String>,
     /// Call stack for recursion detection
@@ -54,12 +54,12 @@ impl CompilerContext {
         }
     }
 
-    pub fn add_function(&mut self, name: String, parameters: Vec<String>, body: Expression) {
-        self.functions.insert(name, (parameters, body));
+    pub fn add_function_signature(&mut self, name: String, arity: usize) {
+        self.functions.insert(name, arity);
     }
 
-    pub fn get_function(&self, name: &str) -> Option<&(Vec<String>, Expression)> {
-        self.functions.get(name)
+    pub fn get_function_arity(&self, name: &str) -> Option<usize> {
+        self.functions.get(name).copied()
     }
 
     pub fn get_parameter_index(&self, name: &str) -> Option<usize> {
@@ -130,33 +130,49 @@ pub fn compile_chialisp_template_hash(
     Ok(program_hash)
 }
 
+/// Compile Chialisp to get template hash using default SHA-256 hasher
+/// Only available with sha2-hasher feature
+#[cfg(feature = "sha2-hasher")]
 pub fn compile_chialisp_template_hash_default(source: &str) -> Result<[u8; 32], CompileError> {
-    let (_module, _template_bytecode, program_hash) = compile_chialisp_common(hash_data, source)?;
+    let (_module, _template_bytecode, program_hash) =
+        compile_chialisp_common(crate::hash_data, source)?;
     Ok(program_hash)
 }
 
-/// Compile Chialisp to bytecode and function table
-pub fn compile_chialisp_with_function_table(
+/// Compile Chialisp to bytecode and function table with custom hasher
+/// This is the backend-agnostic version that all backends should use
+pub fn compile_chialisp_to_bytecode_with_table(
+    hasher: Hasher,
     source: &str,
     program_parameters: &[crate::ProgramParameter],
 ) -> Result<(Vec<u8>, [u8; 32], crate::RuntimeFunctionTable), CompileError> {
-    let (module, template_bytecode, program_hash) = compile_chialisp_common(hash_data, source)?;
+    let (module, template_bytecode, program_hash) = compile_chialisp_common(hasher, source)?;
 
     // Build function table from module
     let mut function_table = crate::RuntimeFunctionTable::new();
     for helper in &module.helpers {
         match helper {
-            HelperDefinition::Function { name, parameters, body, .. } => {
+            HelperDefinition::Function {
+                name,
+                parameters,
+                body,
+                ..
+            } => {
                 // Compile function body to ClvmValue
                 let mut func_context = CompilerContext::with_parameters_and_mode(
                     parameters.clone(),
-                    CompilationMode::Template
+                    CompilationMode::Template,
                 );
                 // Include all module functions in context for recursive calls
                 for other_helper in &module.helpers {
                     match other_helper {
-                        HelperDefinition::Function { name: other_name, parameters: other_params, body: other_body, .. } => {
-                            func_context.add_function(other_name.clone(), other_params.clone(), other_body.clone());
+                        HelperDefinition::Function {
+                            name: other_name,
+                            parameters: other_params,
+                            ..
+                        } => {
+                            func_context
+                                .add_function_signature(other_name.clone(), other_params.len());
                         }
                     }
                 }
@@ -232,7 +248,6 @@ fn substitute_values_in_module(
         body: substituted_body,
     })
 }
-
 
 fn substitute_values_in_expression(
     expr: &Expression,
@@ -351,7 +366,7 @@ fn compile_variable_unified(
                 name
             ))),
         }
-    } else if context.get_function(name).is_some() {
+    } else if context.get_function_arity(name).is_some() {
         Err(CompileError::InvalidModStructure(format!(
             "Bare function reference not supported: {}",
             name
@@ -366,65 +381,33 @@ fn compile_function_call_unified(
     arguments: &[Expression],
     context: &mut CompilerContext,
 ) -> Result<ClvmValue, CompileError> {
-    let (func_params, func_body) = context
-        .get_function(name)
+    let arity = context
+        .get_function_arity(name)
         .ok_or_else(|| CompileError::UnknownFunction(name.to_string()))?;
-    let func_params = func_params.clone();
-    let func_body = func_body.clone();
 
-    validate_function_call(name, arguments, func_params.len(), context.get_call_stack())?;
+    validate_function_call(name, arguments, arity, context.get_call_stack())?;
 
-    // Compile function call using standard CLVM apply operator: (a (q . function_body) args_env)
-    // This is how CLVM actually handles function calls
+    // Use CallFunction opcode to look up pre-compiled function from function table at runtime
+    // This avoids infinite recursion during compilation
 
-    // Compile the function body in Template mode (expecting CLVM environment)
-    let mut func_context = CompilerContext::with_parameters_and_mode(
-        func_params.clone(),
-        CompilationMode::Template,
-    );
-    // Add all functions to context for recursive calls
-    for (fn_name, (fn_params, fn_body)) in context.functions.iter() {
-        func_context.add_function(fn_name.clone(), fn_params.clone(), fn_body.clone());
-    }
-    let compiled_function_body = compile_expression_unified(&func_body, &mut func_context)?;
+    // CallFunction format: (CALL_FUNCTION "function_name" arg1 arg2 ...)
+    let call_function_op = ClvmValue::Atom(vec![150]); // CallFunction opcode
 
-    // Quote the function body so it doesn't get evaluated
-    let quote_op = ClvmValue::Atom(vec![113]); // 'q' opcode
-    let quoted_function_body = ClvmValue::Cons(
-        Box::new(quote_op),
-        Box::new(compiled_function_body)
-    );
+    // Function name as literal atom (NOT quoted - it's extracted directly)
+    let function_name_atom = ClvmValue::Atom(name.as_bytes().to_vec());
 
-    // Compile arguments WITHOUT auto-quoting them
-    // We need raw values in Instance mode, not quoted ones
+    // Compile arguments
     let compiled_args: Vec<ClvmValue> = arguments
         .iter()
-        .map(|arg| {
-            // Temporarily override compile to not quote literals
-            match arg {
-                Expression::Number(n) => Ok(number_to_clvm_value(*n)),
-                Expression::String(s) => Ok(ClvmValue::Atom(s.as_bytes().to_vec())),
-                Expression::Bytes(b) => Ok(ClvmValue::Atom(b.clone())),
-                Expression::Nil => Ok(ClvmValue::Atom(vec![])),
-                _ => compile_expression_unified(arg, context)
-            }
-        })
+        .map(|arg| compile_expression_unified(arg, context))
         .collect::<Result<Vec<_>, _>>()?;
-    
-    // Create environment list
-    let args_list = create_list_from_values(compiled_args)?;
-    
-    // In Instance mode, quote the ENTIRE environment list
-    // In Template mode, leave it unquoted so expressions can be evaluated
-    let args_env = if context.get_mode() == CompilationMode::Instance {
-        quote_value(args_list)
-    } else {
-        args_list
-    };
 
-    // Create apply call: (a quoted_function_body args_env)
-    let apply_op = ClvmValue::Atom(vec![97]); // 'a' opcode (apply)
-    create_cons_list(apply_op, vec![quoted_function_body, args_env])
+    // Build the call: (200 "name" arg1 arg2 ...)
+    // First element is the operator, rest are arguments
+    let mut all_args = vec![function_name_atom];
+    all_args.extend(compiled_args);
+
+    create_cons_list(call_function_op, all_args)
 }
 
 /// Create CLVM code to access parameter at given index (for Template mode)
@@ -481,12 +464,9 @@ pub fn compile_module_unified(
     for helper in &module.helpers {
         match helper {
             HelperDefinition::Function {
-                name,
-                parameters,
-                body,
-                ..
+                name, parameters, ..
             } => {
-                context.add_function(name.clone(), parameters.clone(), body.clone());
+                context.add_function_signature(name.clone(), parameters.len());
             }
         }
     }

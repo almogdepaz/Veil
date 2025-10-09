@@ -120,12 +120,9 @@ fn main() {
         sp1_verify_ecdsa_signature_guest, // SP1 ECDSA verification with optimized hasher
     );
 
-    // Use program parameters directly (they already support both int and bytes)
-    let parameters = private_inputs.program_parameters;
-
     // Execute the compiled bytecode using evaluator with injected SP1 backends
     let (output_bytes, conditions) = evaluator
-        .evaluate_clvm_program_with_params(&instance_bytecode, &parameters)
+        .evaluate_clvm_program(&instance_bytecode)
         .expect("CLVM execution failed");
 
     // Generate nullifier using program hash if needed

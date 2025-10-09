@@ -200,7 +200,7 @@ fuzz tests, simulator tests, signature verification, and security tests.
 
 ### Basic usage
 
-`ClvmZkProver::prove(expression, parameters)` generates proofs. `ClvmZkProver::verify_proof()` verifies them. Expressions support named variables and `mod` wrapper syntax. Check `examples/` for working code.
+`ClvmZkProver::prove(expression)` generates proofs. `ClvmZkProver::verify_proof()` verifies them. Expressions support named variables and `mod` wrapper syntax. Check `examples/` for working code.
 
 ### Examples
 
@@ -214,7 +214,7 @@ let parameters = &[
     ProgramParameter::int(50),
 ];
 
-let proof_result = ClvmZkProver::prove(chialisp_source, parameters)?;
+let proof_result = ClvmZkProver::prove(chialisp_source)?;
 ```
 
 See `examples/` for complete working code including `alice_bob_lock.rs` for ECDSA signatures.

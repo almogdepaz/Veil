@@ -73,6 +73,10 @@ use clvm_zk_sp1::Sp1Backend;
 #[cfg(feature = "mock")]
 use clvm_zk_mock::MockBackend;
 
+// expose mock backend module for testing
+#[cfg(feature = "mock")]
+pub use clvm_zk_mock as mock;
+
 // implement the trait for the risc0 backend
 #[cfg(feature = "risc0")]
 impl ZKCLVMBackend for Risc0Backend {
@@ -129,8 +133,7 @@ impl ZKCLVMBackend for Sp1Backend {
         program_parameters: &[ProgramParameter],
         _legacy_parameters: &[ProgramParameter], // ignored for consistency with trait
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        let result =
-            self.prove_chialisp_program(chialisp_source, program_parameters, legacy_parameters)?;
+        let result = self.prove_chialisp_program(chialisp_source, program_parameters)?;
         Ok(ZKClvmResult {
             result: result.result,
             cost: result.cost,

@@ -10,24 +10,10 @@ pub fn prepare_guest_inputs(
 ) -> (PublicInputs, Input) {
     let public_inputs = PublicInputs {};
 
-    // For backward compatibility, extract i64 values for legacy param_values field
-    let param_values: Vec<i64> = program_parameters
-        .iter()
-        .map(|param| match param {
-            ProgramParameter::Int(val) => *val as i64,
-            ProgramParameter::Bytes(_) => 0i64, // Legacy field, bytes not supported
-        })
-        .collect();
-
     let private_inputs = Input {
         chialisp_source: chialisp_source.to_string(),
         program_parameters: program_parameters.to_vec(),
         spend_secret,
-        // Legacy fields - will be removed later
-        program: vec![],
-        args: vec![],
-        parameters: vec![],
-        param_values, // Legacy compatibility
     };
 
     (public_inputs, private_inputs)

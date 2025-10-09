@@ -1,6 +1,6 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, compile_chialisp_with_function_table, generate_nullifier,
+    compile_chialisp_to_bytecode, compile_chialisp_to_bytecode_with_table, generate_nullifier,
     ClvmEvaluator, ClvmOutput, ClvmZkError, ProgramParameter, ProofOutput, PublicInputs,
     ZKClvmNullifierResult, ZKClvmResult,
 };
@@ -36,19 +36,21 @@ pub fn default_bls_verifier(
     Ok(res == BLST_ERROR::BLST_SUCCESS)
 }
 
-fn hash_data(data: &[u8]) -> [u8; 32] {
+pub fn hash_data(data: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(data);
     hasher.finalize().into()
 }
 
-fn ecdsa_verifier(
+pub fn ecdsa_verifier(
     public_key_bytes: &[u8],
     message_bytes: &[u8],
     signature_bytes: &[u8],
 ) -> Result<bool, &'static str> {
     verify_ecdsa_signature_with_hasher(hash_data, public_key_bytes, message_bytes, signature_bytes)
 }
+
+pub use ecdsa_verifier as default_ecdsa_verifier;
 
 impl MockBackend {
     pub fn new() -> Result<Self, ClvmZkError> {
@@ -64,7 +66,7 @@ impl MockBackend {
     ) -> Result<ZKClvmResult, ClvmZkError> {
         // compile chialisp source to bytecode WITH function table
         let (instance_bytecode, program_hash, function_table) =
-            compile_chialisp_with_function_table(chialisp_source, program_parameters).map_err(
+            compile_chialisp_to_bytecode_with_table(hash_data, chialisp_source, program_parameters).map_err(
                 |e| {
                     ClvmZkError::ProofGenerationFailed(format!(
                         "chialisp compilation failed: {:?}",
@@ -78,7 +80,7 @@ impl MockBackend {
         evaluator.function_table = function_table;
 
         let (output_bytes, _conditions) = evaluator
-            .evaluate_clvm_program_with_params(&instance_bytecode, program_parameters)
+            .evaluate_clvm_program(&instance_bytecode)
             .map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
             })?;
@@ -138,7 +140,7 @@ impl MockBackend {
         // execute the compiled bytecode using default evaluator (same as SP1 guest)
         let mut evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
         let (output_bytes, _conditions) = evaluator
-            .evaluate_clvm_program_with_params(&instance_bytecode, program_parameters)
+            .evaluate_clvm_program(&instance_bytecode)
             .map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
             })?;

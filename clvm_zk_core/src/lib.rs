@@ -25,14 +25,11 @@ pub use operators::*;
 pub use parser::*;
 pub use types::*;
 
-/// Type alias for hash function
 pub type Hasher = fn(&[u8]) -> [u8; 32];
-/// Type alias for BLS signature verification function
 pub type BlsVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
-/// Type alias for ECDSA signature verification function
 pub type EcdsaVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
 
-/// Runtime function definition for CLVM execution
+/// Runtime function definition
 #[derive(Debug, Clone)]
 pub struct RuntimeFunction {
     /// Function parameter names
@@ -48,63 +45,57 @@ pub struct RuntimeFunctionTable {
 }
 
 impl RuntimeFunctionTable {
-    /// Create a new empty function table
     pub fn new() -> Self {
         Self {
             functions: BTreeMap::new(),
         }
     }
 
-    /// Add a function to the table
     pub fn add_function(&mut self, name: String, function: RuntimeFunction) {
         self.functions.insert(name, function);
     }
 
-    /// Get a function by name
     pub fn get_function(&self, name: &str) -> Option<&RuntimeFunction> {
         self.functions.get(name)
     }
 
-    /// Get all function names
     pub fn function_names(&self) -> Vec<&str> {
         self.functions.keys().map(|s| s.as_str()).collect()
     }
 
-    /// Check if a function exists
     pub fn has_function(&self, name: &str) -> bool {
         self.functions.contains_key(name)
     }
 }
 
-/// CLVM evaluator with injected dependencies for backend-specific operations
 pub struct ClvmEvaluator {
-    /// Hash function for general hashing operations
     pub hasher: Hasher,
-    /// BLS signature verification function
+
     pub bls_verifier: BlsVerifier,
-    /// ECDSA signature verification function
+
     pub ecdsa_verifier: EcdsaVerifier,
-    /// Runtime function table for function calls
+
     pub function_table: RuntimeFunctionTable,
+
+    pub call_depth: usize,
 }
 
 impl ClvmEvaluator {
-    /// Create a new evaluator with default implementations
     pub fn new(hasher: Hasher, bls_verifier: BlsVerifier, ecdsa_verifier: EcdsaVerifier) -> Self {
         Self {
             hasher,
             bls_verifier,
             ecdsa_verifier,
             function_table: RuntimeFunctionTable::new(),
+            call_depth: 0,
         }
     }
 
     /// CLVM evaluator with parameter resolution for variables
     /// returns (result_bytes, conditions)
-    pub fn evaluate_clvm_program_with_params(
+    pub fn evaluate_clvm_program(
         &mut self,
         program: &[u8],
-        parameters: &[ProgramParameter],
     ) -> Result<(Vec<u8>, Vec<Condition>), &'static str> {
         if program.is_empty() {
             return Err("program too short");
@@ -116,50 +107,32 @@ impl ClvmEvaluator {
 
         // evaluate the parsed structure with parameter resolution (this may generate conditions)
         let mut conditions = Vec::new();
-        let result = self.evaluate(&parsed, &mut conditions, parameters)?;
+        let result = self.evaluate(&parsed, &mut conditions)?;
 
         // convert result back to clvm bytes format
         Ok((encode_clvm_value(result), conditions))
     }
 
-    /// evaluate clvm expressions with proper quote handling
+    /// evaluate clvm expressions
     fn evaluate(
-        &self,
+        &mut self,
         expr: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        match expr {
-            ClvmValue::Atom(bytes) => {
-                // Atoms are always literal values unless explicitly handled as environment references
-                // Environment references are handled via the quote mechanism in CLVM
-                Ok(ClvmValue::Atom(bytes.clone()))
-            }
-            ClvmValue::Cons(op, args) => {
-                let op_evaluated = self.evaluate(op, conditions, parameters)?;
-                self.apply_clvm_operator_with_evaluator_context(
-                    &op_evaluated,
-                    args,
-                    conditions,
-                    parameters,
-                )
-            }
-        }
+        self.eval_unified(expr, None, conditions)
     }
 
-    /// Apply CLVM operator
     fn apply_clvm_operator_with_evaluator_context(
-        &self,
+        &mut self,
         op: &ClvmValue,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
         match op {
             ClvmValue::Atom(op_bytes) => {
                 if op_bytes.len() == 1 {
                     let opcode = op_bytes[0];
-                    self.apply_operator_context(opcode, args, conditions, parameters)
+                    self.apply_operator_context(opcode, args, conditions)
                 } else {
                     Err("operator must be single byte")
                 }
@@ -168,133 +141,107 @@ impl ClvmEvaluator {
         }
     }
 
-    /// Apply CLVM operator by opcode with context awareness
     fn apply_operator_context(
-        &self,
+        &mut self,
         opcode: u8,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
         match ClvmOperator::from_opcode(opcode) {
             Some(operator) => match operator {
-                // Standard opcodes that don't need injected dependencies
-                ClvmOperator::Add => self.handle_op_add(args, conditions, parameters),
-                ClvmOperator::Subtract => self.handle_op_subtract(args, conditions, parameters),
-                ClvmOperator::Multiply => self.handle_op_multiply(args, conditions, parameters),
-                ClvmOperator::Divide => self.handle_op_divide(args, conditions, parameters),
-                ClvmOperator::Modulo => self.handle_op_modulo(args, conditions, parameters),
-                ClvmOperator::Equal => self.handle_op_equal(args, conditions, parameters),
-                ClvmOperator::GreaterThan => self.handle_op_greater(args, conditions, parameters),
-                ClvmOperator::LessThan => self.handle_op_less(args, conditions, parameters),
-                ClvmOperator::If => self.handle_op_if(args, conditions, parameters),
-                ClvmOperator::Cons => self.handle_op_cons(args, conditions, parameters),
-                ClvmOperator::First => self.handle_op_first(args, conditions, parameters),
-                ClvmOperator::Rest => self.handle_op_rest(args, conditions, parameters),
-                ClvmOperator::ListCheck => self.handle_op_listp(args, conditions, parameters),
-                ClvmOperator::Quote => {
-                    // Quote just returns its argument without evaluation
-                    Ok(args.clone())
-                }
-                ClvmOperator::Apply => self.handle_op_apply(args, conditions, parameters),
-                ClvmOperator::DivMod => self.handle_op_divmod(args, conditions, parameters),
-                ClvmOperator::ModPow => self.handle_op_modpow(args, conditions, parameters),
+                ClvmOperator::Add => self.handle_op_add(args, conditions),
+                ClvmOperator::Subtract => self.handle_op_subtract(args, conditions),
+                ClvmOperator::Multiply => self.handle_op_multiply(args, conditions),
+                ClvmOperator::Divide => self.handle_op_divide(args, conditions),
+                ClvmOperator::Modulo => self.handle_op_modulo(args, conditions),
+                ClvmOperator::Equal => self.handle_op_equal(args, conditions),
+                ClvmOperator::GreaterThan => self.handle_op_greater(args, conditions),
+                ClvmOperator::LessThan => self.handle_op_less(args, conditions),
+                ClvmOperator::If => self.handle_op_if(args, None, conditions),
+                ClvmOperator::Cons => self.handle_op_cons(args, conditions),
+                ClvmOperator::First => self.handle_op_first(args, conditions),
+                ClvmOperator::Rest => self.handle_op_rest(args, conditions),
+                ClvmOperator::ListCheck => self.handle_op_listp(args, conditions),
+                ClvmOperator::Quote => Ok(args.clone()),
+                ClvmOperator::Apply => self.handle_op_apply(args, conditions),
+                ClvmOperator::DivMod => self.handle_op_divmod(args, conditions),
+                ClvmOperator::ModPow => self.handle_op_modpow(args, conditions),
                 ClvmOperator::CallFunction => {
-                    self.handle_op_call_function_context(args, conditions, parameters)
+                    self.handle_op_call_function_context(args, conditions)
                 }
                 ClvmOperator::List => {
                     // List is host-only and shouldn't appear in guest execution
                     Err("List operator is for host compilation only")
                 }
 
-                // Signature verification using evaluator's injected verifiers
-                ClvmOperator::EcdsaVerify => self.handle_ecdsa_verify(args, conditions, parameters),
-                ClvmOperator::BlsVerify => self.handle_bls_verify(args, conditions, parameters),
+                // Signature verification
+                ClvmOperator::EcdsaVerify => self.handle_ecdsa_verify(args, conditions),
+                ClvmOperator::BlsVerify => self.handle_bls_verify(args, conditions),
 
                 // Conditions
-                ClvmOperator::AggSigMe => self.handle_op_agg_sig_me(args, conditions, parameters),
-                ClvmOperator::AggSigUnsafe => {
-                    self.handle_op_agg_sig_unsafe(args, conditions, parameters)
-                }
-                ClvmOperator::CreateCoin => {
-                    self.handle_op_create_coin(args, conditions, parameters)
-                }
-                ClvmOperator::ReserveFee => {
-                    self.handle_op_reserve_fee(args, conditions, parameters)
-                }
+                ClvmOperator::AggSigMe => self.handle_op_agg_sig_me(args, conditions),
+                ClvmOperator::AggSigUnsafe => self.handle_op_agg_sig_unsafe(args, conditions),
+                ClvmOperator::CreateCoin => self.handle_op_create_coin(args, conditions),
+                ClvmOperator::ReserveFee => self.handle_op_reserve_fee(args, conditions),
                 ClvmOperator::CreateCoinAnnouncement => {
-                    self.handle_op_create_coin_announcement(args, conditions, parameters)
+                    self.handle_op_create_coin_announcement(args, conditions)
                 }
                 ClvmOperator::AssertCoinAnnouncement => {
-                    self.handle_op_assert_coin_announcement(args, conditions, parameters)
+                    self.handle_op_assert_coin_announcement(args, conditions)
                 }
                 ClvmOperator::CreatePuzzleAnnouncement => {
-                    self.handle_op_create_puzzle_announcement(args, conditions, parameters)
+                    self.handle_op_create_puzzle_announcement(args, conditions)
                 }
                 ClvmOperator::AssertPuzzleAnnouncement => {
-                    self.handle_op_assert_puzzle_announcement(args, conditions, parameters)
+                    self.handle_op_assert_puzzle_announcement(args, conditions)
                 }
-                ClvmOperator::AssertMyCoinId => {
-                    self.handle_op_assert_my_coin_id(args, conditions, parameters)
-                }
+                ClvmOperator::AssertMyCoinId => self.handle_op_assert_my_coin_id(args, conditions),
                 ClvmOperator::AssertMyParentId => {
-                    self.handle_op_assert_my_parent_id(args, conditions, parameters)
+                    self.handle_op_assert_my_parent_id(args, conditions)
                 }
                 ClvmOperator::AssertMyPuzzleHash => {
-                    self.handle_op_assert_my_puzzle_hash(args, conditions, parameters)
+                    self.handle_op_assert_my_puzzle_hash(args, conditions)
                 }
-                ClvmOperator::AssertMyAmount => {
-                    self.handle_op_assert_my_amount(args, conditions, parameters)
-                }
+                ClvmOperator::AssertMyAmount => self.handle_op_assert_my_amount(args, conditions),
                 ClvmOperator::AssertConcurrentSpend => {
-                    self.handle_op_assert_concurrent_spend(args, conditions, parameters)
+                    self.handle_op_assert_concurrent_spend(args, conditions)
                 }
                 ClvmOperator::AssertConcurrentPuzzle => {
-                    self.handle_op_assert_concurrent_puzzle(args, conditions, parameters)
+                    self.handle_op_assert_concurrent_puzzle(args, conditions)
                 }
             },
             None => {
                 // Handle opcodes not in the enum (like SHA-256) using evaluator
                 match opcode {
                     // SHA-256 using evaluator's injected hasher
-                    2 => self.handle_sha256(args, conditions, parameters),
-                    _ => {
-                        #[cfg(feature = "std")]
-                        eprintln!("MAIN PATH: unknown opcode {}", opcode);
-                        Err("unknown opcode")
-                    }
+                    2 => self.handle_sha256(args, conditions),
+                    _ => Err("unknown opcode"),
                 }
             }
         }
     }
 
-    /// Handle SHA-256 using evaluator's injected hasher
     fn handle_sha256(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let arg_value = self.extract_single_clvm_arg_with_params(args, conditions, parameters)?;
+        let arg_value = self.extract_single_clvm_arg_with_params(args, conditions)?;
         let data_bytes = match arg_value {
             ClvmValue::Atom(bytes) => bytes,
             _ => return Err("hash argument must be an atom"),
         };
 
-        // Use evaluator's injected hasher
         let hash_result = (self.hasher)(&data_bytes);
         Ok(ClvmValue::Atom(hash_result.to_vec()))
     }
 
-    /// Handle ECDSA verification using evaluator's injected verifier
     fn handle_ecdsa_verify(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (pk_v, msg_v, sig_v) =
-            self.extract_ternary_clvm_args_with_params(args, conditions, parameters)?;
+        let (pk_v, msg_v, sig_v) = self.extract_ternary_clvm_args_with_params(args, conditions)?;
 
         let pk_bytes = match pk_v {
             ClvmValue::Atom(bytes) => bytes,
@@ -309,7 +256,6 @@ impl ClvmEvaluator {
             _ => return Err("signature must be an atom"),
         };
 
-        // Use evaluator's injected ECDSA verifier
         match (self.ecdsa_verifier)(&pk_bytes, &msg_bytes, &sig_bytes) {
             Ok(true) => Ok(ClvmValue::Atom(vec![1])),
             Ok(false) => Ok(ClvmValue::Atom(vec![])), // empty atom = false
@@ -317,15 +263,12 @@ impl ClvmEvaluator {
         }
     }
 
-    /// Handle BLS verification using evaluator's injected verifier
     fn handle_bls_verify(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (pk_v, msg_v, sig_v) =
-            self.extract_ternary_clvm_args_with_params(args, conditions, parameters)?;
+        let (pk_v, msg_v, sig_v) = self.extract_ternary_clvm_args_with_params(args, conditions)?;
 
         let pk_bytes = match pk_v {
             ClvmValue::Atom(bytes) => bytes,
@@ -340,15 +283,6 @@ impl ClvmEvaluator {
             _ => return Err("signature must be an atom"),
         };
 
-        #[cfg(feature = "std")]
-        println!(
-            "BLS verify handler - pk: {} bytes, msg: {} bytes, sig: {} bytes",
-            pk_bytes.len(),
-            msg_bytes.len(),
-            sig_bytes.len()
-        );
-
-        // Use evaluator's injected BLS verifier
         match (self.bls_verifier)(&pk_bytes, &msg_bytes, &sig_bytes) {
             Ok(true) => Ok(ClvmValue::Atom(vec![1])),
             Ok(false) => Ok(ClvmValue::Atom(vec![])), // empty atom = false
@@ -358,31 +292,29 @@ impl ClvmEvaluator {
 
     /// Extract a single argument from CLVM cons structure with parameter evaluation
     pub fn extract_single_clvm_arg_with_params(
-        &self,
+        &mut self,
         cons: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
         match cons {
-            ClvmValue::Cons(first_arg, _) => self.evaluate(first_arg, conditions, parameters),
+            ClvmValue::Cons(first_arg, _) => self.evaluate(first_arg, conditions),
             _ => Err("expected cons structure for argument"),
         }
     }
 
     /// Extract two arguments from CLVM cons structure with parameter evaluation
     pub fn extract_binary_clvm_args_with_params(
-        &self,
+        &mut self,
         cons: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<(ClvmValue, ClvmValue), &'static str> {
         match cons {
             ClvmValue::Cons(first_arg, rest) => {
-                let arg1 = self.evaluate(first_arg, conditions, parameters)?;
+                let arg1 = self.evaluate(first_arg, conditions)?;
 
                 match rest.as_ref() {
                     ClvmValue::Cons(second_arg, _) => {
-                        let arg2 = self.evaluate(second_arg, conditions, parameters)?;
+                        let arg2 = self.evaluate(second_arg, conditions)?;
                         Ok((arg1, arg2))
                     }
                     _ => Err("expected second argument"),
@@ -410,22 +342,21 @@ impl ClvmEvaluator {
 
     /// Extract three arguments from CLVM cons structure with parameter evaluation
     pub fn extract_ternary_clvm_args_with_params(
-        &self,
+        &mut self,
         cons: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<(ClvmValue, ClvmValue, ClvmValue), &'static str> {
         match cons {
             ClvmValue::Cons(first_arg, rest1) => {
-                let arg1 = self.evaluate(first_arg, conditions, parameters)?;
+                let arg1 = self.evaluate(first_arg, conditions)?;
 
                 match rest1.as_ref() {
                     ClvmValue::Cons(second_arg, rest2) => {
-                        let arg2 = self.evaluate(second_arg, conditions, parameters)?;
+                        let arg2 = self.evaluate(second_arg, conditions)?;
 
                         match rest2.as_ref() {
                             ClvmValue::Cons(third_arg, _) => {
-                                let arg3 = self.evaluate(third_arg, conditions, parameters)?;
+                                let arg3 = self.evaluate(third_arg, conditions)?;
                                 Ok((arg1, arg2, arg3))
                             }
                             _ => Err("expected third argument"),
@@ -442,68 +373,74 @@ impl ClvmEvaluator {
 
     /// Handle if condition: (if condition then_val else_val)
     pub fn handle_op_if(
-        &self,
+        &mut self,
         args: &ClvmValue,
+        env: Option<&ClvmValue>,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (condition, then_val, else_val) =
-            self.extract_ternary_clvm_args_with_params(args, conditions, parameters)?;
-        if atom_to_number(&condition)? != 0 {
-            Ok(then_val)
-        } else {
-            Ok(else_val)
+        // Extract condition, then, else WITHOUT evaluating them yet
+        match args {
+            ClvmValue::Cons(cond_expr, rest1) => {
+                let condition = self.eval_unified(cond_expr, env, conditions)?;
+                match rest1.as_ref() {
+                    ClvmValue::Cons(then_expr, rest2) => match rest2.as_ref() {
+                        ClvmValue::Cons(else_expr, _) => {
+                            // Only evaluate the taken branch!
+                            if atom_to_number(&condition)? != 0 {
+                                self.eval_unified(then_expr, env, conditions)
+                            } else {
+                                self.eval_unified(else_expr, env, conditions)
+                            }
+                        }
+                        _ => Err("if requires else branch"),
+                    },
+                    _ => Err("if requires then branch"),
+                }
+            }
+            _ => Err("if requires condition"),
         }
     }
 
-    /// Handle cons operation: (cons first second)
     pub fn handle_op_cons(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (first, second) =
-            self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
+        let (first, second) = self.extract_binary_clvm_args_with_params(args, conditions)?;
         Ok(ClvmValue::Cons(Box::new(first), Box::new(second)))
     }
 
-    /// Handle first operation: (first pair)
     pub fn handle_op_first(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let arg = self.extract_single_clvm_arg_with_params(args, conditions, parameters)?;
+        let arg = self.extract_single_clvm_arg_with_params(args, conditions)?;
         match arg {
             ClvmValue::Cons(first, _) => Ok(*first),
             _ => Err("f on atom"),
         }
     }
 
-    /// Handle rest operation: (rest pair)
     pub fn handle_op_rest(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let arg = self.extract_single_clvm_arg_with_params(args, conditions, parameters)?;
+        let arg = self.extract_single_clvm_arg_with_params(args, conditions)?;
         match arg {
             ClvmValue::Cons(_, rest) => Ok(*rest),
             _ => Err("r on atom"),
         }
     }
 
-    /// Handle listp operation: check if value is a list
+    /// check if value is a list
     pub fn handle_op_listp(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let arg = self.extract_single_clvm_arg_with_params(args, conditions, parameters)?;
+        let arg = self.extract_single_clvm_arg_with_params(args, conditions)?;
         Ok(if matches!(arg, ClvmValue::Cons(_, _)) {
             number_to_atom(1) // return 1 for lists/cons pairs
         } else {
@@ -511,49 +448,41 @@ impl ClvmEvaluator {
         })
     }
 
-    /// Handle addition: (+ a b)
     pub fn handle_op_add(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
+        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions)?;
         let a_num = atom_to_number(&a)?;
         let b_num = atom_to_number(&b)?;
         Ok(number_to_atom(a_num + b_num))
     }
 
-    /// Handle subtraction: (- a b)
     pub fn handle_op_subtract(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
+        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions)?;
         Ok(number_to_atom(atom_to_number(&a)? - atom_to_number(&b)?))
     }
 
-    /// Handle multiplication: (* a b)
     pub fn handle_op_multiply(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
+        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions)?;
         Ok(number_to_atom(atom_to_number(&a)? * atom_to_number(&b)?))
     }
 
-    /// Handle division: (/ a b)
     pub fn handle_op_divide(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
+        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions)?;
         let num_b = atom_to_number(&b)?;
         if num_b == 0 {
             return Err("division by zero");
@@ -561,14 +490,12 @@ impl ClvmEvaluator {
         Ok(number_to_atom(atom_to_number(&a)? / num_b))
     }
 
-    /// Handle modulo: (% a b)
     pub fn handle_op_modulo(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
+        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions)?;
         let num_b = atom_to_number(&b)?;
         if num_b == 0 {
             return Err("division by zero");
@@ -576,15 +503,13 @@ impl ClvmEvaluator {
         Ok(number_to_atom(atom_to_number(&a)? % num_b))
     }
 
-    /// Handle divmod: (divmod a b) returns (quotient . remainder)
     pub fn handle_op_divmod(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
         let (dividend_v, divisor_v) =
-            self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
+            self.extract_binary_clvm_args_with_params(args, conditions)?;
         let divisor = atom_to_number(&divisor_v)?;
         if divisor == 0 {
             return Err("division by zero");
@@ -596,14 +521,12 @@ impl ClvmEvaluator {
         ))
     }
 
-    /// Handle greater than: (> a b)
     pub fn handle_op_greater(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
+        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions)?;
         Ok(number_to_atom(
             if atom_to_number(&a)? > atom_to_number(&b)? {
                 1
@@ -613,14 +536,12 @@ impl ClvmEvaluator {
         ))
     }
 
-    /// Handle less than: (< a b)
     pub fn handle_op_less(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
+        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions)?;
         Ok(number_to_atom(
             if atom_to_number(&a)? < atom_to_number(&b)? {
                 1
@@ -630,14 +551,12 @@ impl ClvmEvaluator {
         ))
     }
 
-    /// Handle equality: (= a b)
     pub fn handle_op_equal(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
+        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions)?;
         Ok(number_to_atom(
             if atom_to_number(&a)? == atom_to_number(&b)? {
                 1
@@ -647,15 +566,13 @@ impl ClvmEvaluator {
         ))
     }
 
-    /// Handle modular exponentiation: (modpow base exp mod)
     pub fn handle_op_modpow(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
         let (base_v, exp_v, mod_v) =
-            self.extract_ternary_clvm_args_with_params(args, conditions, parameters)?;
+            self.extract_ternary_clvm_args_with_params(args, conditions)?;
         let base = atom_to_number(&base_v)?;
         let exponent = atom_to_number(&exp_v)?;
         let modulus = atom_to_number(&mod_v)?;
@@ -671,90 +588,76 @@ impl ClvmEvaluator {
         Ok(number_to_atom(result))
     }
 
-    /// Handle apply operation: (apply program args)
-    /// Apply operator: execute a program with arguments
-    /// (a program env) -> execute program with env as environment
-    ///
-    /// In CLVM, the program is evaluated with env as the value that references to `1` resolve to
     pub fn handle_op_apply(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        // Apply takes two arguments: BOTH need evaluation
-        // The program argument is usually quoted, so evaluating it returns the actual program
-        // The env argument might be quoted or computed
-        let (program, env) =
-            self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
+        let (program, env) = self.extract_binary_clvm_args_with_params(args, conditions)?;
 
-        // Now execute the program with the evaluated env
-        self.evaluate_with_environment(&program, &env, conditions)
+        // Increment depth for apply
+        self.call_depth += 1;
+        let result = self.evaluate_with_environment(&program, &env, conditions);
+        self.call_depth -= 1;
+
+        result
     }
 
     /// Evaluate a CLVM program with an explicit environment
     /// In this mode, the atom `1` refers to the environment value
     fn evaluate_with_environment(
-        &self,
+        &mut self,
         expr: &ClvmValue,
         env: &ClvmValue,
         conditions: &mut Vec<Condition>,
     ) -> Result<ClvmValue, &'static str> {
-        #[cfg(feature = "std")]
-        {
-            use crate::encode_clvm_value;
-            eprintln!(
-                "eval_with_env: expr={:?}, env={:?}",
-                encode_clvm_value(expr.clone()),
-                encode_clvm_value(env.clone())
-            );
+        self.eval_unified(expr, Some(env), conditions)
+    }
+
+    /// Unified evaluation function that handles both regular and environment modes
+    /// If env is Some, atom `1` refers to the environment (environment mode)
+    /// If env is None, uses regular evaluation (regular mode)
+    fn eval_unified(
+        &mut self,
+        expr: &ClvmValue,
+        env: Option<&ClvmValue>,
+        conditions: &mut Vec<Condition>,
+    ) -> Result<ClvmValue, &'static str> {
+        if self.call_depth > 100 {
+            return Err("recursion depth limit exceeded (depth > 100)");
         }
 
         match expr {
             ClvmValue::Atom(bytes) => {
                 // Check if this is the environment reference (atom with value 1)
-                if bytes.len() == 1 && bytes[0] == 1 {
-                    #[cfg(feature = "std")]
-                    eprintln!("  -> returning env");
-                    Ok(env.clone())
-                } else {
-                    #[cfg(feature = "std")]
-                    eprintln!("  -> returning atom");
-                    Ok(ClvmValue::Atom(bytes.clone()))
+                if let Some(environment) = env {
+                    if bytes.len() == 1 && bytes[0] == 1 {
+                        return Ok(environment.clone());
+                    }
                 }
+                Ok(ClvmValue::Atom(bytes.clone()))
             }
             ClvmValue::Cons(op, args) => {
-                let op_evaluated = self.evaluate_with_environment(op, env, conditions)?;
-                #[cfg(feature = "std")]
-                {
-                    use crate::encode_clvm_value;
-                    eprintln!(
-                        "  -> op evaluated to {:?}, now applying",
-                        encode_clvm_value(op_evaluated.clone())
-                    );
+                // Evaluate operator in current mode
+                let op_evaluated = self.eval_unified(op, env, conditions)?;
+
+                // Apply operator in current mode
+                if let Some(environment) = env {
+                    self.apply_operator_with_env(&op_evaluated, args, environment, conditions)
+                } else {
+                    self.apply_clvm_operator_with_evaluator_context(&op_evaluated, args, conditions)
                 }
-                self.apply_operator_with_env(&op_evaluated, args, env, conditions)
             }
         }
     }
 
-    /// Apply operator in environment evaluation mode
     fn apply_operator_with_env(
-        &self,
+        &mut self,
         op: &ClvmValue,
         args: &ClvmValue,
         env: &ClvmValue,
         conditions: &mut Vec<Condition>,
     ) -> Result<ClvmValue, &'static str> {
-        #[cfg(feature = "std")]
-        {
-            use crate::encode_clvm_value;
-            eprintln!(
-                "apply_operator_with_env: op={:?}",
-                encode_clvm_value(op.clone())
-            );
-        }
-
         match op {
             ClvmValue::Atom(op_bytes) => {
                 if op_bytes.len() == 1 {
@@ -764,17 +667,12 @@ impl ClvmEvaluator {
                     Err("operator must be single byte")
                 }
             }
-            _ => {
-                #[cfg(feature = "std")]
-                eprintln!("ENV MODE: operator must be an atom, got cons");
-                Err("operator must be an atom")
-            }
+            _ => Err("operator must be an atom"),
         }
     }
 
-    /// Apply operator by opcode in environment mode
     fn apply_operator_with_env_opcode(
-        &self,
+        &mut self,
         opcode: u8,
         args: &ClvmValue,
         env: &ClvmValue,
@@ -827,10 +725,12 @@ impl ClvmEvaluator {
                     Ok(ClvmValue::Cons(Box::new(first), Box::new(rest)))
                 }
                 ClvmOperator::Apply => {
-                    // Nested apply
                     let (program, new_env) =
                         self.extract_binary_clvm_args_evaled_with_env(args, env, conditions)?;
-                    self.evaluate_with_environment(&program, &new_env, conditions)
+                    self.call_depth += 1;
+                    let result = self.evaluate_with_environment(&program, &new_env, conditions);
+                    self.call_depth -= 1;
+                    result
                 }
                 // Arithmetic operators
                 ClvmOperator::Add
@@ -842,6 +742,7 @@ impl ClvmEvaluator {
                         self.extract_binary_clvm_args_evaled_with_env(args, env, conditions)?;
                     let a = atom_to_number(&left)?;
                     let b = atom_to_number(&right)?;
+
                     let result = match operator {
                         ClvmOperator::Add => a.checked_add(b).ok_or("addition overflow")?,
                         ClvmOperator::Subtract => a.checked_sub(b).ok_or("subtraction overflow")?,
@@ -868,7 +769,20 @@ impl ClvmEvaluator {
                 ClvmOperator::Equal => {
                     let (left, right) =
                         self.extract_binary_clvm_args_evaled_with_env(args, env, conditions)?;
-                    Ok(if left == right {
+
+                    // Compare as numbers for atoms, structurally for cons
+                    let is_equal = match (&left, &right) {
+                        (ClvmValue::Atom(_), ClvmValue::Atom(_)) => {
+                            // Compare atoms as numbers
+                            atom_to_number(&left)? == atom_to_number(&right)?
+                        }
+                        _ => {
+                            // For cons pairs, use structural equality
+                            left == right
+                        }
+                    };
+
+                    Ok(if is_equal {
                         ClvmValue::Atom(vec![1])
                     } else {
                         ClvmValue::Atom(vec![])
@@ -896,17 +810,7 @@ impl ClvmEvaluator {
                         ClvmValue::Atom(vec![])
                     })
                 }
-                ClvmOperator::If => {
-                    let (cond_expr, rest) = self.extract_binary_clvm_args(args)?;
-                    let condition = self.evaluate_with_environment(&cond_expr, env, conditions)?;
-                    let (then_expr, else_expr) = self.extract_binary_clvm_args(&rest)?;
-
-                    if self.is_truthy(&condition) {
-                        self.evaluate_with_environment(&then_expr, env, conditions)
-                    } else {
-                        self.evaluate_with_environment(&else_expr, env, conditions)
-                    }
-                }
+                ClvmOperator::If => self.handle_op_if(args, Some(env), conditions),
                 ClvmOperator::ListCheck => {
                     let arg = self.evaluate_with_environment(args, env, conditions)?;
                     Ok(if matches!(arg, ClvmValue::Cons(_, _)) {
@@ -949,11 +853,54 @@ impl ClvmEvaluator {
                     let result = modular_pow(base_num, exp_num, mod_num);
                     Ok(number_to_atom(result))
                 }
-                _ => {
-                    // For other operators that don't need environment context,
-                    // evaluate arguments with environment first then apply operator
-                    Err("operator not yet supported in environment mode")
+                ClvmOperator::CallFunction => {
+                    // Handle function calls within environment-aware evaluation (needed for recursion)
+                    let args_list = extract_list_from_clvm(args)?;
+                    if args_list.is_empty() {
+                        return Err("call_function requires at least function name");
+                    }
+
+                    let (body, param_len, function_args) = {
+                        let function_name = match &args_list[0] {
+                            ClvmValue::Atom(bytes) => String::from_utf8(bytes.clone())
+                                .map_err(|_| "invalid function name encoding")?,
+                            ClvmValue::Cons(_, _) => return Err("function name must be a string"),
+                        };
+                        let function = self
+                            .function_table
+                            .get_function(&function_name)
+                            .ok_or("function not found")?;
+                        let function_args = &args_list[1..];
+                        (
+                            function.body.clone(),
+                            function.parameters.len(),
+                            function_args,
+                        )
+                    };
+
+                    if function_args.len() != param_len {
+                        return Err("function argument count mismatch");
+                    }
+
+                    // Evaluate function arguments in current environment
+                    let mut evaluated_args = Vec::new();
+                    for arg in function_args {
+                        let evaluated_arg = self.evaluate_with_environment(arg, env, conditions)?;
+                        evaluated_args.push(evaluated_arg);
+                    }
+
+                    // Build environment from evaluated arguments
+                    let args_env = chialisp::create_list_from_values(evaluated_args)
+                        .map_err(|_| "failed to create argument list")?;
+
+                    // Execute function body with new environment (increment depth)
+                    self.call_depth += 1;
+                    let result = self.evaluate_with_environment(&body, &args_env, conditions);
+                    self.call_depth -= 1;
+
+                    result
                 }
+                _ => Err("operator not yet supported in environment mode"),
             },
             None => {
                 // SHA-256 and other opcodes
@@ -967,11 +914,7 @@ impl ClvmEvaluator {
                         let hash_result = (self.hasher)(&data_bytes);
                         Ok(ClvmValue::Atom(hash_result.to_vec()))
                     }
-                    _ => {
-                        #[cfg(feature = "std")]
-                        eprintln!("unknown opcode {} in environment mode", opcode);
-                        Err("unknown opcode in environment mode")
-                    }
+                    _ => Err("unknown opcode in environment mode"),
                 }
             }
         }
@@ -979,7 +922,7 @@ impl ClvmEvaluator {
 
     /// Helper to extract and evaluate two arguments with environment
     fn extract_binary_clvm_args_evaled_with_env(
-        &self,
+        &mut self,
         args: &ClvmValue,
         env: &ClvmValue,
         conditions: &mut Vec<Condition>,
@@ -990,23 +933,13 @@ impl ClvmEvaluator {
         Ok((first, second))
     }
 
-    /// Check if a value is truthy (non-empty)
-    fn is_truthy(&self, value: &ClvmValue) -> bool {
-        match value {
-            ClvmValue::Atom(bytes) => !bytes.is_empty(),
-            ClvmValue::Cons(_, _) => true,
-        }
-    }
-
     /// Handle unsafe aggregate signature verification
     pub fn handle_op_agg_sig_unsafe(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (pk_v, msg_v, sig_v) =
-            self.extract_ternary_clvm_args_with_params(args, conditions, parameters)?;
+        let (pk_v, msg_v, sig_v) = self.extract_ternary_clvm_args_with_params(args, conditions)?;
 
         let pk_bytes = match pk_v {
             ClvmValue::Atom(bytes) => bytes,
@@ -1033,15 +966,13 @@ impl ClvmEvaluator {
         Ok(nil())
     }
 
-    /// Helper to handle single argument conditions
     fn handle_single_arg_condition(
-        &self,
+        &mut self,
         opcode: u8,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let arg_value = self.extract_single_clvm_arg_with_params(args, conditions, parameters)?;
+        let arg_value = self.extract_single_clvm_arg_with_params(args, conditions)?;
         let arg_bytes = match arg_value {
             ClvmValue::Atom(bytes) => bytes,
             _ => return Err("condition argument must be an atom"),
@@ -1050,15 +981,13 @@ impl ClvmEvaluator {
         Ok(nil())
     }
 
-    /// Helper to handle binary argument conditions
     fn handle_binary_arg_condition(
-        &self,
+        &mut self,
         opcode: u8,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
+        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions)?;
 
         let a_bytes = match a {
             ClvmValue::Atom(bytes) => bytes,
@@ -1073,25 +1002,21 @@ impl ClvmEvaluator {
         Ok(nil())
     }
 
-    /// Handle aggregate signature me condition
-    pub fn handle_op_agg_sig_me(
-        &self,
+    fn handle_op_agg_sig_me(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_ternary_arg_condition(50, args, conditions, parameters)
+        self.handle_ternary_arg_condition(50, args, conditions)
     }
 
-    /// Helper to handle ternary argument conditions
     fn handle_ternary_arg_condition(
-        &self,
+        &mut self,
         opcode: u8,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let (a, b, c) = self.extract_ternary_clvm_args_with_params(args, conditions, parameters)?;
+        let (a, b, c) = self.extract_ternary_clvm_args_with_params(args, conditions)?;
 
         let a_bytes = match a {
             ClvmValue::Atom(bytes) => bytes,
@@ -1110,24 +1035,20 @@ impl ClvmEvaluator {
         Ok(nil())
     }
 
-    /// Handle create coin condition
-    pub fn handle_op_create_coin(
-        &self,
+    fn handle_op_create_coin(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_binary_arg_condition(51, args, conditions, parameters)
+        self.handle_binary_arg_condition(51, args, conditions)
     }
 
-    /// Handle reserve fee condition
-    pub fn handle_op_reserve_fee(
-        &self,
+    fn handle_op_reserve_fee(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        let arg_value = self.extract_single_clvm_arg_with_params(args, conditions, parameters)?;
+        let arg_value = self.extract_single_clvm_arg_with_params(args, conditions)?;
         let arg_bytes = match arg_value {
             ClvmValue::Atom(bytes) => bytes,
             _ => return Err("fee argument must be an atom"),
@@ -1148,122 +1069,90 @@ impl ClvmEvaluator {
         Ok(nil())
     }
 
-    /// Handle assert concurrent spend condition
-    pub fn handle_op_assert_concurrent_spend(
-        &self,
+    fn handle_op_assert_concurrent_spend(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(64, args, conditions, parameters)
+        self.handle_single_arg_condition(64, args, conditions)
     }
 
-    /// Handle assert concurrent puzzle condition
-    pub fn handle_op_assert_concurrent_puzzle(
-        &self,
+    fn handle_op_assert_concurrent_puzzle(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(65, args, conditions, parameters)
+        self.handle_single_arg_condition(65, args, conditions)
     }
 
-    /// Handle assert my coin id condition
-    pub fn handle_op_assert_my_coin_id(
-        &self,
+    fn handle_op_assert_my_coin_id(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(70, args, conditions, parameters)
+        self.handle_single_arg_condition(70, args, conditions)
     }
 
-    /// Handle assert my parent id condition
-    pub fn handle_op_assert_my_parent_id(
-        &self,
+    fn handle_op_assert_my_parent_id(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(71, args, conditions, parameters)
+        self.handle_single_arg_condition(71, args, conditions)
     }
 
-    /// Handle assert my puzzle hash condition
-    pub fn handle_op_assert_my_puzzle_hash(
-        &self,
+    fn handle_op_assert_my_puzzle_hash(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(72, args, conditions, parameters)
+        self.handle_single_arg_condition(72, args, conditions)
     }
 
-    /// Handle assert my amount condition
-    pub fn handle_op_assert_my_amount(
-        &self,
+    fn handle_op_assert_my_amount(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(73, args, conditions, parameters)
+        self.handle_single_arg_condition(73, args, conditions)
     }
 
-    /// Handle create coin announcement condition
-    pub fn handle_op_create_coin_announcement(
-        &self,
+    fn handle_op_create_coin_announcement(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(74, args, conditions, parameters)
+        self.handle_single_arg_condition(74, args, conditions)
     }
 
-    /// Handle assert coin announcement condition
-    pub fn handle_op_assert_coin_announcement(
-        &self,
+    fn handle_op_assert_coin_announcement(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(75, args, conditions, parameters)
+        self.handle_single_arg_condition(75, args, conditions)
     }
 
-    /// Handle create puzzle announcement condition
-    pub fn handle_op_create_puzzle_announcement(
-        &self,
+    fn handle_op_create_puzzle_announcement(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(76, args, conditions, parameters)
+        self.handle_single_arg_condition(76, args, conditions)
     }
 
-    /// Handle assert puzzle announcement condition
-    pub fn handle_op_assert_puzzle_announcement(
-        &self,
+    fn handle_op_assert_puzzle_announcement(
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(77, args, conditions, parameters)
+        self.handle_single_arg_condition(77, args, conditions)
     }
 
-    /// Handle runtime function call
-    pub fn handle_op_call_function(
-        &self,
-        args: &ClvmValue,
-        conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
-    ) -> Result<ClvmValue, &'static str> {
-        self.handle_op_call_function_context(args, conditions, parameters)
-    }
-
-    /// Handle runtime function call
     fn handle_op_call_function_context(
-        &self,
+        &mut self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
-        parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
         // Parse arguments: function_name followed by function arguments
         let args_list = extract_list_from_clvm(args)?;
@@ -1280,68 +1169,48 @@ impl ClvmEvaluator {
             ClvmValue::Cons(_, _) => return Err("function name must be a string"),
         };
 
-        // TODO: Add recursion depth checking if needed
+        // Validate argument count and get parameters length
+        let param_len = {
+            let function = self
+                .function_table
+                .get_function(&function_name)
+                .ok_or("function not found")?;
+            function.parameters.len()
+        };
 
-        // Look up function
-        let function = self
-            .function_table
-            .get_function(&function_name)
-            .ok_or("function not found")?;
-
-        // Validate argument count
+        // Extract and validate function arguments
         let function_args = &args_list[1..];
-        if function_args.len() != function.parameters.len() {
+        if function_args.len() != param_len {
             return Err("function argument count mismatch");
         }
 
         // Evaluate function arguments in current context
         let mut evaluated_args = Vec::new();
         for arg in function_args {
-            let evaluated_arg = self.evaluate(arg, conditions, parameters)?;
+            let evaluated_arg = self.evaluate(arg, conditions)?;
             evaluated_args.push(evaluated_arg);
         }
 
-        // Create new parameter context for function execution
-        let function_parameters: Vec<ProgramParameter> = evaluated_args
-            .into_iter()
-            .map(|arg| {
-                // Try to convert to number first (works for both atoms and evaluated expressions)
-                if let Ok(value) = clvm_value_to_number(&arg) {
-                    if value >= 0 {
-                        ProgramParameter::Int(value as u64)
-                    } else {
-                        // Negative numbers must use bytes representation
-                        match arg {
-                            ClvmValue::Atom(bytes) => ProgramParameter::Bytes(bytes),
-                            ClvmValue::Cons(_, _) => {
-                                ProgramParameter::Bytes(encode_clvm_value(arg))
-                            }
-                        }
-                    }
-                } else {
-                    // Fallback to bytes representation
-                    match arg {
-                        ClvmValue::Atom(bytes) => ProgramParameter::Bytes(bytes),
-                        ClvmValue::Cons(_, _) => ProgramParameter::Bytes(encode_clvm_value(arg)),
-                    }
-                }
-            })
-            .collect();
+        // Build environment from evaluated arguments as CLVM list: (arg1 . (arg2 . (arg3 . nil)))
+        let args_env = chialisp::create_list_from_values(evaluated_args)
+            .map_err(|_| "failed to create argument list")?;
 
-        // Execute function body with new parameters
-        // Create a temporary evaluator to avoid mutability issues during recursive calls
-        let temp_evaluator = ClvmEvaluator {
-            hasher: self.hasher,
-            bls_verifier: self.bls_verifier,
-            ecdsa_verifier: self.ecdsa_verifier,
-            function_table: self.function_table.clone(),
+        // Get function body
+        let body = {
+            let function = self
+                .function_table
+                .get_function(&function_name)
+                .ok_or("function not found")?;
+            function.body.clone()
         };
 
-        temp_evaluator.evaluate(&function.body, conditions, &function_parameters)
+        // Execute function body with environment-aware evaluation
+        // The function body is compiled in Template mode with (f 1) patterns
+        // Note: We don't increment depth here because this is the initial function entry
+        self.evaluate_with_environment(&body, &args_env, conditions)
     }
 }
 
-/// convert a clvmvalue atom to an integer for arithmetic operations
 pub fn atom_to_number(value: &ClvmValue) -> Result<i64, &'static str> {
     match value {
         ClvmValue::Atom(bytes) => {
@@ -1362,7 +1231,6 @@ pub fn atom_to_number(value: &ClvmValue) -> Result<i64, &'static str> {
     }
 }
 
-/// convert an integer to a clvmvalue atom
 pub fn number_to_atom(num: i64) -> ClvmValue {
     if num == 0 {
         ClvmValue::Atom(vec![0]) // keep compatibility with existing tests
@@ -1387,12 +1255,10 @@ pub fn number_to_atom(num: i64) -> ClvmValue {
     }
 }
 
-/// create a nil value (empty atom)
 pub fn nil() -> ClvmValue {
     ClvmValue::Atom(vec![])
 }
 
-/// Extract a list of values from a ClvmValue cons structure
 pub fn extract_list_from_clvm(value: &ClvmValue) -> Result<Vec<ClvmValue>, &'static str> {
     let mut result = Vec::new();
     let mut current = value;
@@ -1418,7 +1284,6 @@ pub fn extract_list_from_clvm(value: &ClvmValue) -> Result<Vec<ClvmValue>, &'sta
     Ok(result)
 }
 
-/// verify ecdsa signature using provided hasher
 pub fn verify_ecdsa_signature_with_hasher(
     hasher: Hasher,
     public_key_bytes: &[u8],
@@ -1494,12 +1359,14 @@ pub fn modular_pow(mut base: i64, mut exponent: i64, modulus: i64) -> i64 {
     result
 }
 
-/// compute sha-256 hash - unified interface
+/// Default hasher using SHA-256 (only available with sha2-hasher feature)
+#[cfg(feature = "sha2-hasher")]
 pub fn hash_data(data: &[u8]) -> [u8; 32] {
-    hash_data_impl(data)
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
 }
 
-/// generate nullifier using canonical algorithm - works in both risc0 and sp1
 pub fn generate_nullifier(
     hasher: Hasher,
     spend_secret: &[u8; 32],
@@ -1510,34 +1377,6 @@ pub fn generate_nullifier(
     combined.extend_from_slice(spend_secret);
     combined.extend_from_slice(puzzle_hash);
     hasher(&combined)
-}
-
-// Note: Custom hash functions are now injected through the evaluator pattern
-// See handle_op_sha256_with_evaluator for the implementation
-
-/// compute sha-256 hash - uses default hasher
-fn hash_data_impl(data: &[u8]) -> [u8; 32] {
-    #[cfg(feature = "sha2-hasher")]
-    {
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        hasher.finalize().into()
-    }
-    #[cfg(not(feature = "sha2-hasher"))]
-    {
-        // fallback for when sha2 is not available
-        [0u8; 32]
-    }
-}
-
-/// default hasher implementation
-pub fn hash_data_default(data: &[u8]) -> [u8; 32] {
-    hash_data_impl(data)
-}
-
-/// default ecdsa verifier using standard hasher
-pub fn default_ecdsa_verifier(pk: &[u8], msg: &[u8], sig: &[u8]) -> Result<bool, &'static str> {
-    verify_ecdsa_signature_with_hasher(hash_data_default, pk, msg, sig)
 }
 
 /// encode a clvmvalue as clvm bytes following the standard serialization format
@@ -1611,6 +1450,7 @@ mod security_tests {
     use crate::chialisp::compile_chialisp_to_bytecode;
     use crate::hash_data;
     use crate::ProgramParameter;
+
     #[test]
     fn test_template_program_consistency_check() {
         // Test the new guest compilation approach
