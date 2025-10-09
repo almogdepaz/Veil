@@ -1,7 +1,7 @@
 mod common;
 use crate::common::BATCH_SIZE;
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash;
+use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 use tokio::task;
 
 /// Test proof integrity attacks - tampering with proofs should cause verification to fail
@@ -148,7 +148,7 @@ fn fuzz_proof_integrity_attacks() -> Result<(), Box<dyn std::error::Error>> {
 
         // Tampered proofs should fail verification
         match ClvmZkProver::verify_proof(
-            compile_chialisp_template_hash(expr).unwrap(),
+            compile_chialisp_template_hash_default(expr).unwrap(),
             &tampered_proof,
             Some(&output),
         ) {
@@ -253,7 +253,7 @@ async fn fuzz_program_binding_attacks() -> Result<(), Box<dyn std::error::Error>
             if proof_idx == prog_idx {
                 // Same program - should verify against its own expected output
                 match ClvmZkProver::verify_proof(
-                    compile_chialisp_template_hash(expr).unwrap(),
+                    compile_chialisp_template_hash_default(expr).unwrap(),
                     proof,
                     Some(expected_output_for_this_program),
                 ) {
@@ -272,7 +272,7 @@ async fn fuzz_program_binding_attacks() -> Result<(), Box<dyn std::error::Error>
             } else {
                 // Different program - should fail because the proof was generated for a different expected output
                 match ClvmZkProver::verify_proof(
-                    compile_chialisp_template_hash(expr).unwrap(),
+                    compile_chialisp_template_hash_default(expr).unwrap(),
                     proof,
                     Some(expected_output_for_this_program),
                 ) {

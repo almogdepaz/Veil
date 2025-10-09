@@ -175,8 +175,8 @@ pub fn create_password_spend_parameters(password: &str) -> Vec<ProgramParameter>
 mod tests {
     use super::*;
     use crate::protocol::PrivateCoin;
+    use k256::ecdsa::{signature::Verifier, Signature};
     use sha2::{Digest, Sha256};
-    use k256::ecdsa::{Signature, signature::Verifier};
 
     #[test]
     fn test_signature_puzzle_creation() {
@@ -186,7 +186,10 @@ mod tests {
 
         // Verify puzzle program contains signature verification
         assert!(puzzle_program.contains("agg_sig_unsafe"));
-        assert_eq!(puzzle_program, "(mod (pubkey message signature) (agg_sig_unsafe pubkey message signature))"); // Proper Chialisp syntax
+        assert_eq!(
+            puzzle_program,
+            "(mod (pubkey message signature) (agg_sig_unsafe pubkey message signature))"
+        ); // Proper Chialisp syntax
 
         // Create a coin with this puzzle
         let spend_secret = [0x42; 32];
@@ -206,7 +209,9 @@ mod tests {
 
         // Verify signature can be verified outside ZK
         let message_hash = Sha256::digest(message);
-        let signature_array: [u8; 64] = signature_bytes.try_into().expect("Signature should be 64 bytes");
+        let signature_array: [u8; 64] = signature_bytes
+            .try_into()
+            .expect("Signature should be 64 bytes");
         let signature = Signature::from_bytes((&signature_array).into()).unwrap();
         assert!(verifying_key.verify(&message_hash, &signature).is_ok());
 

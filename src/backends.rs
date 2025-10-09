@@ -52,7 +52,7 @@ pub fn backend() -> Result<Box<dyn ZKCLVMBackend>, ClvmZkError> {
     #[cfg(feature = "mock")]
     {
         println!("🔧 initializing mock zkvm backend");
-        return Ok(Box::new(MockBackend::new()?));
+        Ok(Box::new(MockBackend::new()?))
     }
 
     #[cfg(not(any(feature = "risc0", feature = "sp1", feature = "mock")))]
@@ -129,7 +129,8 @@ impl ZKCLVMBackend for Sp1Backend {
         program_parameters: &[ProgramParameter],
         _legacy_parameters: &[ProgramParameter], // ignored for consistency with trait
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        let result = self.prove_chialisp_program(chialisp_source, program_parameters)?;
+        let result =
+            self.prove_chialisp_program(chialisp_source, program_parameters, legacy_parameters)?;
         Ok(ZKClvmResult {
             result: result.result,
             cost: result.cost,

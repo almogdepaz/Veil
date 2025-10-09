@@ -1,5 +1,5 @@
 //! Nullifier Protocol Implementation
-//! 
+//!
 //! This module implements a secure nullifier protocol for preventing double-spending
 //! in zero-knowledge transactions. The protocol uses the "Mandatory Output Channel"
 //! model to ensure that nullifier generation is automatic and cannot be bypassed.
@@ -36,11 +36,15 @@
 //! // ])?;
 //! ```
 
+pub mod puzzles;
 pub mod spender;
 pub mod structures;
-pub mod puzzles;
 
 // Re-export main types for convenient access
+pub use puzzles::{
+    create_password_puzzle, create_password_puzzle_program, create_password_spend_parameters,
+    create_password_spend_params, create_signature_puzzle, create_signature_spend_params,
+    create_spend_signature, create_test_signature_setup, hash_password,
+};
 pub use spender::Spender;
 pub use structures::{PrivateCoin, PrivateSpendBundle, ProtocolError};
-pub use puzzles::{create_signature_puzzle, create_test_signature_setup, create_spend_signature, create_signature_spend_params, create_password_puzzle, create_password_spend_params, hash_password, create_password_puzzle_program, create_password_spend_parameters};

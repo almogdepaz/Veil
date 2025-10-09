@@ -3,14 +3,14 @@ use crate::simulator::{CLVMZkSimulator, CoinMetadata, CoinType};
 use crate::wallet::{CLVMHDWallet, Network, WalletError};
 use crate::{ClvmZkError, ClvmZkProver, ProgramParameter};
 use clap::{Parser, Subcommand};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash;
+use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 use clvm_zk_core::{atom_to_number, ClvmParser};
 use rand::{thread_rng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "clvm-zk")]
@@ -539,7 +539,7 @@ fn run_verify(
         println!("Compiling template to verify program hash...");
 
         // Compile the template to get the expected program hash (without parameter values)
-        let expected_hash = compile_chialisp_template_hash(template_str).map_err(|e| {
+        let expected_hash = compile_chialisp_template_hash_default(template_str).map_err(|e| {
             ClvmZkError::InvalidProgram(format!("Template compilation failed: {:?}", e))
         })?;
 
@@ -581,7 +581,6 @@ fn run_verify(
     let result = if let Some(expected) = expected_output_bytes {
         // Verify against expected output
         ClvmZkProver::verify_proof(hash, &proof_bytes, Some(&expected))
-            .map(|(valid, output)| (valid, output))
     } else {
         // Extract output from proof
         ClvmZkProver::verify_proof(hash, &proof_bytes, None)
@@ -833,7 +832,7 @@ impl SimulatorState {
         }
     }
 
-    fn load(data_dir: &PathBuf) -> Result<Self, ClvmZkError> {
+    fn load(data_dir: &Path) -> Result<Self, ClvmZkError> {
         let state_file = data_dir.join("state.json");
         if state_file.exists() {
             let data = fs::read_to_string(&state_file).map_err(|e| {
@@ -1135,8 +1134,8 @@ fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Resul
             println!();
             println!("to create observer wallet:");
             println!(
-                "  sim observer create {} --viewing-key {}",
-                format!("{}_observer", name),
+                "  sim observer create {}_observer --viewing-key {}",
+                name,
                 hex::encode(viewing_key.key)
             );
         }
@@ -1145,7 +1144,7 @@ fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Resul
     Ok(())
 }
 
-fn status_command(data_dir: &PathBuf) -> Result<(), ClvmZkError> {
+fn status_command(data_dir: &Path) -> Result<(), ClvmZkError> {
     let state = SimulatorState::load(data_dir)?;
 
     println!("simulator status:");
@@ -1166,7 +1165,7 @@ fn status_command(data_dir: &PathBuf) -> Result<(), ClvmZkError> {
     Ok(())
 }
 
-fn wallets_command(data_dir: &PathBuf) -> Result<(), ClvmZkError> {
+fn wallets_command(data_dir: &Path) -> Result<(), ClvmZkError> {
     let state = SimulatorState::load(data_dir)?;
 
     if state.wallets.is_empty() {
@@ -1409,7 +1408,7 @@ fn send_command(
 fn derive_puzzle_spend_secret(index: u64) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"puzzle_spend_secret_derivation_v1");
-    hasher.update(&index.to_le_bytes());
+    hasher.update(index.to_le_bytes());
     hasher.finalize().into()
 }
 

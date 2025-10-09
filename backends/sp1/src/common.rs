@@ -2,7 +2,6 @@
 
 use clvm_zk_core::{ClvmZkError, ProofOutput};
 
-
 /// Convert proving errors from zkVM into clean user-facing error messages
 pub fn convert_proving_error(error: impl std::fmt::Display, backend_name: &str) -> ClvmZkError {
     let error_msg = error.to_string();

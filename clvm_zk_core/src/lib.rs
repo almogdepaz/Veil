@@ -6,11 +6,15 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, collections::BTreeMap, string::String, vec, vec::Vec};
 
-use k256::ecdsa::{Signature, VerifyingKey};
+use k256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 #[cfg(feature = "std")]
 use std::collections::BTreeMap;
 #[cfg(feature = "std")]
 use std::string::String;
+
+#[cfg(feature = "sha2-hasher")]
+use sha2::{Digest, Sha256};
+
 pub mod chialisp;
 pub mod operators;
 pub mod parser;
@@ -20,6 +24,13 @@ pub use chialisp::*;
 pub use operators::*;
 pub use parser::*;
 pub use types::*;
+
+/// Type alias for hash function
+pub type Hasher = fn(&[u8]) -> [u8; 32];
+/// Type alias for BLS signature verification function
+pub type BlsVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
+/// Type alias for ECDSA signature verification function
+pub type EcdsaVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
 
 /// Runtime function definition for CLVM execution
 #[derive(Debug, Clone)]
@@ -68,32 +79,18 @@ impl RuntimeFunctionTable {
 /// CLVM evaluator with injected dependencies for backend-specific operations
 pub struct ClvmEvaluator {
     /// Hash function for general hashing operations
-    pub hasher: fn(&[u8]) -> [u8; 32],
+    pub hasher: Hasher,
     /// BLS signature verification function
-    pub bls_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>,
+    pub bls_verifier: BlsVerifier,
     /// ECDSA signature verification function
-    pub ecdsa_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>,
+    pub ecdsa_verifier: EcdsaVerifier,
     /// Runtime function table for function calls
     pub function_table: RuntimeFunctionTable,
 }
 
 impl ClvmEvaluator {
     /// Create a new evaluator with default implementations
-    pub fn new() -> Self {
-        Self {
-            hasher: hash_data_default,
-            bls_verifier: |_, _, _| Err("BLS verification not available - no backend configured"),
-            ecdsa_verifier: default_ecdsa_verifier,
-            function_table: RuntimeFunctionTable::new(),
-        }
-    }
-
-    /// Create a new evaluator with custom implementations
-    pub fn with_backends(
-        hasher: fn(&[u8]) -> [u8; 32],
-        bls_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>,
-        ecdsa_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>,
-    ) -> Self {
+    pub fn new(hasher: Hasher, bls_verifier: BlsVerifier, ecdsa_verifier: EcdsaVerifier) -> Self {
         Self {
             hasher,
             bls_verifier,
@@ -261,7 +258,11 @@ impl ClvmEvaluator {
                 match opcode {
                     // SHA-256 using evaluator's injected hasher
                     2 => self.handle_sha256(args, conditions, parameters),
-                    _ => Err("unknown opcode"),
+                    _ => {
+                        #[cfg(feature = "std")]
+                        eprintln!("MAIN PATH: unknown opcode {}", opcode);
+                        Err("unknown opcode")
+                    }
                 }
             }
         }
@@ -387,6 +388,22 @@ impl ClvmEvaluator {
                     _ => Err("expected second argument"),
                 }
             }
+            _ => Err("expected cons structure for arguments"),
+        }
+    }
+
+    /// Extract two arguments from CLVM cons structure without evaluation
+    fn extract_binary_clvm_args(
+        &self,
+        cons: &ClvmValue,
+    ) -> Result<(ClvmValue, ClvmValue), &'static str> {
+        match cons {
+            ClvmValue::Cons(first_arg, rest) => match rest.as_ref() {
+                ClvmValue::Cons(second_arg, _) => {
+                    Ok(((**first_arg).clone(), (**second_arg).clone()))
+                }
+                _ => Err("expected second argument"),
+            },
             _ => Err("expected cons structure for arguments"),
         }
     }
@@ -656,20 +673,328 @@ impl ClvmEvaluator {
 
     /// Handle apply operation: (apply program args)
     /// Apply operator: execute a program with arguments
-    /// (a program args) -> execute program with args as environment
-    /// Note: This is a simplified implementation that evaluates the program directly
-    /// A full implementation would need to handle environment binding properly
+    /// (a program env) -> execute program with env as environment
+    ///
+    /// In CLVM, the program is evaluated with env as the value that references to `1` resolve to
     pub fn handle_op_apply(
         &self,
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
         parameters: &[ProgramParameter],
     ) -> Result<ClvmValue, &'static str> {
-        // Apply takes two arguments: program and args
-        let (program, _args) =
+        // Apply takes two arguments: BOTH need evaluation
+        // The program argument is usually quoted, so evaluating it returns the actual program
+        // The env argument might be quoted or computed
+        let (program, env) =
             self.extract_binary_clvm_args_with_params(args, conditions, parameters)?;
 
-        self.evaluate(&program, conditions, parameters)
+        // Now execute the program with the evaluated env
+        self.evaluate_with_environment(&program, &env, conditions)
+    }
+
+    /// Evaluate a CLVM program with an explicit environment
+    /// In this mode, the atom `1` refers to the environment value
+    fn evaluate_with_environment(
+        &self,
+        expr: &ClvmValue,
+        env: &ClvmValue,
+        conditions: &mut Vec<Condition>,
+    ) -> Result<ClvmValue, &'static str> {
+        #[cfg(feature = "std")]
+        {
+            use crate::encode_clvm_value;
+            eprintln!(
+                "eval_with_env: expr={:?}, env={:?}",
+                encode_clvm_value(expr.clone()),
+                encode_clvm_value(env.clone())
+            );
+        }
+
+        match expr {
+            ClvmValue::Atom(bytes) => {
+                // Check if this is the environment reference (atom with value 1)
+                if bytes.len() == 1 && bytes[0] == 1 {
+                    #[cfg(feature = "std")]
+                    eprintln!("  -> returning env");
+                    Ok(env.clone())
+                } else {
+                    #[cfg(feature = "std")]
+                    eprintln!("  -> returning atom");
+                    Ok(ClvmValue::Atom(bytes.clone()))
+                }
+            }
+            ClvmValue::Cons(op, args) => {
+                let op_evaluated = self.evaluate_with_environment(op, env, conditions)?;
+                #[cfg(feature = "std")]
+                {
+                    use crate::encode_clvm_value;
+                    eprintln!(
+                        "  -> op evaluated to {:?}, now applying",
+                        encode_clvm_value(op_evaluated.clone())
+                    );
+                }
+                self.apply_operator_with_env(&op_evaluated, args, env, conditions)
+            }
+        }
+    }
+
+    /// Apply operator in environment evaluation mode
+    fn apply_operator_with_env(
+        &self,
+        op: &ClvmValue,
+        args: &ClvmValue,
+        env: &ClvmValue,
+        conditions: &mut Vec<Condition>,
+    ) -> Result<ClvmValue, &'static str> {
+        #[cfg(feature = "std")]
+        {
+            use crate::encode_clvm_value;
+            eprintln!(
+                "apply_operator_with_env: op={:?}",
+                encode_clvm_value(op.clone())
+            );
+        }
+
+        match op {
+            ClvmValue::Atom(op_bytes) => {
+                if op_bytes.len() == 1 {
+                    let opcode = op_bytes[0];
+                    self.apply_operator_with_env_opcode(opcode, args, env, conditions)
+                } else {
+                    Err("operator must be single byte")
+                }
+            }
+            _ => {
+                #[cfg(feature = "std")]
+                eprintln!("ENV MODE: operator must be an atom, got cons");
+                Err("operator must be an atom")
+            }
+        }
+    }
+
+    /// Apply operator by opcode in environment mode
+    fn apply_operator_with_env_opcode(
+        &self,
+        opcode: u8,
+        args: &ClvmValue,
+        env: &ClvmValue,
+        conditions: &mut Vec<Condition>,
+    ) -> Result<ClvmValue, &'static str> {
+        match ClvmOperator::from_opcode(opcode) {
+            Some(operator) => match operator {
+                ClvmOperator::Quote => {
+                    // Quote returns argument without evaluation
+                    Ok(args.clone())
+                }
+                ClvmOperator::First => {
+                    // Extract the single argument from the cons structure
+                    // args is (arg . nil), extract arg
+                    match args {
+                        ClvmValue::Cons(arg_expr, _) => {
+                            // Evaluate the argument expression
+                            let arg_value =
+                                self.evaluate_with_environment(arg_expr, env, conditions)?;
+                            // Extract first from the result
+                            match &arg_value {
+                                ClvmValue::Cons(first, _) => Ok((**first).clone()),
+                                _ => Err("f on atom"),
+                            }
+                        }
+                        _ => Err("expected cons for first operator arguments"),
+                    }
+                }
+                ClvmOperator::Rest => {
+                    // Extract the single argument from the cons structure
+                    // args is (arg . nil), extract arg
+                    match args {
+                        ClvmValue::Cons(arg_expr, _) => {
+                            // Evaluate the argument expression
+                            let arg_value =
+                                self.evaluate_with_environment(arg_expr, env, conditions)?;
+                            // Extract rest from the result
+                            match &arg_value {
+                                ClvmValue::Cons(_, rest) => Ok((**rest).clone()),
+                                _ => Err("r on atom"),
+                            }
+                        }
+                        _ => Err("expected cons for rest operator arguments"),
+                    }
+                }
+                ClvmOperator::Cons => {
+                    let (first, rest) =
+                        self.extract_binary_clvm_args_evaled_with_env(args, env, conditions)?;
+                    Ok(ClvmValue::Cons(Box::new(first), Box::new(rest)))
+                }
+                ClvmOperator::Apply => {
+                    // Nested apply
+                    let (program, new_env) =
+                        self.extract_binary_clvm_args_evaled_with_env(args, env, conditions)?;
+                    self.evaluate_with_environment(&program, &new_env, conditions)
+                }
+                // Arithmetic operators
+                ClvmOperator::Add
+                | ClvmOperator::Subtract
+                | ClvmOperator::Multiply
+                | ClvmOperator::Divide
+                | ClvmOperator::Modulo => {
+                    let (left, right) =
+                        self.extract_binary_clvm_args_evaled_with_env(args, env, conditions)?;
+                    let a = atom_to_number(&left)?;
+                    let b = atom_to_number(&right)?;
+                    let result = match operator {
+                        ClvmOperator::Add => a.checked_add(b).ok_or("addition overflow")?,
+                        ClvmOperator::Subtract => a.checked_sub(b).ok_or("subtraction overflow")?,
+                        ClvmOperator::Multiply => {
+                            a.checked_mul(b).ok_or("multiplication overflow")?
+                        }
+                        ClvmOperator::Divide => {
+                            if b == 0 {
+                                return Err("division by zero");
+                            }
+                            a.checked_div(b).ok_or("division overflow")?
+                        }
+                        ClvmOperator::Modulo => {
+                            if b == 0 {
+                                return Err("modulo by zero");
+                            }
+                            a.checked_rem(b).ok_or("modulo overflow")?
+                        }
+                        _ => unreachable!(),
+                    };
+                    Ok(number_to_atom(result))
+                }
+                // Comparison operators
+                ClvmOperator::Equal => {
+                    let (left, right) =
+                        self.extract_binary_clvm_args_evaled_with_env(args, env, conditions)?;
+                    Ok(if left == right {
+                        ClvmValue::Atom(vec![1])
+                    } else {
+                        ClvmValue::Atom(vec![])
+                    })
+                }
+                ClvmOperator::GreaterThan => {
+                    let (left, right) =
+                        self.extract_binary_clvm_args_evaled_with_env(args, env, conditions)?;
+                    let a = atom_to_number(&left)?;
+                    let b = atom_to_number(&right)?;
+                    Ok(if a > b {
+                        ClvmValue::Atom(vec![1])
+                    } else {
+                        ClvmValue::Atom(vec![])
+                    })
+                }
+                ClvmOperator::LessThan => {
+                    let (left, right) =
+                        self.extract_binary_clvm_args_evaled_with_env(args, env, conditions)?;
+                    let a = atom_to_number(&left)?;
+                    let b = atom_to_number(&right)?;
+                    Ok(if a < b {
+                        ClvmValue::Atom(vec![1])
+                    } else {
+                        ClvmValue::Atom(vec![])
+                    })
+                }
+                ClvmOperator::If => {
+                    let (cond_expr, rest) = self.extract_binary_clvm_args(args)?;
+                    let condition = self.evaluate_with_environment(&cond_expr, env, conditions)?;
+                    let (then_expr, else_expr) = self.extract_binary_clvm_args(&rest)?;
+
+                    if self.is_truthy(&condition) {
+                        self.evaluate_with_environment(&then_expr, env, conditions)
+                    } else {
+                        self.evaluate_with_environment(&else_expr, env, conditions)
+                    }
+                }
+                ClvmOperator::ListCheck => {
+                    let arg = self.evaluate_with_environment(args, env, conditions)?;
+                    Ok(if matches!(arg, ClvmValue::Cons(_, _)) {
+                        ClvmValue::Atom(vec![1])
+                    } else {
+                        ClvmValue::Atom(vec![])
+                    })
+                }
+                ClvmOperator::DivMod => {
+                    let (dividend, divisor) =
+                        self.extract_binary_clvm_args_evaled_with_env(args, env, conditions)?;
+                    let divisor_num = atom_to_number(&divisor)?;
+                    if divisor_num == 0 {
+                        return Err("division by zero");
+                    }
+                    let dividend_num = atom_to_number(&dividend)?;
+                    Ok(ClvmValue::Cons(
+                        Box::new(number_to_atom(dividend_num / divisor_num)),
+                        Box::new(number_to_atom(dividend_num % divisor_num)),
+                    ))
+                }
+                ClvmOperator::ModPow => {
+                    let (base_expr, rest) = self.extract_binary_clvm_args(args)?;
+                    let base = self.evaluate_with_environment(&base_expr, env, conditions)?;
+                    let (exp_expr, mod_expr) = self.extract_binary_clvm_args(&rest)?;
+                    let exponent = self.evaluate_with_environment(&exp_expr, env, conditions)?;
+                    let modulus_val = self.evaluate_with_environment(&mod_expr, env, conditions)?;
+
+                    let base_num = atom_to_number(&base)?;
+                    let exp_num = atom_to_number(&exponent)?;
+                    let mod_num = atom_to_number(&modulus_val)?;
+
+                    if mod_num <= 0 {
+                        return Err("modulus must be positive");
+                    }
+                    if exp_num < 0 {
+                        return Err("negative exponents not supported");
+                    }
+
+                    let result = modular_pow(base_num, exp_num, mod_num);
+                    Ok(number_to_atom(result))
+                }
+                _ => {
+                    // For other operators that don't need environment context,
+                    // evaluate arguments with environment first then apply operator
+                    Err("operator not yet supported in environment mode")
+                }
+            },
+            None => {
+                // SHA-256 and other opcodes
+                match opcode {
+                    2 => {
+                        let arg = self.evaluate_with_environment(args, env, conditions)?;
+                        let data_bytes = match arg {
+                            ClvmValue::Atom(bytes) => bytes,
+                            _ => return Err("hash argument must be an atom"),
+                        };
+                        let hash_result = (self.hasher)(&data_bytes);
+                        Ok(ClvmValue::Atom(hash_result.to_vec()))
+                    }
+                    _ => {
+                        #[cfg(feature = "std")]
+                        eprintln!("unknown opcode {} in environment mode", opcode);
+                        Err("unknown opcode in environment mode")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Helper to extract and evaluate two arguments with environment
+    fn extract_binary_clvm_args_evaled_with_env(
+        &self,
+        args: &ClvmValue,
+        env: &ClvmValue,
+        conditions: &mut Vec<Condition>,
+    ) -> Result<(ClvmValue, ClvmValue), &'static str> {
+        let (first_expr, second_expr) = self.extract_binary_clvm_args(args)?;
+        let first = self.evaluate_with_environment(&first_expr, env, conditions)?;
+        let second = self.evaluate_with_environment(&second_expr, env, conditions)?;
+        Ok((first, second))
+    }
+
+    /// Check if a value is truthy (non-empty)
+    fn is_truthy(&self, value: &ClvmValue) -> bool {
+        match value {
+            ClvmValue::Atom(bytes) => !bytes.is_empty(),
+            ClvmValue::Cons(_, _) => true,
+        }
     }
 
     /// Handle unsafe aggregate signature verification
@@ -1015,20 +1340,6 @@ impl ClvmEvaluator {
     }
 }
 
-/// Default ECDSA verifier using injected hasher
-fn default_ecdsa_verifier(
-    public_key_bytes: &[u8],
-    message_bytes: &[u8],
-    signature_bytes: &[u8],
-) -> Result<bool, &'static str> {
-    verify_ecdsa_signature_impl(
-        &hash_data_default,
-        public_key_bytes,
-        message_bytes,
-        signature_bytes,
-    )
-}
-
 /// convert a clvmvalue atom to an integer for arithmetic operations
 pub fn atom_to_number(value: &ClvmValue) -> Result<i64, &'static str> {
     match value {
@@ -1107,51 +1418,12 @@ pub fn extract_list_from_clvm(value: &ClvmValue) -> Result<Vec<ClvmValue>, &'sta
 }
 
 /// verify ecdsa signature using provided hasher
-pub fn verify_ecdsa_signature_with_hasher<H>(
-    hasher: &H,
+pub fn verify_ecdsa_signature_with_hasher(
+    hasher: Hasher,
     public_key_bytes: &[u8],
     message_bytes: &[u8],
     signature_bytes: &[u8],
-) -> Result<bool, &'static str>
-where
-    H: Fn(&[u8]) -> [u8; 32],
-{
-    verify_ecdsa_signature_impl(hasher, public_key_bytes, message_bytes, signature_bytes)
-}
-
-/// Default hash implementation using sha2 crate
-fn hash_data_default(data: &[u8]) -> [u8; 32] {
-    #[cfg(feature = "sha2-hasher")]
-    {
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        hasher.finalize().into()
-    }
-
-    #[cfg(not(feature = "sha2-hasher"))]
-    {
-        // Simple deterministic hash for no-std environments - not cryptographically secure
-        let mut hash = [0u8; 32];
-        for (i, &byte) in data.iter().enumerate() {
-            hash[i % 32] ^= byte.wrapping_add(i as u8);
-        }
-        hash
-    }
-}
-
-/// ECDSA verification implementation with injectable hasher
-fn verify_ecdsa_signature_impl<H>(
-    hasher: &H,
-    public_key_bytes: &[u8],
-    message_bytes: &[u8],
-    signature_bytes: &[u8],
-) -> Result<bool, &'static str>
-where
-    H: Fn(&[u8]) -> [u8; 32],
-{
-    use k256::ecdsa::signature::Verifier;
-
+) -> Result<bool, &'static str> {
     // accept both compressed (33 bytes) and uncompressed (65 bytes) public keys
     if public_key_bytes.len() != 33 && public_key_bytes.len() != 65 {
         return Err("invalid public key size - expected 33 or 65 bytes");
@@ -1227,12 +1499,16 @@ pub fn hash_data(data: &[u8]) -> [u8; 32] {
 }
 
 /// generate nullifier using canonical algorithm - works in both risc0 and sp1
-pub fn generate_nullifier(spend_secret: &[u8; 32], puzzle_hash: &[u8; 32]) -> [u8; 32] {
+pub fn generate_nullifier(
+    hasher: Hasher,
+    spend_secret: &[u8; 32],
+    puzzle_hash: &[u8; 32],
+) -> [u8; 32] {
     let mut combined = Vec::with_capacity(64 + 32);
     combined.extend_from_slice(b"clvm_zk_nullifier_v1.0");
     combined.extend_from_slice(spend_secret);
     combined.extend_from_slice(puzzle_hash);
-    hash_data(&combined)
+    hasher(&combined)
 }
 
 // Note: Custom hash functions are now injected through the evaluator pattern
@@ -1240,7 +1516,27 @@ pub fn generate_nullifier(spend_secret: &[u8; 32], puzzle_hash: &[u8; 32]) -> [u
 
 /// compute sha-256 hash - uses default hasher
 fn hash_data_impl(data: &[u8]) -> [u8; 32] {
-    hash_data_default(data)
+    #[cfg(feature = "sha2-hasher")]
+    {
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        hasher.finalize().into()
+    }
+    #[cfg(not(feature = "sha2-hasher"))]
+    {
+        // fallback for when sha2 is not available
+        [0u8; 32]
+    }
+}
+
+/// default hasher implementation
+pub fn hash_data_default(data: &[u8]) -> [u8; 32] {
+    hash_data_impl(data)
+}
+
+/// default ecdsa verifier using standard hasher
+pub fn default_ecdsa_verifier(pk: &[u8], msg: &[u8], sig: &[u8]) -> Result<bool, &'static str> {
+    verify_ecdsa_signature_with_hasher(hash_data_default, pk, msg, sig)
 }
 
 /// encode a clvmvalue as clvm bytes following the standard serialization format
@@ -1311,21 +1607,23 @@ pub fn encode_clvm_value(value: ClvmValue) -> Vec<u8> {
 
 #[cfg(test)]
 mod security_tests {
+    use crate::chialisp::compile_chialisp_to_bytecode;
+    use crate::hash_data;
     use crate::ProgramParameter;
-
     #[test]
     fn test_template_program_consistency_check() {
         // Test the new guest compilation approach
-        use crate::chialisp::compile_chialisp_to_bytecode;
 
         // Test that same program produces same hash
         let source = "(mod (x y) (+ x y))";
         let (_, hash1) = compile_chialisp_to_bytecode(
+            hash_data,
             source,
             &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
         )
         .unwrap();
         let (_, hash2) = compile_chialisp_to_bytecode(
+            hash_data,
             source,
             &[ProgramParameter::Int(10), ProgramParameter::Int(20)],
         )
@@ -1337,6 +1635,7 @@ mod security_tests {
         // Different programs should produce different hashes
         let source2 = "(mod (x y) (* x y))";
         let (_, hash3) = compile_chialisp_to_bytecode(
+            hash_data,
             source2,
             &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
         )

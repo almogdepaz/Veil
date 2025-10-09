@@ -6,8 +6,8 @@ extern crate alloc;
 
 // Use our no-std Chialisp compiler and evaluation engine
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, generate_nullifier, ClvmEvaluator,
-    ClvmOutput, Input, ProofOutput, PublicInputs,
+    compile_chialisp_to_bytecode, generate_nullifier, ClvmEvaluator, ClvmOutput, Input,
+    ProofOutput, PublicInputs,
 };
 
 // BLS12-381 cryptographic operations with SP1 precompiles
@@ -91,7 +91,7 @@ fn sp1_verify_ecdsa_signature_guest(
     signature_bytes: &[u8],
 ) -> Result<bool, &'static str> {
     clvm_zk_core::verify_ecdsa_signature_with_hasher(
-        &sp1_hash_data_guest,
+        sp1_hash_data_guest,
         public_key_bytes,
         message_bytes,
         signature_bytes,
@@ -107,12 +107,14 @@ fn main() {
 
     // Compile Chialisp source to bytecode in the guest
     let (instance_bytecode, program_hash) = compile_chialisp_to_bytecode(
+        sp1_hash_data_guest,
         &private_inputs.chialisp_source,
         &private_inputs.program_parameters,
-    ).expect("Chialisp compilation failed");
+    )
+    .expect("Chialisp compilation failed");
 
     // Create evaluator with SP1-specific optimized implementations (guest-only)
-    let mut evaluator = ClvmEvaluator::with_backends(
+    let mut evaluator = ClvmEvaluator::new(
         sp1_hash_data_guest,              // SP1 SHA-256 optimization
         sp1_verify_bls_signature_guest,   // SP1 BLS verification with precompiles
         sp1_verify_ecdsa_signature_guest, // SP1 ECDSA verification with optimized hasher
@@ -122,18 +124,17 @@ fn main() {
     let parameters = private_inputs.program_parameters;
 
     // Execute the compiled bytecode using evaluator with injected SP1 backends
-    let (output_bytes, conditions) = evaluator.evaluate_clvm_program_with_params(&instance_bytecode, &parameters)
+    let (output_bytes, conditions) = evaluator
+        .evaluate_clvm_program_with_params(&instance_bytecode, &parameters)
         .expect("CLVM execution failed");
 
     // Generate nullifier using program hash if needed
     let computed_nullifier = match private_inputs.spend_secret {
         Some(spend_secret) => {
             // Use program hash for nullifier, not instance bytecode
-            generate_nullifier(&spend_secret, &program_hash)
+            generate_nullifier(sp1_hash_data_guest, &spend_secret, &program_hash)
         }
-        None => {
-            [0u8; 32]
-        }
+        None => [0u8; 32],
     };
 
     // Conditions are validated internally but not exposed publicly

@@ -6,19 +6,22 @@ use clvm_zk::simulator::{CLVMZkSimulator, CoinMetadata, CoinType, SimulatedTrans
 use clvm_zk::testing_helpers::CoinFactory;
 
 /// Comprehensive proof validation for security-critical tests
-/// 
+///
 /// This validates that a transaction contains legitimate, valid proofs rather than
 /// just checking that proof generation succeeded (which could produce garbage proofs).
-fn validate_transaction_proofs(tx: &SimulatedTransaction, expected_nullifiers: &[[u8; 32]]) -> Result<(), String> {
+fn validate_transaction_proofs(
+    tx: &SimulatedTransaction,
+    expected_nullifiers: &[[u8; 32]],
+) -> Result<(), String> {
     // 1. Validate basic transaction structure
     if tx.nullifiers.is_empty() {
         return Err("Transaction contains no nullifiers - invalid proof".to_string());
     }
-    
+
     if tx.spend_bundles.is_empty() {
         return Err("Transaction contains no spend bundles - invalid proof".to_string());
     }
-    
+
     // 2. Validate nullifier count matches expected
     if tx.nullifiers.len() != expected_nullifiers.len() {
         return Err(format!(
@@ -27,7 +30,7 @@ fn validate_transaction_proofs(tx: &SimulatedTransaction, expected_nullifiers: &
             tx.nullifiers.len()
         ));
     }
-    
+
     // 3. Validate each expected nullifier is present
     for expected_nullifier in expected_nullifiers {
         if !tx.nullifiers.contains(expected_nullifier) {
@@ -37,25 +40,31 @@ fn validate_transaction_proofs(tx: &SimulatedTransaction, expected_nullifiers: &
             ));
         }
     }
-    
+
     // 4. Validate each spend bundle
     for (i, bundle) in tx.spend_bundles.iter().enumerate() {
         // Check proof is not empty
         if bundle.zk_proof.is_empty() {
             return Err(format!("Spend bundle {} has empty proof - invalid", i));
         }
-        
+
         // Check nullifier is not all-zeros (common garbage proof indicator)
         if bundle.nullifier == [0u8; 32] {
-            return Err(format!("Spend bundle {} has zero nullifier - invalid proof", i));
+            return Err(format!(
+                "Spend bundle {} has zero nullifier - invalid proof",
+                i
+            ));
         }
-        
+
         // Check public conditions exist (proof actually computed something)
         if bundle.public_conditions.is_empty() {
-            return Err(format!("Spend bundle {} has no public conditions - invalid proof", i));
+            return Err(format!(
+                "Spend bundle {} has no public conditions - invalid proof",
+                i
+            ));
         }
     }
-    
+
     // 5. Additional validation: ensure nullifiers match spend bundles
     let bundle_nullifiers: Vec<[u8; 32]> = tx.spend_bundles.iter().map(|b| b.nullifier).collect();
     for tx_nullifier in &tx.nullifiers {
@@ -66,7 +75,7 @@ fn validate_transaction_proofs(tx: &SimulatedTransaction, expected_nullifiers: &
             ));
         }
     }
-    
+
     Ok(())
 }
 
@@ -117,14 +126,14 @@ fn test_signature_enabled_spending() {
             println!("   ✅ Spend successful!");
             println!("      - Transaction ID: {}", hex::encode(tx.id));
             println!("      - Nullifiers: {}", tx.nullifiers.len());
-            
+
             // SECURITY: Validate the proof is legitimate, not just that generation succeeded
             let expected_nullifiers = [coin.nullifier()];
             match validate_transaction_proofs(&tx, &expected_nullifiers) {
                 Ok(()) => println!("   ✅ Proof validation passed - legitimate transaction"),
                 Err(validation_error) => panic!("❌ Proof validation failed: {}", validation_error),
             }
-            
+
             assert_eq!(tx.nullifiers.len(), 1);
             assert_eq!(tx.nullifiers[0], coin.nullifier());
         }
@@ -253,14 +262,17 @@ fn test_multiple_signature_coins_in_transaction() {
         Ok(tx) => {
             println!("   ✅ Multi-coin spend successful!");
             println!("      - Spent {} coins", tx.nullifiers.len());
-            
+
             // SECURITY: Validate all proofs are legitimate
             let expected_nullifiers = [coin1.nullifier(), coin2.nullifier()];
             match validate_transaction_proofs(&tx, &expected_nullifiers) {
                 Ok(()) => println!("   ✅ Multi-coin proof validation passed"),
-                Err(validation_error) => panic!("❌ Multi-coin proof validation failed: {}", validation_error),
+                Err(validation_error) => panic!(
+                    "❌ Multi-coin proof validation failed: {}",
+                    validation_error
+                ),
             }
-            
+
             assert_eq!(tx.nullifiers.len(), 2);
             assert!(tx.nullifiers.contains(&coin1.nullifier()));
             assert!(tx.nullifiers.contains(&coin2.nullifier()));

@@ -1,12 +1,54 @@
+use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
     compile_chialisp_to_bytecode, compile_chialisp_with_function_table, generate_nullifier,
     ClvmEvaluator, ClvmOutput, ClvmZkError, ProgramParameter, ProofOutput, PublicInputs,
     ZKClvmNullifierResult, ZKClvmResult,
 };
-use std::fs;
-use std::path::Path;
+use sha2::{Digest, Sha256};
+
+use blst::min_pk as blst_core;
+use blst::BLST_ERROR;
 
 pub struct MockBackend;
+
+impl MockBackend {}
+
+pub fn default_bls_verifier(
+    public_key_bytes: &[u8],
+    message_bytes: &[u8],
+    signature_bytes: &[u8],
+) -> Result<bool, &'static str> {
+    // Deserialize public key
+    let pk = blst_core::PublicKey::from_bytes(public_key_bytes)
+        .map_err(|_| "invalid public key bytes")?;
+
+    // Deserialize signature
+    let sig =
+        blst_core::Signature::from_bytes(signature_bytes).map_err(|_| "invalid signature bytes")?;
+
+    // Domain separation tag (Ethereum-style)
+    const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
+
+    // The verify() function signature is:
+    // verify(hash_or_encode: bool, msg: &[u8], dst: &[u8], aug: &[u8], pk: &PublicKey, validate: bool)
+    let res: BLST_ERROR = sig.verify(true, message_bytes, DST, &[], &pk, true);
+
+    Ok(res == BLST_ERROR::BLST_SUCCESS)
+}
+
+fn hash_data(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
+fn ecdsa_verifier(
+    public_key_bytes: &[u8],
+    message_bytes: &[u8],
+    signature_bytes: &[u8],
+) -> Result<bool, &'static str> {
+    verify_ecdsa_signature_with_hasher(hash_data, public_key_bytes, message_bytes, signature_bytes)
+}
 
 impl MockBackend {
     pub fn new() -> Result<Self, ClvmZkError> {
@@ -20,38 +62,21 @@ impl MockBackend {
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        let mut execution_log = String::new();
-        execution_log.push_str("=== MOCK BACKEND EXECUTION LOG ===\n\n");
-        execution_log.push_str(&format!("Chialisp Source:\n{}\n\n", chialisp_source));
-        execution_log.push_str(&format!("Parameters: {:?}\n\n", program_parameters));
+        // compile chialisp source to bytecode (same as guest)
+        let (instance_bytecode, program_hash) = compile_chialisp_to_bytecode(
+            hash_data,
+            chialisp_source,
+            program_parameters,
+        )
+        .map_err(|e| {
+            ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
+        })?;
 
-        // compile chialisp source to bytecode WITH function table support
-        let (instance_bytecode, program_hash, function_table) =
-            compile_chialisp_with_function_table(chialisp_source, program_parameters).map_err(|e| {
-                let error_msg = format!("chialisp compilation failed: {:?}", e);
-                execution_log.push_str(&format!("❌ COMPILATION ERROR: {}\n", error_msg));
-                self.save_execution_log(&execution_log, "compilation_failed");
-                ClvmZkError::ProofGenerationFailed(error_msg)
-            })?;
+        // execute the compiled bytecode using default evaluator (same as SP1 guest)
 
-        execution_log.push_str("✅ Compilation successful\n");
-        execution_log.push_str(&format!("Program hash: {:?}\n", hex::encode(program_hash)));
-        execution_log.push_str(&format!("Bytecode length: {} bytes\n", instance_bytecode.len()));
-        execution_log.push_str(&format!("Function table: {} functions\n", function_table.function_names().len()));
-        execution_log.push_str(&format!("Functions: {:?}\n\n", function_table.function_names()));
+        let evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
 
-        execution_log.push_str("=== EXECUTION START ===\n");
-
-        // execute the compiled bytecode using evaluator with function table
-        let mut evaluator = ClvmEvaluator::new();
-        evaluator.function_table = function_table;
-
-        // Add debug tracing for evaluation steps
-        execution_log.push_str(&format!("Instance bytecode: {:?}\n", instance_bytecode));
-
-        let execution_start = std::time::Instant::now();
-
-        let (output_bytes, conditions) = evaluator
+        let (output_bytes, _conditions) = evaluator
             .evaluate_clvm_program_with_params(&instance_bytecode, program_parameters)
             .map_err(|e| {
                 let error_msg = format!("clvm execution failed: {:?}", e);
@@ -61,17 +86,25 @@ impl MockBackend {
                 execution_log.push_str("🔍 Bytecode analysis:\n");
                 if instance_bytecode.len() >= 7 {
                     let op_byte = instance_bytecode[1]; // Skip the 0xFF prefix
-                    execution_log.push_str(&format!("  Operator byte: {} ({})\n", op_byte, op_byte as char));
+                    execution_log.push_str(&format!(
+                        "  Operator byte: {} ({})\n",
+                        op_byte, op_byte as char
+                    ));
 
-                    if op_byte == 42 { // Multiplication operator
+                    if op_byte == 42 {
+                        // Multiplication operator
                         execution_log.push_str("  This is a multiplication operation!\n");
-                        execution_log.push_str(&format!("  Full bytecode: {:?}\n", instance_bytecode));
+                        execution_log
+                            .push_str(&format!("  Full bytecode: {:?}\n", instance_bytecode));
 
                         // Try to decode the arguments
                         if instance_bytecode.len() > 3 {
                             let arg1_start = 3; // Skip [255, 42, 255]
-                            execution_log.push_str(&format!("  Argument section starts at byte {}: {:?}\n",
-                                arg1_start, &instance_bytecode[arg1_start..]));
+                            execution_log.push_str(&format!(
+                                "  Argument section starts at byte {}: {:?}\n",
+                                arg1_start,
+                                &instance_bytecode[arg1_start..]
+                            ));
                         }
                     }
                 }
@@ -81,9 +114,15 @@ impl MockBackend {
             })?;
 
         let execution_time = execution_start.elapsed();
-        execution_log.push_str(&format!("✅ Execution successful in {:?}\n", execution_time));
+        execution_log.push_str(&format!(
+            "✅ Execution successful in {:?}\n",
+            execution_time
+        ));
         execution_log.push_str(&format!("Result bytes: {:?}\n", output_bytes));
-        execution_log.push_str(&format!("Result bytes (hex): {}\n", hex::encode(&output_bytes)));
+        execution_log.push_str(&format!(
+            "Result bytes (hex): {}\n",
+            hex::encode(&output_bytes)
+        ));
         execution_log.push_str(&format!("Conditions: {} generated\n", conditions.len()));
 
         // try to parse result as integer for convenience
@@ -162,13 +201,17 @@ impl MockBackend {
         spend_secret: [u8; 32],
     ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
         // compile chialisp source to bytecode (same as guest)
-        let (instance_bytecode, program_hash) =
-            compile_chialisp_to_bytecode(chialisp_source, program_parameters).map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
-            })?;
+        let (instance_bytecode, program_hash) = compile_chialisp_to_bytecode(
+            hash_data,
+            chialisp_source,
+            program_parameters,
+        )
+        .map_err(|e| {
+            ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
+        })?;
 
         // execute the compiled bytecode using default evaluator (same as SP1 guest)
-        let mut evaluator = ClvmEvaluator::new();
+        let evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
         let (output_bytes, _conditions) = evaluator
             .evaluate_clvm_program_with_params(&instance_bytecode, program_parameters)
             .map_err(|e| {
@@ -176,7 +219,7 @@ impl MockBackend {
             })?;
 
         // generate nullifier using program hash (same as guest)
-        let computed_nullifier = generate_nullifier(&spend_secret, &program_hash);
+        let computed_nullifier = generate_nullifier(hash_data, &spend_secret, &program_hash);
 
         let clvm_output = ClvmOutput {
             result: output_bytes,

@@ -5,14 +5,13 @@ use crate::CLVM_ZK_SP1_ELF;
 
 // use common types from clvm_zk_core
 pub use clvm_zk_core::{
-    ClvmOutput, ClvmZkError, Input, ProofOutput, ProgramParameter,
-    PublicInputs, ZKClvmNullifierResult, ZKClvmResult,
+    ClvmOutput, ClvmZkError, Input, ProgramParameter, ProofOutput, PublicInputs,
+    ZKClvmNullifierResult, ZKClvmResult,
 };
 
 // use common backend utilities
 use crate::common::{
-    convert_proving_error, validate_nullifier_proof_output,
-    validate_proof_output,
+    convert_proving_error, validate_nullifier_proof_output, validate_proof_output,
 };
 
 // import the global common module with prepare_guest_inputs
@@ -80,7 +79,8 @@ impl Sp1Backend {
         use sp1_sdk::{ProverClient, SP1Stdin};
 
         // prepare inputs for the guest
-        let (public_inputs, private_inputs) = prepare_guest_inputs(chialisp_source, program_parameters, None);
+        let (public_inputs, private_inputs) =
+            prepare_guest_inputs(chialisp_source, program_parameters, None);
 
         // create stdin for sp1
         let mut stdin = SP1Stdin::new();
@@ -112,14 +112,9 @@ impl Sp1Backend {
         let mut proof = {
             use std::panic::AssertUnwindSafe;
             std::panic::catch_unwind(AssertUnwindSafe(|| {
-                client
-                    .prove(&pk, &stdin)
-                    .mode(proof_mode)
-                    .run()
+                client.prove(&pk, &stdin).mode(proof_mode).run()
             }))
-            .map_err(|_| {
-                ClvmZkError::ProofGenerationFailed("SP1 proving panicked".to_string())
-            })?
+            .map_err(|_| ClvmZkError::ProofGenerationFailed("SP1 proving panicked".to_string()))?
             .map_err(|e| convert_proving_error(e, "SP1"))?
         };
 
@@ -150,7 +145,8 @@ impl Sp1Backend {
         use sp1_sdk::{ProverClient, SP1Stdin};
 
         // prepare inputs for the guest
-        let (public_inputs, private_inputs) = prepare_guest_inputs(chialisp_source, program_parameters, Some(spend_secret));
+        let (public_inputs, private_inputs) =
+            prepare_guest_inputs(chialisp_source, program_parameters, Some(spend_secret));
 
         // create stdin for sp1
         let mut stdin = SP1Stdin::new();
@@ -182,14 +178,9 @@ impl Sp1Backend {
         let mut proof = {
             use std::panic::AssertUnwindSafe;
             std::panic::catch_unwind(AssertUnwindSafe(|| {
-                client
-                    .prove(&pk, &stdin)
-                    .mode(proof_mode)
-                    .run()
+                client.prove(&pk, &stdin).mode(proof_mode).run()
             }))
-            .map_err(|_| {
-                ClvmZkError::ProofGenerationFailed("SP1 proving panicked".to_string())
-            })?
+            .map_err(|_| ClvmZkError::ProofGenerationFailed("SP1 proving panicked".to_string()))?
             .map_err(|e| convert_proving_error(e, "SP1"))?
         };
 
@@ -211,7 +202,6 @@ impl Sp1Backend {
             proof: proof_bytes,
         })
     }
-
 
     pub fn verify_proof_and_extract(
         &self,
@@ -247,5 +237,3 @@ impl Sp1Backend {
         Self::is_sp1_available()
     }
 }
-
-

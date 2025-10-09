@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clvm-zk-core = { path = "../../clvm_zk_core", features = ["std"] }
+clvm-zk-core = { path = "../../clvm_zk_core" }
 borsh = "1.5.7"
 thiserror = "2.0.12"
 hex = "0.4"
+blst = "0.3"
+sha2 = "0.10"

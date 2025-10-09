@@ -28,6 +28,12 @@ pub struct CLVMZkSimulator {
     block_height: u64,
 }
 
+impl Default for CLVMZkSimulator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CLVMZkSimulator {
     /// Create new simulator
     pub fn new() -> Self {
@@ -178,8 +184,8 @@ impl CLVMZkSimulator {
     fn generate_tx_id(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(b"clvm_zk_tx_id");
-        hasher.update(&self.block_height.to_le_bytes());
-        hasher.update(&self.transactions.len().to_le_bytes());
+        hasher.update(self.block_height.to_le_bytes());
+        hasher.update(self.transactions.len().to_le_bytes());
         hasher.finalize().into()
     }
 

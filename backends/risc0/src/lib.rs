@@ -1,7 +1,7 @@
 //! risc0 backend library - provides self-contained risc0 integration
 
-mod methods;
 mod backend;
+mod methods;
 
 // include common backend utilities
 mod common;

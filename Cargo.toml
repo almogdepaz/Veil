@@ -30,7 +30,6 @@ mock = ["dep:clvm-zk-mock"]                           # mock backend for testing
 # testing utilities (enabled by default for tests)
 testing = []
 
-
 [dependencies]
 # Core dependencies
 serde = { version = "1.0.219", features = ["derive"] }

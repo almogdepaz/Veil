@@ -1,5 +1,5 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash;
+use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 use std::time::{Duration, Instant};
 
 /// Performance profiling example demonstrating optimization techniques
@@ -62,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Measure verification time (5 runs for average)
         let mut verification_times = Vec::new();
-        let program_hash = compile_chialisp_template_hash(expression).unwrap();
+        let program_hash = compile_chialisp_template_hash_default(expression).unwrap();
         for _ in 0..5 {
             let verify_start = Instant::now();
             let (_is_valid, _) =

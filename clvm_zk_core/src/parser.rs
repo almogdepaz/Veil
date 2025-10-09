@@ -31,11 +31,6 @@ impl<'a> ClvmParser<'a> {
                 let rest = self.parse()?;
                 Ok(ClvmValue::Cons(Box::new(first), Box::new(rest)))
             }
-            0x80 => {
-                // nil (empty atom)
-                self.pos += 1;
-                Ok(ClvmValue::Atom(Vec::new()))
-            }
             0x00..=0x7F => {
                 // single byte atom
                 let value = self.bytes[self.pos];
@@ -43,6 +38,11 @@ impl<'a> ClvmParser<'a> {
                 Ok(ClvmValue::Atom(vec![value]))
             }
             0x80..=0xBF => {
+                // Check for nil (empty atom) case first
+                if self.bytes[self.pos] == 0x80 {
+                    self.pos += 1;
+                    return Ok(ClvmValue::Atom(Vec::new()));
+                }
                 // atom with size in lower 6 bits (1-63 bytes)
                 let size_byte = self.bytes[self.pos];
                 self.pos += 1;
