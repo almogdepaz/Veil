@@ -62,80 +62,26 @@ impl MockBackend {
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        // compile chialisp source to bytecode (same as guest)
-        let (instance_bytecode, program_hash) = compile_chialisp_to_bytecode(
-            hash_data,
-            chialisp_source,
-            program_parameters,
-        )
-        .map_err(|e| {
-            ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
-        })?;
+        // compile chialisp source to bytecode WITH function table
+        let (instance_bytecode, program_hash, function_table) =
+            compile_chialisp_with_function_table(chialisp_source, program_parameters).map_err(
+                |e| {
+                    ClvmZkError::ProofGenerationFailed(format!(
+                        "chialisp compilation failed: {:?}",
+                        e
+                    ))
+                },
+            )?;
 
-        // execute the compiled bytecode using default evaluator (same as SP1 guest)
-
-        let evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
+        // execute the compiled bytecode using evaluator with function table
+        let mut evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
+        evaluator.function_table = function_table;
 
         let (output_bytes, _conditions) = evaluator
             .evaluate_clvm_program_with_params(&instance_bytecode, program_parameters)
             .map_err(|e| {
-                let error_msg = format!("clvm execution failed: {:?}", e);
-                execution_log.push_str(&format!("❌ EXECUTION ERROR: {}\n", error_msg));
-
-                // Try to parse the bytecode to understand what's happening
-                execution_log.push_str("🔍 Bytecode analysis:\n");
-                if instance_bytecode.len() >= 7 {
-                    let op_byte = instance_bytecode[1]; // Skip the 0xFF prefix
-                    execution_log.push_str(&format!(
-                        "  Operator byte: {} ({})\n",
-                        op_byte, op_byte as char
-                    ));
-
-                    if op_byte == 42 {
-                        // Multiplication operator
-                        execution_log.push_str("  This is a multiplication operation!\n");
-                        execution_log
-                            .push_str(&format!("  Full bytecode: {:?}\n", instance_bytecode));
-
-                        // Try to decode the arguments
-                        if instance_bytecode.len() > 3 {
-                            let arg1_start = 3; // Skip [255, 42, 255]
-                            execution_log.push_str(&format!(
-                                "  Argument section starts at byte {}: {:?}\n",
-                                arg1_start,
-                                &instance_bytecode[arg1_start..]
-                            ));
-                        }
-                    }
-                }
-
-                self.save_execution_log(&execution_log, "execution_failed");
-                ClvmZkError::ProofGenerationFailed(error_msg)
+                ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
             })?;
-
-        let execution_time = execution_start.elapsed();
-        execution_log.push_str(&format!(
-            "✅ Execution successful in {:?}\n",
-            execution_time
-        ));
-        execution_log.push_str(&format!("Result bytes: {:?}\n", output_bytes));
-        execution_log.push_str(&format!(
-            "Result bytes (hex): {}\n",
-            hex::encode(&output_bytes)
-        ));
-        execution_log.push_str(&format!("Conditions: {} generated\n", conditions.len()));
-
-        // try to parse result as integer for convenience
-        if output_bytes.len() == 1 {
-            execution_log.push_str(&format!("Result as u8: {}\n", output_bytes[0]));
-        } else if output_bytes.is_empty() {
-            execution_log.push_str("Result: nil (empty)\n");
-        } else {
-            execution_log.push_str(&format!("Result: complex ({} bytes)\n", output_bytes.len()));
-        }
-
-        execution_log.push_str("\n=== EXECUTION COMPLETE ===\n");
-        self.save_execution_log(&execution_log, "success");
 
         let clvm_output = ClvmOutput {
             result: output_bytes,
@@ -159,27 +105,6 @@ impl MockBackend {
             cost: clvm_output.cost,
             proof: proof_bytes,
         })
-    }
-
-    /// save execution log to file for debugging
-    fn save_execution_log(&self, log: &str, status: &str) {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        let filename = format!("mock_execution_{}_{}.log", status, timestamp);
-        let filepath = Path::new("target").join("mock_logs").join(filename);
-
-        // create directory if it doesn't exist
-        if let Some(parent) = filepath.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-
-        match fs::write(&filepath, log) {
-            Ok(_) => println!("📝 Execution log saved to: {:?}", filepath),
-            Err(e) => eprintln!("⚠️  Failed to save execution log: {}", e),
-        }
     }
 
     /// verify a mock proof by re-executing and comparing results
@@ -211,7 +136,7 @@ impl MockBackend {
         })?;
 
         // execute the compiled bytecode using default evaluator (same as SP1 guest)
-        let evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
+        let mut evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
         let (output_bytes, _conditions) = evaluator
             .evaluate_clvm_program_with_params(&instance_bytecode, program_parameters)
             .map_err(|e| {
