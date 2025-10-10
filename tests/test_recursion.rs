@@ -18,7 +18,7 @@ fn test_mock_recursive_factorial() {
         )
     "#;
 
-    println!("🧪 Testing recursive factorial with mock backend...");
+    println!("Testing recursive factorial with mock backend...");
 
     // Test factorial(3) = 6
     let params = vec![ProgramParameter::int(3)];
@@ -26,14 +26,14 @@ fn test_mock_recursive_factorial() {
 
     match result {
         Ok(zk_result) => {
-            println!("✅ Mock execution succeeded!");
+            println!("Mock execution succeeded!");
             println!("Result: {:?}", zk_result.result);
 
             // Check if result is 6
             if zk_result.result.len() == 1 && zk_result.result[0] == 6 {
-                println!("🎉 factorial(3) = 6 ✓");
+                println!("factorial(3) = 6 ✓");
             } else {
-                println!("❌ Expected factorial(3) = 6, got {:?}", zk_result.result);
+                println!("Expected factorial(3) = 6, got {:?}", zk_result.result);
             }
 
             // Test verification
@@ -42,7 +42,7 @@ fn test_mock_recursive_factorial() {
 
             assert!(verification_result.is_ok(), "Verification should work");
             assert!(verification_result.unwrap(), "Verification should pass");
-            println!("✅ Mock verification passed!");
+            println!("Mock verification passed!");
         }
         Err(e) => {
             panic!("Mock execution failed: {:?}", e);
@@ -65,7 +65,7 @@ fn test_mock_conditional_function() {
         )
     "#;
 
-    println!("🧪 Testing simple conditional function with mock backend...");
+    println!("Testing simple conditional function with mock backend...");
 
     // Test test_if(3) = 6 (since 3 != 0, returns 3 * 2 = 6)
     let params = vec![ProgramParameter::int(3)];
@@ -73,14 +73,14 @@ fn test_mock_conditional_function() {
 
     match result {
         Ok(zk_result) => {
-            println!("✅ Mock execution succeeded!");
+            println!("Mock execution succeeded!");
             println!("Result: {:?}", zk_result.result);
 
             // Check if result is 6
             if zk_result.result.len() == 1 && zk_result.result[0] == 6 {
-                println!("🎉 test_if(3) = 6 ✓");
+                println!("test_if(3) = 6 ✓");
             } else {
-                println!("❌ Expected test_if(3) = 6, got {:?}", zk_result.result);
+                println!("Expected test_if(3) = 6, got {:?}", zk_result.result);
             }
         }
         Err(e) => {
@@ -105,22 +105,21 @@ fn test_mock_factorial_like_non_recursive() {
         )
     "#;
 
-    println!("🧪 Testing factorial-like non-recursive function with mock backend...");
+    println!("Testing factorial-like non-recursive function with mock backend...");
 
     // Let's test direct multiplication vs function context multiplication
-    println!("🔍 Testing direct multiplication without functions...");
+    println!("Testing direct multiplication without functions...");
 
     // Test direct (* x 1) without function context
     let test_direct_mul_1 = r#"(mod (x) (* x 1))"#;
-    let test_direct_mul_2 = r#"(mod (x) (* x 2))"#;
 
     let params = vec![ProgramParameter::int(3)];
 
     println!("Testing direct (* 3 1)...");
     match mock.prove_chialisp_program(test_direct_mul_1, &params) {
-        Ok(result) => println!("✅ Direct (* 3 1) = {:?}", result.result),
+        Ok(result) => println!("Direct (* 3 1) = {:?}", result.result),
         Err(e) => {
-            println!("❌ Direct (* 3 1) failed: {:?}", e);
+            println!("Direct (* 3 1) failed: {:?}", e);
             panic!("Direct multiplication by 1 failed - this is the core bug!");
         }
     }
@@ -129,17 +128,14 @@ fn test_mock_factorial_like_non_recursive() {
     let result = mock.prove_chialisp_program(factorial_like_source, &params);
     match result {
         Ok(zk_result) => {
-            println!("✅ Mock execution succeeded!");
+            println!("Mock execution succeeded!");
             println!("Result: {:?}", zk_result.result);
 
             // Check if result is 3
             if zk_result.result.len() == 1 && zk_result.result[0] == 3 {
-                println!("🎉 factorial_like(3) = 3 ✓");
+                println!("factorial_like(3) = 3 ✓");
             } else {
-                println!(
-                    "❌ Expected factorial_like(3) = 3, got {:?}",
-                    zk_result.result
-                );
+                println!("Expected factorial_like(3) = 3, got {:?}", zk_result.result);
             }
         }
         Err(e) => {
@@ -160,7 +156,7 @@ fn test_mock_simple_function() {
         )
     "#;
 
-    println!("🧪 Testing simple function with mock backend...");
+    println!("Testing simple function with mock backend...");
 
     // Test double(5) = 10
     let params = vec![ProgramParameter::int(5)];
@@ -168,14 +164,14 @@ fn test_mock_simple_function() {
 
     match result {
         Ok(zk_result) => {
-            println!("✅ Mock execution succeeded!");
+            println!("Mock execution succeeded!");
             println!("Result: {:?}", zk_result.result);
 
             // Check if result is 10
             if zk_result.result.len() == 1 && zk_result.result[0] == 10 {
-                println!("🎉 double(5) = 10 ✓");
+                println!("double(5) = 10 ✓");
             } else {
-                println!("❌ Expected double(5) = 10, got {:?}", zk_result.result);
+                println!("Expected double(5) = 10, got {:?}", zk_result.result);
             }
         }
         Err(e) => {
@@ -199,7 +195,7 @@ fn test_mock_deep_recursion() {
         )
     "#;
 
-    println!("🧪 Testing fibonacci recursion with mock backend...");
+    println!("Testing fibonacci recursion with mock backend...");
 
     // Test fib(7) = 13 (0,1,1,2,3,5,8,13)
     let params = vec![ProgramParameter::int(7)];
@@ -207,18 +203,286 @@ fn test_mock_deep_recursion() {
 
     match result {
         Ok(zk_result) => {
-            println!("✅ Mock execution succeeded!");
+            println!("Mock execution succeeded!");
             println!("Result: {:?}", zk_result.result);
 
-            if zk_result.result.len() == 1 {
-                println!("🎉 fib(7) = {} (expected 13)", zk_result.result[0]);
+            if zk_result.result.len() == 1 && zk_result.result[0] == 13 {
+                println!("fib(7) = {} ✓", zk_result.result[0]);
             } else {
-                println!("❌ Unexpected result format: {:?}", zk_result.result);
+                panic!("Expected fib(7) = 13, got {:?}", zk_result.result);
             }
         }
         Err(e) => {
-            println!("❌ Deep recursion failed: {:?}", e);
-            // This might fail due to recursion limits - that's expected for now
+            panic!("Deep recursion failed: {:?}", e);
         }
     }
+}
+
+#[test]
+#[cfg(not(any(feature = "risc0", feature = "sp1")))]
+fn test_deeper_factorial_recursion() {
+    let mock = MockBackend::new().expect("Mock backend should initialize");
+
+    let factorial_source = r#"
+        (mod (n)
+            (defun factorial (x)
+                (if (= x 0)
+                    1
+                    (* x (factorial (- x 1)))))
+            (factorial n)
+        )
+    "#;
+
+    println!("Testing deeper factorial recursion...");
+
+    // Test factorial(5) = 120
+    let params = vec![ProgramParameter::int(5)];
+    let result = mock
+        .prove_chialisp_program(factorial_source, &params)
+        .expect("Should compute factorial(5)");
+
+    assert_eq!(result.result, vec![120], "factorial(5) should equal 120");
+    println!("factorial(5) = 120 ✓");
+
+    // Test factorial(6) = 720
+    let params = vec![ProgramParameter::int(6)];
+    let result = mock
+        .prove_chialisp_program(factorial_source, &params)
+        .expect("Should compute factorial(6)");
+
+    // 720 = 0x02d0, requires multi-byte encoding
+    let expected = vec![0x82, 0x02, 0xd0]; // CLVM encoding for 720
+    assert_eq!(
+        result.result, expected,
+        "factorial(6) should equal 720 (encoded as {:?})",
+        expected
+    );
+    println!("factorial(6) = 720 ✓");
+}
+
+#[test]
+#[cfg(not(any(feature = "risc0", feature = "sp1")))]
+fn test_recursion_with_helper_functions() {
+    let mock = MockBackend::new().expect("Mock backend should initialize");
+
+    // Recursion that calls helper functions during recursion
+    let source = r#"
+        (mod (n)
+            (defun double (x) (* x 2))
+            (defun sum_doubled (x)
+                (if (= x 0)
+                    0
+                    (+ (double x) (sum_doubled (- x 1)))))
+            (sum_doubled n)
+        )
+    "#;
+
+    println!("Testing recursion with helper function calls...");
+
+    // sum_doubled(3) = double(3) + double(2) + double(1) = 6 + 4 + 2 = 12
+    let params = vec![ProgramParameter::int(3)];
+    let result = mock
+        .prove_chialisp_program(source, &params)
+        .expect("Should compute sum_doubled(3)");
+
+    assert_eq!(result.result, vec![12], "sum_doubled(3) should equal 12");
+    println!("sum_doubled(3) = 12 ✓");
+
+    // Test with larger value
+    let params = vec![ProgramParameter::int(5)];
+    let result = mock
+        .prove_chialisp_program(source, &params)
+        .expect("Should compute sum_doubled(5)");
+
+    // sum_doubled(5) = 10 + 8 + 6 + 4 + 2 = 30
+    assert_eq!(result.result, vec![30], "sum_doubled(5) should equal 30");
+    println!("sum_doubled(5) = 30 ✓");
+}
+
+#[test]
+#[cfg(not(any(feature = "risc0", feature = "sp1")))]
+fn test_mutual_recursion() {
+    let mock = MockBackend::new().expect("Mock backend should initialize");
+
+    // Mutual recursion: even/odd checker
+    let source = r#"
+        (mod (n)
+            (defun is_even (x)
+                (if (= x 0)
+                    1
+                    (is_odd (- x 1))))
+            (defun is_odd (x)
+                (if (= x 0)
+                    0
+                    (is_even (- x 1))))
+            (is_even n)
+        )
+    "#;
+
+    println!("Testing mutual recursion (is_even/is_odd)...");
+
+    // Test is_even(4) = true (1)
+    let params = vec![ProgramParameter::int(4)];
+    let result = mock
+        .prove_chialisp_program(source, &params)
+        .expect("Should compute is_even(4)");
+
+    assert_eq!(result.result, vec![1], "is_even(4) should be true (1)");
+    println!("is_even(4) = 1 ✓");
+
+    // Test is_even(5) = false (0)
+    let params = vec![ProgramParameter::int(5)];
+    let result = mock
+        .prove_chialisp_program(source, &params)
+        .expect("Should compute is_even(5)");
+
+    // CLVM can encode 0 as either [0x00] or [0x80] (nil)
+    let is_zero = result.result == vec![0] || result.result == vec![0x80];
+    assert!(
+        is_zero,
+        "is_even(5) should be false (0), got {:?}",
+        result.result
+    );
+    println!("is_even(5) = 0 ✓");
+
+    // Test is_even(10) = true (1)
+    let params = vec![ProgramParameter::int(10)];
+    let result = mock
+        .prove_chialisp_program(source, &params)
+        .expect("Should compute is_even(10)");
+
+    assert_eq!(result.result, vec![1], "is_even(10) should be true (1)");
+    println!("is_even(10) = 1 ✓");
+}
+
+#[test]
+#[cfg(not(any(feature = "risc0", feature = "sp1")))]
+fn test_nested_function_calls_in_recursion() {
+    let mock = MockBackend::new().expect("Mock backend should initialize");
+
+    // Multiple levels of function calls within recursion
+    let source = r#"
+        (mod (n)
+            (defun add_one (x) (+ x 1))
+            (defun double (x) (* x 2))
+            (defun process (x) (double (add_one x)))
+            (defun sum_processed (x)
+                (if (= x 0)
+                    0
+                    (+ (process x) (sum_processed (- x 1)))))
+            (sum_processed n)
+        )
+    "#;
+
+    println!("Testing nested function calls within recursion...");
+
+    // sum_processed(3) = process(3) + process(2) + process(1)
+    //                  = double(4) + double(3) + double(2)
+    //                  = 8 + 6 + 4 = 18
+    let params = vec![ProgramParameter::int(3)];
+    let result = mock
+        .prove_chialisp_program(source, &params)
+        .expect("Should compute sum_processed(3)");
+
+    assert_eq!(result.result, vec![18], "sum_processed(3) should equal 18");
+    println!("sum_processed(3) = 18 ✓");
+}
+
+#[test]
+#[cfg(not(any(feature = "risc0", feature = "sp1")))]
+fn test_deep_call_stack() {
+    let mock = MockBackend::new().expect("Mock backend should initialize");
+
+    // Test very deep recursion
+    let source = r#"
+        (mod (n)
+            (defun sum_to_n (x)
+                (if (= x 0)
+                    0
+                    (+ x (sum_to_n (- x 1)))))
+            (sum_to_n n)
+        )
+    "#;
+
+    println!("Testing deep call stack (sum 1..n)...");
+
+    // sum_to_n(10) = 10 + 9 + 8 + ... + 1 = 55
+    let params = vec![ProgramParameter::int(10)];
+    let result = mock
+        .prove_chialisp_program(source, &params)
+        .expect("Should compute sum_to_n(10)");
+
+    assert_eq!(result.result, vec![55], "sum_to_n(10) should equal 55");
+    println!("sum_to_n(10) = 55 ✓");
+
+    // sum_to_n(20) = 210
+    let params = vec![ProgramParameter::int(20)];
+    let result = mock
+        .prove_chialisp_program(source, &params)
+        .expect("Should compute sum_to_n(20)");
+
+    // 210 = 0xd2, single byte
+    assert_eq!(
+        result.result,
+        vec![0x81, 0xd2],
+        "sum_to_n(20) should equal 210"
+    );
+    println!("sum_to_n(20) = 210 ✓");
+}
+
+#[test]
+#[cfg(not(any(feature = "risc0", feature = "sp1")))]
+fn test_recursion_with_multiple_parameters() {
+    let mock = MockBackend::new().expect("Mock backend should initialize");
+
+    // Ackermann-like function with multiple params
+    let source = r#"
+        (mod (m n)
+            (defun ack (x y)
+                (if (= x 0)
+                    (+ y 1)
+                    (if (= y 0)
+                        (ack (- x 1) 1)
+                        (ack (- x 1) (ack x (- y 1))))))
+            (ack m n)
+        )
+    "#;
+
+    println!("Testing recursion with multiple parameters (Ackermann)...");
+
+    // ack(0, 0) = 1
+    let params = vec![ProgramParameter::int(0), ProgramParameter::int(0)];
+    let result = mock
+        .prove_chialisp_program(source, &params)
+        .expect("Should compute ack(0,0)");
+
+    assert_eq!(result.result, vec![1], "ack(0,0) should equal 1");
+    println!("ack(0,0) = 1 ✓");
+
+    // ack(1, 0) = 2
+    let params = vec![ProgramParameter::int(1), ProgramParameter::int(0)];
+    let result = mock
+        .prove_chialisp_program(source, &params)
+        .expect("Should compute ack(1,0)");
+
+    assert_eq!(result.result, vec![2], "ack(1,0) should equal 2");
+    println!("ack(1,0) = 2 ✓");
+
+    // ack(1, 1) = 3
+    let params = vec![ProgramParameter::int(1), ProgramParameter::int(1)];
+    let result = mock
+        .prove_chialisp_program(source, &params)
+        .expect("Should compute ack(1,1)");
+
+    assert_eq!(result.result, vec![3], "ack(1,1) should equal 3");
+    println!("ack(1,1) = 3 ✓");
+
+    // ack(2, 1) = 5
+    let params = vec![ProgramParameter::int(2), ProgramParameter::int(1)];
+    let result = mock
+        .prove_chialisp_program(source, &params)
+        .expect("Should compute ack(2,1)");
+
+    assert_eq!(result.result, vec![5], "ack(2,1) should equal 5");
+    println!("ack(2,1) = 5 ✓");
 }
