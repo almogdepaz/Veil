@@ -6,7 +6,7 @@ extern crate alloc;
 
 // Use our no-std Chialisp compiler and evaluation engine
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, generate_nullifier, ClvmEvaluator, ClvmOutput, Input,
+    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmOutput, Input,
     ProofOutput, PublicInputs,
 };
 
@@ -105,8 +105,8 @@ fn main() {
     // Read private inputs with Chialisp source
     let private_inputs: Input = io::read();
 
-    // Compile Chialisp source to bytecode in the guest
-    let (instance_bytecode, program_hash) = compile_chialisp_to_bytecode(
+    // Compile Chialisp source to bytecode WITH function table in the guest
+    let (instance_bytecode, program_hash, function_table) = compile_chialisp_to_bytecode_with_table(
         sp1_hash_data_guest,
         &private_inputs.chialisp_source,
         &private_inputs.program_parameters,
@@ -119,6 +119,7 @@ fn main() {
         sp1_verify_bls_signature_guest,   // SP1 BLS verification with precompiles
         sp1_verify_ecdsa_signature_guest, // SP1 ECDSA verification with optimized hasher
     );
+    evaluator.function_table = function_table;
 
     // Execute the compiled bytecode using evaluator with injected SP1 backends
     let (output_bytes, conditions) = evaluator
