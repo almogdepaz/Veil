@@ -43,13 +43,13 @@ pub fn backend() -> Result<Box<dyn ZKCLVMBackend>, ClvmZkError> {
         return Ok(Box::new(Risc0Backend::new()?));
     }
 
-    #[cfg(feature = "sp1")]
+    #[cfg(all(not(feature = "risc0"), feature = "sp1"))]
     {
         println!("🔧 initializing sp1 zkvm backend");
         return Ok(Box::new(Sp1Backend::new()?));
     }
 
-    #[cfg(feature = "mock")]
+    #[cfg(all(not(feature = "risc0"), not(feature = "sp1"), feature = "mock"))]
     {
         println!("🔧 initializing mock zkvm backend");
         Ok(Box::new(MockBackend::new()?))
@@ -57,9 +57,9 @@ pub fn backend() -> Result<Box<dyn ZKCLVMBackend>, ClvmZkError> {
 
     #[cfg(not(any(feature = "risc0", feature = "sp1", feature = "mock")))]
     {
-        Err(ClvmZkError::ConfigurationError(
+        return Err(ClvmZkError::ConfigurationError(
             "no zkvm backend enabled - enable one of 'risc0', 'sp1', or 'mock'".to_string(),
-        ))
+        ));
     }
 }
 

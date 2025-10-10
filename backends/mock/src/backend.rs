@@ -66,14 +66,13 @@ impl MockBackend {
     ) -> Result<ZKClvmResult, ClvmZkError> {
         // compile chialisp source to bytecode WITH function table
         let (instance_bytecode, program_hash, function_table) =
-            compile_chialisp_to_bytecode_with_table(hash_data, chialisp_source, program_parameters).map_err(
-                |e| {
+            compile_chialisp_to_bytecode_with_table(hash_data, chialisp_source, program_parameters)
+                .map_err(|e| {
                     ClvmZkError::ProofGenerationFailed(format!(
                         "chialisp compilation failed: {:?}",
                         e
                     ))
-                },
-            )?;
+                })?;
 
         // execute the compiled bytecode using evaluator with function table
         let mut evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);

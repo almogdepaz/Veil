@@ -68,6 +68,12 @@ impl RuntimeFunctionTable {
     }
 }
 
+impl Default for RuntimeFunctionTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct ClvmEvaluator {
     pub hasher: Hasher,
 

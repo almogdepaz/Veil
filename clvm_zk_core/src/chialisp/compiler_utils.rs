@@ -50,7 +50,7 @@ pub fn clvm_value_to_number(value: &ClvmValue) -> Result<i64, &'static str> {
             } else {
                 // Multi-byte number - decode from big endian
                 let mut result = 0i64;
-                let is_negative = bytes.first().map_or(false, |&b| b & 0x80 != 0);
+                let is_negative = bytes.first().is_some_and(|&b| b & 0x80 != 0);
 
                 for &byte in bytes {
                     result = result.checked_shl(8).ok_or("number too large")?;
@@ -132,8 +132,8 @@ pub fn compile_basic_expression_types(
 /// Wrap a ClvmValue with quote operator: (q . value)
 pub fn quote_value(value: ClvmValue) -> ClvmValue {
     ClvmValue::Cons(
-        Box::new(ClvmValue::Atom(vec![113])), // 'q' opcode  
-        Box::new(value)
+        Box::new(ClvmValue::Atom(vec![113])), // 'q' opcode
+        Box::new(value),
     )
 }
 

@@ -289,7 +289,7 @@ impl ClvmOperator {
 
             // Variable arity operators (any number of arguments)
             ClvmOperator::CallFunction => None, // Function calls can take any number of arguments
-            ClvmOperator::List => None, // List can take any number of arguments
+            ClvmOperator::List => None,         // List can take any number of arguments
         }
     }
 
@@ -355,7 +355,10 @@ mod tests {
         assert!(op.is_some(), "Opcode 150 should map to some operator");
 
         if let Some(operator) = op {
-            assert!(matches!(operator, ClvmOperator::CallFunction), "Opcode 150 should map to CallFunction");
+            assert!(
+                matches!(operator, ClvmOperator::CallFunction),
+                "Opcode 150 should map to CallFunction"
+            );
         }
 
         // Test operator to opcode
