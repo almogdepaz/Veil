@@ -135,10 +135,7 @@ fn test_mock_factorial_like_non_recursive() {
             if zk_result.result.len() == 1 && zk_result.result[0] == 3 {
                 println!("factorial_like(3) = 3 ✓");
             } else {
-                println!(
-                    "Expected factorial_like(3) = 3, got {:?}",
-                    zk_result.result
-                );
+                println!("Expected factorial_like(3) = 3, got {:?}", zk_result.result);
             }
         }
         Err(e) => {
