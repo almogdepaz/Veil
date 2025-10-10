@@ -66,10 +66,14 @@ pub fn find_coin_index_by_viewing_tag(
 ///
 /// returns 32-byte nullifier that uniquely identifies this spend
 pub fn generate_nullifier(spend_secret: &[u8; 32], puzzle_hash: &[u8; 32]) -> [u8; 32] {
+    // use same single-hash approach as guest-side for consistency
+    let mut combined = Vec::with_capacity(64 + 32);
+    combined.extend_from_slice(b"clvm_zk_nullifier_v1.0");
+    combined.extend_from_slice(spend_secret);
+    combined.extend_from_slice(puzzle_hash);
+
     let mut hasher = Sha256::new();
-    hasher.update(b"clvm_zk_nullifier_v1.0"); // domain separator for protocol version
-    hasher.update(spend_secret); // unique spend secret
-    hasher.update(puzzle_hash); // defensive puzzle binding for future features
+    hasher.update(&combined);
     hasher.finalize().into()
 }
 

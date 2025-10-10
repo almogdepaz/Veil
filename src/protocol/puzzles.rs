@@ -1,4 +1,5 @@
 use crate::ProgramParameter;
+use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 use k256::ecdsa::{signature::Signer, Signature, SigningKey, VerifyingKey};
 /// Signature-enabled puzzle programs for secure spend authorization
 ///
@@ -25,8 +26,13 @@ pub fn create_signature_puzzle() -> Result<(String, [u8; 32]), crate::ClvmZkErro
     let program =
         "(mod (pubkey message signature) (agg_sig_unsafe pubkey message signature))".to_string();
 
-    // Generate deterministic puzzle hash from the program code
-    let hash = Sha256::digest(program.as_bytes()).into();
+    // Generate deterministic puzzle hash from the COMPILED TEMPLATE (matches backend behavior)
+    let hash = compile_chialisp_template_hash_default(&program).map_err(|e| {
+        crate::ClvmZkError::InvalidProgram(format!(
+            "Failed to compile template hash for signature puzzle: {:?}",
+            e
+        ))
+    })?;
     Ok((program, hash))
 }
 
@@ -107,12 +113,18 @@ pub fn create_signature_spend_params(
 ///
 /// # Returns
 /// * A tuple of (puzzle_program_code, puzzle_hash)
-pub fn create_password_puzzle() -> (String, [u8; 32]) {
+pub fn create_password_puzzle() -> Result<(String, [u8; 32]), crate::ClvmZkError> {
     // Simple puzzle that checks if sha256(provided_password) == expected_hash
     // The puzzle takes one parameter: the password preimage
-    let program = "(= (sha256 a) b)".to_string();
-    let hash = Sha256::digest(program.as_bytes()).into();
-    (program, hash)
+    let program = "(mod (a b) (= (sha256 a) b))".to_string();
+    // Generate deterministic puzzle hash from the COMPILED TEMPLATE (matches backend behavior)
+    let hash = compile_chialisp_template_hash_default(&program).map_err(|e| {
+        crate::ClvmZkError::InvalidProgram(format!(
+            "Failed to compile template hash for password puzzle: {:?}",
+            e
+        ))
+    })?;
+    Ok((program, hash))
 }
 
 /// Create program parameters for spending a password-protected coin
@@ -152,6 +164,7 @@ pub fn hash_password(password: &str) -> [u8; 32] {
 ///
 /// # Example
 /// ```rust
+/// use clvm_zk::protocol::create_password_puzzle_program;
 /// let program = create_password_puzzle_program("mysecret");
 /// // Returns: "(= (sha256 a) 0x2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b)"
 /// ```

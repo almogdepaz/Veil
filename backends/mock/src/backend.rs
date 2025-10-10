@@ -1,8 +1,7 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, compile_chialisp_to_bytecode_with_table, generate_nullifier,
-    ClvmEvaluator, ClvmOutput, ClvmZkError, ProgramParameter, ProofOutput, PublicInputs,
-    ZKClvmNullifierResult, ZKClvmResult,
+    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmOutput,
+    ClvmZkError, ProgramParameter, ProofOutput, PublicInputs, ZKClvmNullifierResult, ZKClvmResult,
 };
 use sha2::{Digest, Sha256};
 
@@ -126,18 +125,20 @@ impl MockBackend {
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
     ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
-        // compile chialisp source to bytecode (same as guest)
-        let (instance_bytecode, program_hash) = compile_chialisp_to_bytecode(
-            hash_data,
-            chialisp_source,
-            program_parameters,
-        )
-        .map_err(|e| {
-            ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
-        })?;
+        // compile chialisp source to bytecode WITH function table (same as prove_chialisp_program)
+        let (instance_bytecode, program_hash, function_table) =
+            compile_chialisp_to_bytecode_with_table(hash_data, chialisp_source, program_parameters)
+                .map_err(|e| {
+                    ClvmZkError::ProofGenerationFailed(format!(
+                        "chialisp compilation failed: {:?}",
+                        e
+                    ))
+                })?;
 
-        // execute the compiled bytecode using default evaluator (same as SP1 guest)
+        // execute the compiled bytecode using evaluator with function table
         let mut evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
+        evaluator.function_table = function_table;
+
         let (output_bytes, _conditions) = evaluator
             .evaluate_clvm_program(&instance_bytecode)
             .map_err(|e| {
