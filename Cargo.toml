@@ -19,6 +19,10 @@ edition = "2021"
 name = "clvm_zk"
 path = "src/lib.rs"
 
+[[bin]]
+name = "clvm-zk"
+path = "src/main.rs"
+
 [features]
 default = ["risc0", "testing"]
 
