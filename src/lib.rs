@@ -2,8 +2,19 @@ use serde::{Deserialize, Serialize};
 
 // Using guest-side compilation now
 
+// ensure at least one backend is enabled
 #[cfg(all(not(feature = "risc0"), not(feature = "sp1"), not(feature = "mock")))]
 compile_error!("At least one backend feature must be enabled: risc0, sp1, or mock");
+
+// ensure backends are mutually exclusive
+#[cfg(all(feature = "risc0", feature = "sp1"))]
+compile_error!("cannot enable both risc0 and sp1 backends simultaneously");
+
+#[cfg(all(feature = "risc0", feature = "mock"))]
+compile_error!("cannot enable both risc0 and mock backends simultaneously");
+
+#[cfg(all(feature = "sp1", feature = "mock"))]
+compile_error!("cannot enable both sp1 and mock backends simultaneously");
 
 // Module declarations
 pub mod backends;

@@ -22,13 +22,14 @@ path = "src/lib.rs"
 [features]
 default = ["risc0", "testing"]
 
-# zkvm backend selection (exactly one should be enabled)
+# zkvm backend selection (exactly one should be enabled, mutually exclusive)
+# when switching backends, use: cargo <cmd> --no-default-features --features <backend>,testing
 risc0 = ["dep:clvm-zk-risc0", "clvm-zk-core/risc0"]  # risc0 zkvm backend with precompiles
 sp1 = ["dep:clvm-zk-sp1", "clvm-zk-core/sp1"]        # sp1 zkvm backend
-mock = ["dep:clvm-zk-mock"]                           # mock backend for testing
+mock = ["dep:clvm-zk-mock", "clvm-zk-core/std"]       # mock backend for testing
 
 # testing utilities (enabled by default for tests)
-testing = []
+testing = ["clvm-zk-core/sha2-hasher"]
 
 [dependencies]
 # Core dependencies
@@ -59,9 +60,6 @@ rand = "0.8"  # For key generation in examples (compatible with k256)
 once_cell = "1.18"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
-[[bin]]
-name = "clvm-zk"
-path = "src/bin/clvm-zk.rs"
 
 # Development profile with guest compatibility
 [profile.dev]

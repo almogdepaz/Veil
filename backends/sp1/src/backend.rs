@@ -75,7 +75,6 @@ impl Sp1Backend {
         &self,
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
-        _legacy_parameters: &[ProgramParameter], // Legacy compatibility parameter
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use sp1_sdk::{ProverClient, SP1Stdin};
 
@@ -141,7 +140,6 @@ impl Sp1Backend {
         &self,
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
-        _legacy_parameters: &[ProgramParameter], // Legacy compatibility parameter
         spend_secret: [u8; 32],
     ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
         use sp1_sdk::{ProverClient, SP1Stdin};

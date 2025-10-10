@@ -5,7 +5,7 @@ use risc0_zkvm::sha::{Impl, Sha256 as RiscSha256};
 
 // Use our no-std Chialisp compiler and evaluation engine
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, generate_nullifier, ClvmEvaluator, ClvmOutput, Input,
+    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmOutput, Input,
     ProofOutput, PublicInputs,
 };
 
@@ -110,27 +110,26 @@ fn main() {
     // Read private inputs with Chialisp source
     let private_inputs: Input = env::read();
 
-    // Compile Chialisp source to bytecode in the guest
-    let (instance_bytecode, program_hash) = compile_chialisp_to_bytecode(
-        risc0_hash_data_guest,
-        &private_inputs.chialisp_source,
-        &private_inputs.program_parameters,
-    )
-    .expect("Chialisp compilation failed");
+    // Compile Chialisp source to bytecode WITH function table in the guest
+    let (instance_bytecode, program_hash, function_table) =
+        compile_chialisp_to_bytecode_with_table(
+            risc0_hash_data_guest,
+            &private_inputs.chialisp_source,
+            &private_inputs.program_parameters,
+        )
+        .expect("Chialisp compilation failed");
 
     // Create evaluator with RISC0-specific optimized implementations (guest-only)
-    let evaluator = ClvmEvaluator::new(
+    let mut evaluator = ClvmEvaluator::new(
         risc0_hash_data_guest,              // RISC0 SHA-256 precompiles in guest
         risc0_verify_bls_signature_guest,   // RISC0 BLS verification with precompiles in guest
         risc0_verify_ecdsa_signature_guest, // RISC0 ECDSA verification with guest hasher
     );
-
-    // Use program parameters directly (they already support both int and bytes)
-    let parameters = private_inputs.program_parameters;
+    evaluator.function_table = function_table;
 
     // Execute the compiled bytecode using evaluator with injected backends
     let (output_bytes, conditions) = evaluator
-        .evaluate_clvm_program_with_params(&instance_bytecode, &parameters)
+        .evaluate_clvm_program(&instance_bytecode)
         .expect("CLVM execution failed");
 
     // Generate nullifier using program hash if needed

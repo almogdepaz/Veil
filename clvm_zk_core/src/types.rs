@@ -124,13 +124,6 @@ pub struct Input {
     pub program_parameters: Vec<ProgramParameter>,
     /// Optional spend secret for nullifier generation
     pub spend_secret: Option<[u8; 32]>,
-
-    // Legacy fields - TODO: Remove after migration
-    pub program: Vec<u8>,
-    pub args: Vec<u8>,
-    pub parameters: Vec<u8>,
-    /// Legacy parameter values (kept for backward compatibility during transition)
-    pub param_values: Vec<i64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]

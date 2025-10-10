@@ -1,3 +1,5 @@
+use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -43,10 +45,10 @@ impl PrivateCoin {
     }
 
     /// make a new private coin from chialisp code
-    /// hashes the program to create the puzzle_hash
+    /// hashes the COMPILED TEMPLATE to create the puzzle_hash (matches backend behavior)
     pub fn from_program(spend_secret: [u8; 32], puzzle_code: &str, amount: u64) -> Self {
-        use sha2::{Digest, Sha256};
-        let puzzle_hash = Sha256::digest(puzzle_code.as_bytes()).into();
+        let puzzle_hash = compile_chialisp_template_hash_default(puzzle_code)
+            .expect("Failed to compile template hash");
         Self::new(spend_secret, puzzle_hash, amount)
     }
 
@@ -54,7 +56,6 @@ impl PrivateCoin {
     ///
     /// note: the randomness should be cryptographically secure in production
     pub fn new_random(puzzle_hash: [u8; 32], amount: u64) -> Self {
-        use rand::RngCore;
         let mut spend_secret = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut spend_secret);
 
@@ -63,7 +64,6 @@ impl PrivateCoin {
 
     /// make a new private coin with random spend secret from program code
     pub fn new_random_from_program(puzzle_code: &str, amount: u64) -> Self {
-        use rand::RngCore;
         let mut spend_secret = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut spend_secret);
 
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn test_private_coin_from_program() {
         let spend_secret = [0x42; 32];
-        let puzzle_code = "(+ a b)";
+        let puzzle_code = "(mod (a b) (+ a b))";
         let amount = 1000;
 
         let coin = PrivateCoin::from_program(spend_secret, puzzle_code, amount);
@@ -231,10 +231,10 @@ mod tests {
         assert_eq!(coin.spend_secret, spend_secret);
         assert_eq!(coin.amount, amount);
 
-        // Verify puzzle hash is computed correctly
-        use sha2::{Digest, Sha256};
-        let expected_hash = Sha256::digest(puzzle_code.as_bytes());
-        assert_eq!(coin.puzzle_hash, expected_hash.as_slice());
+        // Verify puzzle hash is computed from TEMPLATE (not source)
+        use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+        let expected_hash = compile_chialisp_template_hash_default(puzzle_code).unwrap();
+        assert_eq!(coin.puzzle_hash, expected_hash);
     }
 
     #[test]
@@ -286,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_random_coin_from_program() {
-        let puzzle_code = "(+ a b)";
+        let puzzle_code = "(mod (a b) (+ a b))";
         let coin1 = PrivateCoin::new_random_from_program(puzzle_code, 100);
         let coin2 = PrivateCoin::new_random_from_program(puzzle_code, 100);
 

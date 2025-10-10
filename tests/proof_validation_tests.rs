@@ -62,11 +62,15 @@ fn test_proofs_differ_for_different_inputs() -> Result<(), Box<dyn std::error::E
     }
 
     // Both proofs should be substantial in size (real ZK proofs are large)
-    if proof1.len() <= 100000 {
-        return Err(format!("Proof1 should be substantial size, got {}", proof1.len()).into());
-    }
-    if proof2.len() <= 100000 {
-        return Err(format!("Proof2 should be substantial size, got {}", proof2.len()).into());
+    // Mock backend produces tiny fake proofs, so skip this check
+    #[cfg(not(feature = "mock"))]
+    {
+        if proof1.len() <= 100000 {
+            return Err(format!("Proof1 should be substantial size, got {}", proof1.len()).into());
+        }
+        if proof2.len() <= 100000 {
+            return Err(format!("Proof2 should be substantial size, got {}", proof2.len()).into());
+        }
     }
 
     Ok(())
@@ -234,11 +238,15 @@ async fn test_complex_nested_expressions() -> Result<(), String> {
                         }
 
                         // Ensure proof is substantial
-                        if proof.len() <= 100000 {
-                            return Err(format!(
-                                "Complex proof should be substantial size, got {}",
-                                proof.len()
-                            ));
+                        // Mock backend produces tiny fake proofs, so skip this check
+                        #[cfg(not(feature = "mock"))]
+                        {
+                            if proof.len() <= 100000 {
+                                return Err(format!(
+                                    "Complex proof should be substantial size, got {}",
+                                    proof.len()
+                                ));
+                            }
                         }
 
                         Ok((a, b, c, d, expected as i64))
@@ -791,11 +799,15 @@ fn test_output_determinism() -> Result<(), String> {
     }
 
     // Both proofs should be substantial size (real ZK proofs)
-    if proof1.len() <= 100000 {
-        return Err("First proof should be substantial size".into());
-    }
-    if proof2.len() <= 100000 {
-        return Err("Second proof should be substantial size".into());
+    // Mock backend produces tiny fake proofs, so skip this check
+    #[cfg(not(feature = "mock"))]
+    {
+        if proof1.len() <= 100000 {
+            return Err("First proof should be substantial size".into());
+        }
+        if proof2.len() <= 100000 {
+            return Err("Second proof should be substantial size".into());
+        }
     }
     Ok(())
 }

@@ -26,7 +26,7 @@
 //! use clvm_zk::ProgramParameter;
 //!
 //! // Create a private coin
-//! let coin = PrivateCoin::new_random("(+ a b)".to_string(), 1000);
+//! let coin = PrivateCoin::new_random_from_program("(mod (a b) (+ a b))", 1000);
 //! println!("Coin nullifier: {}", coin.nullifier_hex());
 //!
 //! // Spend the coin (will be available after Task 1.3)

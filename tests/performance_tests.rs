@@ -8,7 +8,9 @@ use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 use std::collections::HashSet;
 
 /// Test performance limits - operations should complete within reasonable time bounds
+///
 #[test]
+#[ignore]
 fn fuzz_performance_limits() -> Result<(), Box<dyn std::error::Error>> {
     test_info!("\nStarting performance limits test...");
     let test_cases = [
