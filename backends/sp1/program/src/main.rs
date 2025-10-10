@@ -106,12 +106,13 @@ fn main() {
     let private_inputs: Input = io::read();
 
     // Compile Chialisp source to bytecode WITH function table in the guest
-    let (instance_bytecode, program_hash, function_table) = compile_chialisp_to_bytecode_with_table(
-        sp1_hash_data_guest,
-        &private_inputs.chialisp_source,
-        &private_inputs.program_parameters,
-    )
-    .expect("Chialisp compilation failed");
+    let (instance_bytecode, program_hash, function_table) =
+        compile_chialisp_to_bytecode_with_table(
+            sp1_hash_data_guest,
+            &private_inputs.chialisp_source,
+            &private_inputs.program_parameters,
+        )
+        .expect("Chialisp compilation failed");
 
     // Create evaluator with SP1-specific optimized implementations (guest-only)
     let mut evaluator = ClvmEvaluator::new(

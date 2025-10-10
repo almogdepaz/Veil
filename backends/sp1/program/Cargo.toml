@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 sp1-zkvm = "5.0.8"
-clvm-zk-core = { path = "../../../clvm_zk_core", default-features = false, features = ["sha2-hasher"] }
+clvm-zk-core = { path = "../../../clvm_zk_core", default-features = false, features = ["sp1"] }
 borsh = { version = "1.5.7", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 # ecdsa signature verification support for sp1
