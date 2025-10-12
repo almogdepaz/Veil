@@ -96,26 +96,13 @@ pub enum ClvmZkError {
 /// common zkvm backend types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZKClvmResult {
-    pub result: Vec<u8>,
-    pub cost: u64,
-    pub proof: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZKClvmNullifierResult {
-    pub nullifier: [u8; 32],
-    pub result: Vec<u8>,
-    pub cost: u64,
+    /// All committed data from the guest (program_hash, nullifier, clvm_res)
+    pub output: ProofOutput,
+    /// The actual proof bytes
     pub proof: Vec<u8>,
 }
 
 /// guest program input/output types
-#[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct PublicInputs {
-    // Empty for now - guest generates everything
-    // In future could include expected program hash for validation
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct Input {
     /// Raw Chialisp source code (e.g., "(mod (x y) (+ x y))")
@@ -126,19 +113,20 @@ pub struct Input {
     pub spend_secret: Option<[u8; 32]>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct ClvmOutput {
-    pub result: Vec<u8>,
+#[derive(
+    Serialize, Deserialize, Debug, Clone, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize,
+)]
+pub struct ClvmResult {
+    pub output: Vec<u8>,
     pub cost: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct ProofOutput {
-    pub public_inputs: PublicInputs,
     /// Program hash for verification (hash of template bytecode)
     pub program_hash: [u8; 32],
     /// Nullifier for double-spend prevention
     pub nullifier: Option<[u8; 32]>,
     /// CLVM execution result
-    pub clvm_output: ClvmOutput,
+    pub clvm_res: ClvmResult,
 }

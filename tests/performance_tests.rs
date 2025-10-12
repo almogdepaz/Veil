@@ -28,8 +28,8 @@ fn fuzz_performance_limits() -> Result<(), Box<dyn std::error::Error>> {
         let prove_start = std::time::Instant::now();
         let proof_result = ClvmZkProver::prove(expr, &param_list)
             .map_err(|e| format!("Proof generation failed for {name}: {e}"))?;
-        let output = proof_result.clvm_output.result;
-        let proof = proof_result.zk_proof;
+        let output = proof_result.output.clvm_res;
+        let proof = proof_result.proof;
         let prove_time = prove_start.elapsed();
         test_info!("  Proof generation: {prove_time:?}");
         test_info!("  Proof size: {} bytes", proof.len());
@@ -39,7 +39,7 @@ fn fuzz_performance_limits() -> Result<(), Box<dyn std::error::Error>> {
         let (verified, _) = ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr).unwrap(),
             &proof,
-            Some(&output),
+            Some(&output.output),
         )
         .map_err(|e| format!("Verification error for {name}: {e}"))?;
         let verify_time = verify_start.elapsed();
@@ -122,8 +122,8 @@ async fn fuzz_deterministic_behavior() -> Result<(), String> {
                             ClvmZkProver::prove(&expr, &param_list).map_err(|e| {
                                 format!("Proof generation failed for {actual_expr}: {e}")
                             })?;
-                        let output = proof_result.clvm_output.result;
-                        let proof = proof_result.zk_proof;
+                        let output = proof_result.output.clvm_res;
+                        let proof = proof_result.proof;
                         let program_hash =
                             compile_chialisp_template_hash_default(&expr).map_err(|e| {
                                 format!(
@@ -134,7 +134,7 @@ async fn fuzz_deterministic_behavior() -> Result<(), String> {
                         let (verified, _) = ClvmZkProver::verify_proof(
                             program_hash,
                             &proof,
-                            Some(&output),
+                            Some(&output.output),
                         )
                         .map_err(|e| {
                             format!("Verification error on iteration {i} for {actual_expr}: {e}")
@@ -145,7 +145,7 @@ async fn fuzz_deterministic_behavior() -> Result<(), String> {
                             ));
                         }
                         test_info!("   Proof verified for: {actual_expr}");
-                        Ok((program_hash.to_vec(), output))
+                        Ok((program_hash.to_vec(), output.output))
                     })
                 })
                 .collect();

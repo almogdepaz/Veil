@@ -270,7 +270,7 @@ impl TestScenarios {
         // Second spend should fail (double-spend)
         let result2 = sim.spend_coins(vec![(coin, puzzle_program)]);
         match result2 {
-            Err(SimulatorError::DoubleSpend(_)) => println!("✅ Double-spend correctly prevented"),
+            Err(SimulatorError::DoubleSpend(_)) => println!("Double-spend correctly prevented"),
             _ => {
                 return Err(SimulatorError::TestFailed(
                     "Double-spend not prevented".to_string(),
@@ -299,7 +299,7 @@ impl TestScenarios {
             ));
         }
 
-        println!("✅ Cross-puzzle nullifiers are unique");
+        println!("Cross-puzzle nullifiers are unique");
         Ok(())
     }
 
@@ -342,7 +342,7 @@ impl TestScenarios {
         let mix_tx = sim.spend_coins(coins_to_spend)?;
 
         println!(
-            "✅ Privacy mixing completed: {} inputs mixed",
+            "Privacy mixing completed: {} inputs mixed",
             mix_tx.nullifiers.len()
         );
         Ok(())
@@ -382,7 +382,7 @@ impl TestScenarios {
         let recovery_sim = RecoverySimulator::new(sim.clone());
         let recovered = recovery_sim.recover_with_viewing_tags("alice", 10);
 
-        println!("✅ Wallet recovery: found {} coins", recovered.len());
+        println!("Wallet recovery: found {} coins", recovered.len());
         Ok(())
     }
 
@@ -422,7 +422,7 @@ impl TestScenarios {
         ])?;
 
         println!(
-            "✅ Atomic transaction completed: {} participants",
+            "Atomic transaction completed: {} participants",
             atomic_tx.nullifiers.len()
         );
         Ok(())
@@ -430,7 +430,7 @@ impl TestScenarios {
 
     /// Run all test scenarios
     pub fn run_all_tests() -> Result<(), SimulatorError> {
-        println!("🧪 Running CLVM-ZK Protocol Test Suite...\n");
+        println!("Running CLVM-ZK Protocol Test Suite...\n");
 
         Self::test_double_spend_prevention()?;
         Self::test_cross_puzzle_nullifier_uniqueness()?;
@@ -438,7 +438,7 @@ impl TestScenarios {
         Self::test_wallet_recovery_flows()?;
         Self::test_atomic_transactions()?;
 
-        println!("\n🎉 All protocol tests passed!");
+        println!("\nAll protocol tests passed!");
         Ok(())
     }
 }

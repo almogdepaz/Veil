@@ -5,8 +5,7 @@ use crate::CLVM_ZK_SP1_ELF;
 
 // use common types from clvm_zk_core
 pub use clvm_zk_core::{
-    ClvmOutput, ClvmZkError, Input, ProgramParameter, ProofOutput, PublicInputs,
-    ZKClvmNullifierResult, ZKClvmResult,
+    ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
 };
 
 // use common backend utilities
@@ -79,13 +78,11 @@ impl Sp1Backend {
         use sp1_sdk::{ProverClient, SP1Stdin};
 
         // prepare inputs for the guest
-        let (public_inputs, private_inputs) =
-            prepare_guest_inputs(chialisp_source, program_parameters, None);
+        let inputs = prepare_guest_inputs(chialisp_source, program_parameters, None);
 
         // create stdin for sp1
         let mut stdin = SP1Stdin::new();
-        stdin.write(&public_inputs);
-        stdin.write(&private_inputs);
+        stdin.write(&inputs);
 
         // execute to get cycle count, then generate proof
         let client = ProverClient::from_env();
@@ -130,8 +127,7 @@ impl Sp1Backend {
         })?;
 
         Ok(ZKClvmResult {
-            result: output.clvm_output.result,
-            cost: total_cycles, // use cycle count from execution
+            output,
             proof: proof_bytes,
         })
     }
@@ -141,17 +137,15 @@ impl Sp1Backend {
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
-    ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
+    ) -> Result<ZKClvmResult, ClvmZkError> {
         use sp1_sdk::{ProverClient, SP1Stdin};
 
         // prepare inputs for the guest
-        let (public_inputs, private_inputs) =
-            prepare_guest_inputs(chialisp_source, program_parameters, Some(spend_secret));
+        let inputs = prepare_guest_inputs(chialisp_source, program_parameters, Some(spend_secret));
 
         // create stdin for sp1
         let mut stdin = SP1Stdin::new();
-        stdin.write(&public_inputs);
-        stdin.write(&private_inputs);
+        stdin.write(&inputs);
 
         // execute to get cycle count, then generate proof
         let client = ProverClient::from_env();
@@ -195,10 +189,8 @@ impl Sp1Backend {
             ClvmZkError::SerializationError(format!("failed to serialize proof: {e}"))
         })?;
 
-        Ok(ZKClvmNullifierResult {
-            nullifier: output.nullifier.unwrap_or([0u8; 32]), // fallback for backwards compat
-            result: output.clvm_output.result,
-            cost: total_cycles, // use cycle count from execution
+        Ok(ZKClvmResult {
+            output,
             proof: proof_bytes,
         })
     }
@@ -226,7 +218,7 @@ impl Sp1Backend {
         let output = public_values.read::<clvm_zk_core::ProofOutput>();
 
         // return success, extracted program hash, and output
-        Ok((true, output.program_hash, output.clvm_output.result))
+        Ok((true, output.program_hash, output.clvm_res.output))
     }
 
     pub fn backend_name(&self) -> &'static str {

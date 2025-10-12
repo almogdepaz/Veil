@@ -22,14 +22,14 @@ mod verification_security_tests {
         let proof_result_a = ClvmZkProver::prove(expr_a, &params_a)
             .map_err(|e| format!("Failed to generate proof A: {e}"))?;
 
-        let correct_output = proof_result_a.clvm_output.result;
-        let proof = proof_result_a.zk_proof;
+        let correct_output = proof_result_a.output.clvm_res;
+        let proof = proof_result_a.proof;
         // 1. Verify with correct output (should succeed)
         let (valid_result, _) = ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr_a)
                 .map_err(|e| format!("Hash template failed: {:?}", e))?,
             &proof,
-            Some(&correct_output),
+            Some(&correct_output.output),
         )
         .map_err(|e| format!("Verification with correct output failed: {e}"))?;
         if !valid_result {
@@ -58,14 +58,14 @@ mod verification_security_tests {
         let params_b = vec![ProgramParameter::int(5), ProgramParameter::int(7)];
         let proof_result_b = ClvmZkProver::prove(expr_b, &params_b)
             .map_err(|e| format!("Failed to generate proof B: {e}"))?;
-        let output_b = proof_result_b.clvm_output.result;
+        let output_b = proof_result_b.output.clvm_res;
 
         // Try to use proof_a with output_b
         let (cross_result, _) = ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr_a)
                 .map_err(|e| format!("Hash template failed: {:?}", e))?,
             &proof,
-            Some(&output_b),
+            Some(&output_b.output),
         )
         .map_err(|e| format!("Cross-verification failed: {e}"))?;
         if cross_result {
@@ -97,15 +97,15 @@ mod verification_security_tests {
         let (valid_a, _) = ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr_a)
                 .map_err(|e| format!("Hash template A failed: {:?}", e))?,
-            &proof_result_a.zk_proof,
-            Some(&proof_result_a.clvm_output.result),
+            &proof_result_a.proof,
+            Some(&proof_result_a.output.clvm_res.output),
         )
         .map_err(|e| format!("Verification A failed: {e}"))?;
         let (valid_b, _) = ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr_b)
                 .map_err(|e| format!("Hash template B failed: {:?}", e))?,
-            &proof_result_b.zk_proof,
-            Some(&proof_result_b.clvm_output.result),
+            &proof_result_b.proof,
+            Some(&proof_result_b.output.clvm_res.output),
         )
         .map_err(|e| format!("Verification B failed: {e}"))?;
 
@@ -120,8 +120,8 @@ mod verification_security_tests {
         let (cross_result_1, _) = ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr_b)
                 .map_err(|e| format!("Hash template B failed: {:?}", e))?,
-            &proof_result_a.zk_proof,
-            Some(&proof_result_a.clvm_output.result),
+            &proof_result_a.proof,
+            Some(&proof_result_a.output.clvm_res.output),
         )
         .map_err(|e| format!("Cross-verification 1 failed: {e}"))?;
         if cross_result_1 {
@@ -133,8 +133,8 @@ mod verification_security_tests {
         let (cross_result_2, _) = ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr_a)
                 .map_err(|e| format!("Hash template A failed: {:?}", e))?,
-            &proof_result_b.zk_proof,
-            Some(&proof_result_b.clvm_output.result),
+            &proof_result_b.proof,
+            Some(&proof_result_b.output.clvm_res.output),
         )
         .map_err(|e| format!("Cross-verification 2 failed: {e}"))?;
         if cross_result_2 {
@@ -159,7 +159,7 @@ mod verification_security_tests {
         let (empty_result, _) = ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr)
                 .map_err(|e| format!("Hash template failed: {:?}", e))?,
-            &proof_result.zk_proof,
+            &proof_result.proof,
             Some(&vec![]),
         )
         .map_err(|e| format!("Empty output verification failed: {e}"))?;
@@ -169,15 +169,16 @@ mod verification_security_tests {
         println!("✓ Proof correctly rejected with empty output");
 
         // Test with truncated output
-        let truncated_output = if proof_result.clvm_output.result.len() > 1 {
-            proof_result.clvm_output.result[..proof_result.clvm_output.result.len() - 1].to_vec()
+        let truncated_output = if proof_result.output.clvm_res.output.len() > 1 {
+            proof_result.output.clvm_res.output[..proof_result.output.clvm_res.output.len() - 1]
+                .to_vec()
         } else {
             vec![]
         };
         let (truncated_result, _) = ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr)
                 .map_err(|e| format!("Hash template failed: {:?}", e))?,
-            &proof_result.zk_proof,
+            &proof_result.proof,
             Some(&truncated_output),
         )
         .map_err(|e| format!("Truncated output verification failed: {e}"))?;
@@ -187,13 +188,13 @@ mod verification_security_tests {
         println!("✓ Proof correctly rejected with truncated output");
 
         // Test with extended output
-        let mut extended_output = proof_result.clvm_output.result.clone();
-        extended_output.push(0xFF);
+        let mut extended_output = proof_result.output.clvm_res.clone();
+        extended_output.output.push(0xFF);
         let (extended_result, _) = ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr)
                 .map_err(|e| format!("Hash template failed: {:?}", e))?,
-            &proof_result.zk_proof,
-            Some(&extended_output),
+            &proof_result.proof,
+            Some(&extended_output.output),
         )
         .map_err(|e| format!("Extended output verification failed: {e}"))?;
         if extended_result {

@@ -6,8 +6,8 @@ extern crate alloc;
 
 // Use our no-std Chialisp compiler and evaluation engine
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmOutput, Input,
-    ProofOutput, PublicInputs,
+    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmResult, Input,
+    ProofOutput,
 };
 
 // BLS12-381 cryptographic operations with SP1 precompiles
@@ -99,9 +99,6 @@ fn sp1_verify_ecdsa_signature_guest(
 }
 
 fn main() {
-    // Read public inputs (currently empty)
-    let public_inputs: PublicInputs = io::read();
-
     // Read private inputs with Chialisp source
     let private_inputs: Input = io::read();
 
@@ -139,20 +136,19 @@ fn main() {
     // Conditions are validated internally but not exposed publicly
     let _validated_conditions = conditions;
 
-    let clvm_output = ClvmOutput {
-        result: output_bytes,
+    let clvm_output = ClvmResult {
+        output: output_bytes,
         cost: 0, // SP1 doesn't have cycle counting like RISC0
     };
 
     // Commit result with program hash for verification
     io::commit(&ProofOutput {
-        public_inputs,
         program_hash, // Key output for verification
         nullifier: if private_inputs.spend_secret.is_some() {
             Some(computed_nullifier)
         } else {
             None
         },
-        clvm_output,
+        clvm_res: clvm_output,
     });
 }

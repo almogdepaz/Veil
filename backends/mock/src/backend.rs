@@ -1,7 +1,7 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmOutput,
-    ClvmZkError, ProgramParameter, ProofOutput, PublicInputs, ZKClvmNullifierResult, ZKClvmResult,
+    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmResult,
+    ClvmZkError, ProgramParameter, ProofOutput, ZKClvmResult,
 };
 use sha2::{Digest, Sha256};
 
@@ -83,17 +83,16 @@ impl MockBackend {
                 ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
             })?;
 
-        let clvm_output = ClvmOutput {
-            result: output_bytes,
+        let clvm_output = ClvmResult {
+            output: output_bytes,
             cost: 0, // mock backend doesn't track cycles
         };
 
         // create fake proof (just serialize the output for now)
         let proof_output = ProofOutput {
-            public_inputs: PublicInputs {}, // empty for now
             program_hash,
             nullifier: None,
-            clvm_output: clvm_output.clone(),
+            clvm_res: clvm_output.clone(),
         };
 
         let proof_bytes = borsh::to_vec(&proof_output).map_err(|e| {
@@ -101,8 +100,7 @@ impl MockBackend {
         })?;
 
         Ok(ZKClvmResult {
-            result: clvm_output.result,
-            cost: clvm_output.cost,
+            output: proof_output,
             proof: proof_bytes,
         })
     }
@@ -115,7 +113,7 @@ impl MockBackend {
         expected_result: &[u8],
     ) -> Result<bool, ClvmZkError> {
         let result = self.prove_chialisp_program(chialisp_source, program_parameters)?;
-        Ok(result.result == expected_result)
+        Ok(result.output.clvm_res.output == expected_result)
     }
 
     /// same as prove_chialisp_program but with nullifier generation
@@ -124,7 +122,7 @@ impl MockBackend {
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
-    ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
+    ) -> Result<ZKClvmResult, ClvmZkError> {
         // compile chialisp source to bytecode WITH function table (same as prove_chialisp_program)
         let (instance_bytecode, program_hash, function_table) =
             compile_chialisp_to_bytecode_with_table(hash_data, chialisp_source, program_parameters)
@@ -148,27 +146,24 @@ impl MockBackend {
         // generate nullifier using program hash (same as guest)
         let computed_nullifier = generate_nullifier(hash_data, &spend_secret, &program_hash);
 
-        let clvm_output = ClvmOutput {
-            result: output_bytes,
+        let clvm_output = ClvmResult {
+            output: output_bytes,
             cost: 0, // mock backend doesn't track cycles
         };
 
         // create fake proof with nullifier
         let proof_output = ProofOutput {
-            public_inputs: PublicInputs {},
             program_hash,
             nullifier: Some(computed_nullifier),
-            clvm_output: clvm_output.clone(),
+            clvm_res: clvm_output.clone(),
         };
 
         let proof_bytes = borsh::to_vec(&proof_output).map_err(|e| {
             ClvmZkError::SerializationError(format!("failed to serialize mock proof: {e}"))
         })?;
 
-        Ok(ZKClvmNullifierResult {
-            nullifier: computed_nullifier,
-            result: clvm_output.result,
-            cost: clvm_output.cost,
+        Ok(ZKClvmResult {
+            output: proof_output,
             proof: proof_bytes,
         })
     }
@@ -183,7 +178,7 @@ impl MockBackend {
         })?;
 
         // always return true for mock verification since we trust our own execution
-        Ok((true, output.program_hash, output.clvm_output.result))
+        Ok((true, output.program_hash, output.clvm_res.output))
     }
 
     pub fn backend_name(&self) -> &'static str {

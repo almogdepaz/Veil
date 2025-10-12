@@ -18,7 +18,7 @@ fn fuzz_proof_integrity_attacks() -> Result<(), Box<dyn std::error::Error>> {
     let proof_result = ClvmZkProver::prove(expr, params)
         .map_err(|e| format!("Failed to generate original proof: {e}"))?;
     let output = proof_result.clvm_output.result;
-    let original_proof = proof_result.zk_proof;
+    let original_proof = proof_result.proof;
 
     test_info!(
         "Successfully generated proof of {} bytes",
@@ -152,7 +152,7 @@ fn fuzz_proof_integrity_attacks() -> Result<(), Box<dyn std::error::Error>> {
         match ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr).unwrap(),
             &tampered_proof,
-            Some(&output),
+            Some(&clvm_res.output),
         ) {
             Ok((false, _)) => {
                 test_info!("    ✓ Attack correctly rejected by verification");
@@ -216,8 +216,8 @@ async fn fuzz_program_binding_attacks() -> Result<(), Box<dyn std::error::Error>
                 let params = params.clone();
                 task::spawn_blocking(move || match ClvmZkProver::prove(&expr, &params) {
                     Ok(proof_result) => {
-                        let output = proof_result.clvm_output.result;
-                        let proof = proof_result.zk_proof;
+                        let output = proof_result.output.clvm_res;
+                        let proof = proof_result.proof;
                         Ok((batch_idx, output, proof))
                     }
                     Err(e) => Err(format!(
@@ -257,7 +257,7 @@ async fn fuzz_program_binding_attacks() -> Result<(), Box<dyn std::error::Error>
                 match ClvmZkProver::verify_proof(
                     compile_chialisp_template_hash_default(expr).unwrap(),
                     proof,
-                    Some(expected_output_for_this_program),
+                    Some(&expected_output_for_this_program.output),
                 ) {
                     Ok((true, _)) => {
                         test_info!("   Same program verification succeeded (program {prog_idx} with proof {proof_idx})");
@@ -276,7 +276,7 @@ async fn fuzz_program_binding_attacks() -> Result<(), Box<dyn std::error::Error>
                 match ClvmZkProver::verify_proof(
                     compile_chialisp_template_hash_default(expr).unwrap(),
                     proof,
-                    Some(expected_output_for_this_program),
+                    Some(&expected_output_for_this_program.output),
                 ) {
                     Ok((false, _)) => {
                         test_info!("   Cross-verification correctly rejected (program {prog_idx} with proof {proof_idx}) - different expected output");

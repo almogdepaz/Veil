@@ -5,8 +5,7 @@ use crate::global_common::prepare_guest_inputs;
 use crate::{CLVM_RISC0_GUEST_ELF, CLVM_RISC0_GUEST_ID};
 use borsh;
 pub use clvm_zk_core::{
-    ClvmOutput, ClvmZkError, Input, ProgramParameter, ProofOutput, PublicInputs,
-    ZKClvmNullifierResult, ZKClvmResult,
+    ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
 };
 
 pub struct Risc0Backend {}
@@ -34,14 +33,9 @@ impl Risc0Backend {
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use risc0_zkvm::{default_prover, ExecutorEnv};
 
-        let (public_inputs, private_inputs) =
-            prepare_guest_inputs(chialisp_source, program_parameters, None);
+        let inputs = prepare_guest_inputs(chialisp_source, program_parameters, None);
         let env = ExecutorEnv::builder()
-            .write(&public_inputs)
-            .map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("failed to write public inputs: {e}"))
-            })?
-            .write(&private_inputs)
+            .write(&inputs)
             .map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("failed to write private inputs: {e}"))
             })?
@@ -71,8 +65,7 @@ impl Risc0Backend {
         })?;
 
         Ok(ZKClvmResult {
-            result: result.clvm_output.result,
-            cost: result.clvm_output.cost,
+            output: result,
             proof: proof_bytes,
         })
     }
@@ -82,17 +75,12 @@ impl Risc0Backend {
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
-    ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
+    ) -> Result<ZKClvmResult, ClvmZkError> {
         use risc0_zkvm::{default_prover, ExecutorEnv};
 
-        let (public_inputs, private_inputs) =
-            prepare_guest_inputs(chialisp_source, program_parameters, Some(spend_secret));
+        let inputs = prepare_guest_inputs(chialisp_source, program_parameters, Some(spend_secret));
         let env = ExecutorEnv::builder()
-            .write(&public_inputs)
-            .map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("failed to write public inputs: {e}"))
-            })?
-            .write(&private_inputs)
+            .write(&inputs)
             .map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("failed to write private inputs: {e}"))
             })?
@@ -119,14 +107,12 @@ impl Risc0Backend {
 
         validate_nullifier_proof_output(&result, "RISC0")?;
 
-        let proof_bytes = borsh::to_vec(&receipt_obj).map_err(|e| {
+        let proof_bytes: Vec<u8> = borsh::to_vec(&receipt_obj).map_err(|e| {
             ClvmZkError::SerializationError(format!("failed to serialize receipt: {e}"))
         })?;
 
-        Ok(ZKClvmNullifierResult {
-            nullifier: result.nullifier.unwrap_or([0u8; 32]),
-            result: result.clvm_output.result,
-            cost: result.clvm_output.cost,
+        Ok(ZKClvmResult {
+            output: result,
             proof: proof_bytes,
         })
     }
@@ -150,7 +136,7 @@ impl Risc0Backend {
                 ClvmZkError::InvalidProofFormat(format!("failed to decode journal: {e}"))
             })?;
 
-        Ok((true, output.program_hash, output.clvm_output.result))
+        Ok((true, output.program_hash, output.clvm_res.output))
     }
 
     pub fn backend_name(&self) -> &'static str {

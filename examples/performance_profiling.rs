@@ -55,9 +55,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let proof_time = proof_start.elapsed();
 
             proof_times.push(proof_time);
-            proof_sizes.push(result.zk_proof.len());
-            last_proof = result.zk_proof.clone();
-            last_output = result.clvm_output.result.clone();
+            proof_sizes.push(result.proof.len());
+            last_proof = result.proof.clone();
+            last_output = result.output.clvm_res.output.clone();
         }
 
         // Measure verification time (5 runs for average)
@@ -135,7 +135,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Optimization recommendations
-    println!("\n🚀 Optimization Recommendations:");
+    println!("\nOptimization Recommendations:");
     println!("1. Simple operations are most efficient for frequent use");
     println!("2. Conditional logic adds minimal overhead");
     println!("3. Deep nesting increases complexity significantly");

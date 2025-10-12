@@ -107,7 +107,7 @@ fn test_cross_puzzle_nullifier_separation() {
     assert_ne!(null_p2pk, null_timelock);
     assert_ne!(null_multisig, null_timelock);
 
-    println!("✅ Cross-puzzle nullifier separation verified");
+    println!("Cross-puzzle nullifier separation verified");
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn test_double_spend_prevention() {
 
     match result1 {
         Ok(tx) => {
-            println!("✅ First spend succeeded: {}", tx);
+            println!("First spend succeeded: {}", tx);
             assert_eq!(tx.nullifiers.len(), 1);
             assert_eq!(tx.nullifiers[0], coin.nullifier());
 
@@ -143,7 +143,7 @@ fn test_double_spend_prevention() {
             assert!(sim.has_nullifier(&coin.nullifier()));
         }
         Err(e) => {
-            println!("❌ First spend failed: {:?}", e);
+            println!("First spend failed: {:?}", e);
             panic!("First spend should succeed");
         }
     }
@@ -154,17 +154,17 @@ fn test_double_spend_prevention() {
 
     match result2 {
         Ok(_) => {
-            panic!("❌ Second spend should have failed (double-spend)");
+            panic!("Second spend should have failed (double-spend)");
         }
         Err(SimulatorError::DoubleSpend(nullifier_hex)) => {
-            println!("✅ Double-spend correctly prevented: {}", nullifier_hex);
+            println!("Double-spend correctly prevented: {}", nullifier_hex);
             assert_eq!(
                 hex::decode(nullifier_hex).unwrap(),
                 coin.nullifier().to_vec()
             );
         }
         Err(e) => {
-            panic!("❌ Unexpected error: {:?}", e);
+            panic!("Unexpected error: {:?}", e);
         }
     }
 }
@@ -206,7 +206,7 @@ fn test_multi_user_privacy_mixing() {
 
     match mix_result {
         Ok(tx) => {
-            println!("✅ Privacy mixing succeeded");
+            println!("Privacy mixing succeeded");
             println!("Transaction ID: {}", hex::encode(tx.id));
             println!("Mixed {} nullifiers", tx.nullifiers.len());
             assert_eq!(tx.nullifiers.len(), users.len());
@@ -217,7 +217,7 @@ fn test_multi_user_privacy_mixing() {
             }
         }
         Err(e) => {
-            println!("❌ Privacy mixing failed: {:?}", e);
+            println!("Privacy mixing failed: {:?}", e);
 
             // MISSING LOGIC: If this fails, we need to implement:
             // 1. Proper puzzle code matching in spend_coins()
@@ -245,7 +245,7 @@ fn test_nullifier_uniqueness_across_amounts() {
     assert_eq!(coin_100.nullifier(), coin_1000.nullifier());
     assert_eq!(coin_1000.nullifier(), coin_1000000.nullifier());
 
-    println!("✅ Nullifier is independent of coin amount");
+    println!("Nullifier is independent of coin amount");
 }
 
 #[test]
@@ -294,7 +294,7 @@ fn test_simulator_state_tracking() {
 
     match spend_result {
         Ok(_tx) => {
-            println!("✅ Spent 2 coins successfully");
+            println!("Spent 2 coins successfully");
 
             // Check updated state
             let updated_stats = sim.stats();
@@ -310,7 +310,7 @@ fn test_simulator_state_tracking() {
             assert!(!sim.has_nullifier(&created_coins[3].nullifier()));
         }
         Err(e) => {
-            println!("❌ Spend failed: {:?}", e);
+            println!("Spend failed: {:?}", e);
             println!("MISSING LOGIC NEEDED:");
             println!("1. Proper puzzle code lookup/generation");
             println!("2. Spend bundle creation for real coins");
@@ -342,7 +342,7 @@ fn test_nullifier_determinism() {
         assert_eq!(coin2.nullifier(), coin3.nullifier());
 
         println!(
-            "✅ {} nullifier is deterministic: {}",
+            "{} nullifier is deterministic: {}",
             user,
             hex::encode(coin1.nullifier())
         );
@@ -366,7 +366,7 @@ fn test_puzzle_hash_binding_in_nullifier() {
     let expected_nullifier1 = clvm_zk::crypto_utils::generate_nullifier(&spend_secret, &puzzle1);
 
     assert_eq!(coin1.nullifier(), expected_nullifier1);
-    println!("✅ Nullifier construction algorithm verified");
+    println!("Nullifier construction algorithm verified");
 }
 
 #[test]
@@ -388,7 +388,7 @@ fn test_large_scale_nullifier_uniqueness() {
                 if !nullifiers.insert(nullifier) {
                     collision_count += 1;
                     println!(
-                        "❌ Collision found for user={}, coin={}, puzzle={}",
+                        "Collision found for user={}, coin={}, puzzle={}",
                         user_id, coin_id, puzzle_variant
                     );
                 }
@@ -404,7 +404,7 @@ fn test_large_scale_nullifier_uniqueness() {
     assert_eq!(collision_count, 0, "No nullifier collisions should occur");
     assert_eq!(nullifiers.len(), total_generated);
 
-    println!("✅ Large-scale nullifier uniqueness verified");
+    println!("Large-scale nullifier uniqueness verified");
 }
 
 #[test]
@@ -440,7 +440,7 @@ fn test_simulator_reset() {
     // Should not have any nullifiers
     assert!(!sim.has_nullifier(&coin.nullifier()));
 
-    println!("✅ Simulator reset functionality verified");
+    println!("Simulator reset functionality verified");
 }
 
 // ============================================================================
@@ -464,13 +464,13 @@ REMAINING ISSUE:
    - Need: Consistent nullifier calculation across test and production code
 
 WORKING COMPONENTS (Major progress since initial analysis):
-✅ Basic nullifier creation and determinism
-✅ Cross-puzzle nullifier separation
-✅ Nullifier uniqueness and collision resistance
-✅ Simulator state tracking and reset
-✅ Multi-user privacy mixing (ZK proof generation works!)
-✅ Transaction validation and double-spend detection logic
-✅ Batch transaction handling
+Basic nullifier creation and determinism
+Cross-puzzle nullifier separation
+Nullifier uniqueness and collision resistance
+Simulator state tracking and reset
+Multi-user privacy mixing (ZK proof generation works!)
+Transaction validation and double-spend detection logic
+Batch transaction handling
 
 RECOMMENDED FIX:
 - Align test puzzle creation with actual CLVM puzzle hash calculation

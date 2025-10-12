@@ -62,13 +62,13 @@ fn fuzz_agg_sig_unsafe_valid() -> Result<(), Box<dyn std::error::Error>> {
     test_info!("Generating proof for agg_sig_unsafe...");
     let proof_result = ClvmZkProver::prove(expr, &params)
         .map_err(|e| format!("Proof generation failed for valid agg_sig_unsafe: {e}"))?;
-    let output = proof_result.clvm_output.result;
-    let proof = proof_result.zk_proof;
+    let output = proof_result.output.clvm_res;
+    let proof = proof_result.proof;
 
     test_info!("Verifying proof for agg_sig_unsafe...");
     let program_hash = compile_chialisp_template_hash_default(expr)
         .map_err(|e| format!("Hash template failed: {:?}", e))?;
-    let (verified, _) = ClvmZkProver::verify_proof(program_hash, &proof, Some(&output))
+    let (verified, _) = ClvmZkProver::verify_proof(program_hash, &proof, Some(&output.output))
         .map_err(|e| format!("Verification error for agg_sig_unsafe: {e}"))?;
 
     if !verified {
@@ -78,7 +78,7 @@ fn fuzz_agg_sig_unsafe_valid() -> Result<(), Box<dyn std::error::Error>> {
     test_info!("✓ agg_sig_unsafe with valid crypto data: PASSED");
     test_info!(
         "  Output: {} bytes, Proof: {} bytes",
-        output.len(),
+        output.output.len(),
         proof.len()
     );
 
@@ -108,17 +108,18 @@ fn fuzz_agg_sig_unsafe_invalid() -> Result<(), Box<dyn std::error::Error>> {
     test_info!("Attempting proof generation for invalid agg_sig_unsafe...");
     match ClvmZkProver::prove(expr, &params) {
         Ok(proof_result) => {
-            let output = proof_result.clvm_output.result;
-            let proof = proof_result.zk_proof;
+            let output = proof_result.output.clvm_res;
+            let proof = proof_result.proof;
             test_info!("Proof generation succeeded, checking if verification catches the invalid signature...");
 
             // The proof might succeed but verification should fail or return invalid result
             let program_hash = compile_chialisp_template_hash_default(expr)
                 .map_err(|e| format!("Hash template failed: {:?}", e))?;
-            let (verified, _) = ClvmZkProver::verify_proof(program_hash, &proof, Some(&output))
-                .map_err(|e| format!("Verification error for invalid agg_sig_unsafe: {e}"))?;
+            let (verified, _) =
+                ClvmZkProver::verify_proof(program_hash, &proof, Some(&output.output))
+                    .map_err(|e| format!("Verification error for invalid agg_sig_unsafe: {e}"))?;
 
-            if verified && !output.is_empty() && output != vec![0u8] {
+            if verified && !output.output.is_empty() && output.output != vec![0u8] {
                 return Err(
                     "Invalid agg_sig_unsafe should not produce valid verified result".into(),
                 );

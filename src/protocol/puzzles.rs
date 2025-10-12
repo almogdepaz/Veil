@@ -228,6 +228,6 @@ mod tests {
         let signature = Signature::from_bytes((&signature_array).into()).unwrap();
         assert!(verifying_key.verify(&message_hash, &signature).is_ok());
 
-        println!("✅ Signature puzzle creation test passed");
+        println!("Signature puzzle creation test passed");
     }
 }

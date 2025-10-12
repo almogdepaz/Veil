@@ -92,7 +92,7 @@ fn test_signature_enabled_spending() {
     let (coin, signing_key, _verifying_key, puzzle_program, public_key_bytes) =
         CoinFactory::create_signature_coin_setup(spend_secret, amount);
 
-    println!("   📝 Created signature-enabled coin:");
+    println!("   Created signature-enabled coin:");
     println!("      - Nullifier: {}", hex::encode(coin.nullifier()));
     println!("      - Amount: {}", coin.amount);
     println!("      - Puzzle requires ECDSA signature");
@@ -123,27 +123,27 @@ fn test_signature_enabled_spending() {
 
     match result {
         Ok(tx) => {
-            println!("   ✅ Spend successful!");
+            println!("   Spend successful!");
             println!("      - Transaction ID: {}", hex::encode(tx.id));
             println!("      - Nullifiers: {}", tx.nullifiers.len());
 
             // SECURITY: Validate the proof is legitimate, not just that generation succeeded
             let expected_nullifiers = [coin.nullifier()];
             match validate_transaction_proofs(&tx, &expected_nullifiers) {
-                Ok(()) => println!("   ✅ Proof validation passed - legitimate transaction"),
-                Err(validation_error) => panic!("❌ Proof validation failed: {}", validation_error),
+                Ok(()) => println!("   Proof validation passed - legitimate transaction"),
+                Err(validation_error) => panic!("Proof validation failed: {}", validation_error),
             }
 
             assert_eq!(tx.nullifiers.len(), 1);
             assert_eq!(tx.nullifiers[0], coin.nullifier());
         }
         Err(e) => {
-            println!("   ❌ Spend failed: {:?}", e);
+            println!("   Spend failed: {:?}", e);
             panic!("Signature-enabled spend should succeed with valid signature");
         }
     }
 
-    println!("✅ Signature verification integration test passed!");
+    println!("Signature verification integration test passed!");
 }
 
 #[test]
@@ -197,21 +197,21 @@ fn test_signature_verification_prevents_unauthorized_spending() {
             match validate_transaction_proofs(&tx, &expected_nullifiers) {
                 Ok(()) => {
                     // If validation passes, this means signature verification was bypassed!
-                    panic!("❌ CRITICAL SECURITY ISSUE: Invalid signature was accepted and generated valid proof!");
+                    panic!("CRITICAL SECURITY ISSUE: Invalid signature was accepted and generated valid proof!");
                 }
                 Err(validation_error) => {
                     // Proof validation failed - this is expected for invalid signatures
-                    panic!("❌ Spend succeeded but produced invalid proof (validation error: {}). This indicates a zkVM vulnerability!", validation_error);
+                    panic!("Spend succeeded but produced invalid proof (validation error: {}). This indicates a zkVM vulnerability!", validation_error);
                 }
             }
         }
         Err(e) => {
-            println!("   ✅ Spend correctly rejected: {:?}", e);
+            println!("   Spend correctly rejected: {:?}", e);
             // The spend should fail during ZK proof generation because signature verification fails
         }
     }
 
-    println!("✅ Unauthorized spending prevention test passed!");
+    println!("Unauthorized spending prevention test passed!");
 }
 
 #[test]
@@ -260,17 +260,16 @@ fn test_multiple_signature_coins_in_transaction() {
 
     match result {
         Ok(tx) => {
-            println!("   ✅ Multi-coin spend successful!");
+            println!("   Multi-coin spend successful!");
             println!("      - Spent {} coins", tx.nullifiers.len());
 
             // SECURITY: Validate all proofs are legitimate
             let expected_nullifiers = [coin1.nullifier(), coin2.nullifier()];
             match validate_transaction_proofs(&tx, &expected_nullifiers) {
-                Ok(()) => println!("   ✅ Multi-coin proof validation passed"),
-                Err(validation_error) => panic!(
-                    "❌ Multi-coin proof validation failed: {}",
-                    validation_error
-                ),
+                Ok(()) => println!("   Multi-coin proof validation passed"),
+                Err(validation_error) => {
+                    panic!("Multi-coin proof validation failed: {}", validation_error)
+                }
             }
 
             assert_eq!(tx.nullifiers.len(), 2);
@@ -278,10 +277,10 @@ fn test_multiple_signature_coins_in_transaction() {
             assert!(tx.nullifiers.contains(&coin2.nullifier()));
         }
         Err(e) => {
-            println!("   ❌ Multi-coin spend failed: {:?}", e);
+            println!("   Multi-coin spend failed: {:?}", e);
             panic!("Multi-signature spend should succeed");
         }
     }
 
-    println!("✅ Multiple signature coins test passed!");
+    println!("Multiple signature coins test passed!");
 }

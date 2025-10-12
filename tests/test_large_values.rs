@@ -86,7 +86,7 @@ fn test_large_value_encoding() -> Result<(), Box<dyn std::error::Error>> {
                     println!("    → Expected: Multi-byte encoding for {expected}");
                 }
             }
-            Err(e) => println!("  ❌ Program creation failed: {:?}", e),
+            Err(e) => println!("  Program creation failed: {:?}", e),
         }
         println!();
     }

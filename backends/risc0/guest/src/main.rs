@@ -5,8 +5,8 @@ use risc0_zkvm::sha::{Impl, Sha256 as RiscSha256};
 
 // Use our no-std Chialisp compiler and evaluation engine
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmOutput, Input,
-    ProofOutput, PublicInputs,
+    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmResult, Input,
+    ProofOutput,
 };
 
 // BLS12-381 cryptographic operations
@@ -104,9 +104,6 @@ fn main() {
     // Track performance with cycle counting
     let start_cycles = env::cycle_count();
 
-    // Read public inputs (currently empty)
-    let public_inputs: PublicInputs = env::read();
-
     // Read private inputs with Chialisp source
     let private_inputs: Input = env::read();
 
@@ -147,20 +144,19 @@ fn main() {
     let end_cycles = env::cycle_count();
     let total_cycles = end_cycles.saturating_sub(start_cycles);
 
-    let clvm_output = ClvmOutput {
-        result: output_bytes,
+    let clvm_output = ClvmResult {
+        output: output_bytes,
         cost: total_cycles,
     };
 
     // Commit result with program hash for verification
     env::commit(&ProofOutput {
-        public_inputs,
         program_hash, // Key output for verification
         nullifier: if private_inputs.spend_secret.is_some() {
             Some(computed_nullifier)
         } else {
             None
         },
-        clvm_output,
+        clvm_res: clvm_output,
     });
 }

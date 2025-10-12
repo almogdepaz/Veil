@@ -42,22 +42,22 @@ so you can't replay proofs across different puzzle types - the program hash BIND
 ## Quick start
 
 ```bash
-# Initialize the simulator
-cargo run -- sim init
+# Initialize the simulator (use --release for actual proof generation)
+cargo run --release -- sim init
 
 # Create wallet
-cargo run -- sim wallet alice create
+cargo run --release -- sim wallet alice create
 
 # Fund it from the faucet
-cargo run -- sim faucet alice --amount 5000
+cargo run --release -- sim faucet alice --amount 5000
 
 # Check your balance
-cargo run -- sim wallet alice show
+cargo run --release -- sim wallet alice show
 ```
 
 Run tests with:
 ```bash
-cargo test --test simulator_tests --release
+cargo test --release --test simulator_tests
 ```
 
 ## How it works
@@ -76,34 +76,34 @@ Everything gets saved to `./simulator_data/state.json`:
 
 ### Basic setup
 ```bash
-# Initialize simulator
-cargo run -- sim init
+# Initialize simulator (use --release for actual proof generation)
+cargo run --release -- sim init
 
 # Create wallets
-cargo run -- sim wallet alice create
-cargo run -- sim wallet bob create
+cargo run --release -- sim wallet alice create
+cargo run --release -- sim wallet bob create
 
 # Fund wallet from faucet
-cargo run -- sim faucet alice --amount 5000 --count 3
+cargo run --release -- sim faucet alice --amount 5000 --count 3
 
 # Check wallet status
-cargo run -- sim wallet alice show
-cargo run -- sim status
+cargo run --release -- sim wallet alice show
+cargo run --release -- sim status
 ```
 
 ### Private transactions
 ```bash
 # Generate password puzzle program
-cargo run -- hash-password mysecret
+cargo run --release -- hash-password mysecret
 # Output: (= (sha256 password) 0x652c7dc687d98c9889304ed2e408c74b611e86a40caa51c4b43f1dd5913c5cd0)
 
 # Alice locks coins with password
-cargo run -- sim spend-to-puzzle alice 3000 \
+cargo run --release -- sim spend-to-puzzle alice 3000 \
   "(= (sha256 password) 0x652c7dc687d98c9889304ed2e408c74b611e86a40caa51c4b43f1dd5913c5cd0)" \
   --coins "0"
 
 # Bob unlocks with password
-cargo run -- sim spend-to-wallet \
+cargo run --release -- sim spend-to-wallet \
   "(= (sha256 password) 0x652c7dc687d98c9889304ed2e408c74b611e86a40caa51c4b43f1dd5913c5cd0)" \
   bob 3000 --params "mysecret"
 ```
@@ -111,21 +111,21 @@ cargo run -- sim spend-to-wallet \
 ### More examples
 ```bash
 # Send between wallets
-cargo run -- sim send alice bob 2000 --coins "0,1"
+cargo run --release -- sim send alice bob 2000 --coins "0,1"
 
 # Custom puzzle programs
-cargo run -- sim spend-to-puzzle alice 1000 "(> minimum_amount 100)" --coins "auto"
-cargo run -- sim spend-to-wallet "(> minimum_amount 100)" bob 1000 --params "150"
+cargo run --release -- sim spend-to-puzzle alice 1000 "(> minimum_amount 100)" --coins "auto"
+cargo run --release -- sim spend-to-wallet "(> minimum_amount 100)" bob 1000 --params "150"
 
 # Using mod wrapper syntax for named parameters
-cargo run -- sim spend-to-puzzle alice 1000 "(mod (threshold) (> threshold 100))" --coins "auto"
-cargo run -- sim spend-to-wallet "(mod (threshold) (> threshold 100))" bob 1000 --params "150"
+cargo run --release -- sim spend-to-puzzle alice 1000 "(mod (threshold) (> threshold 100))" --coins "auto"
+cargo run --release -- sim spend-to-wallet "(mod (threshold) (> threshold 100))" bob 1000 --params "150"
 
 # Wallet management
-cargo run -- sim wallets                    # List all wallets
-cargo run -- sim wallet alice coins         # Show all coins
-cargo run -- sim wallet alice unspent       # Show unspent coins
-cargo run -- sim wallet alice balance       # Show balance only
+cargo run --release -- sim wallets                    # List all wallets
+cargo run --release -- sim wallet alice coins         # Show all coins
+cargo run --release -- sim wallet alice unspent       # Show unspent coins
+cargo run --release -- sim wallet alice balance       # Show balance only
 ```
 
 ## Features
@@ -139,22 +139,22 @@ cargo run -- sim wallet alice balance       # Show balance only
 
 ### Choose zk backend
 ```bash
-# Default: risc0 backend
-cargo run -- sim init
+# Default: SP1 backend (requires --release)
+cargo run --release -- sim init
 
-# Use sp1 backend
-cargo run --no-default-features --features sp1 -- sim init
+# Use RISC0 backend (requires --release)
+cargo run --release --no-default-features --features risc0,testing -- sim init
 
-# Skip zk proof generation for faster testing
-RISC0_SKIP_BUILD=1 cargo run -- sim init
+# Use mock backend for fast testing (no real proofs, no --release needed)
+cargo run --no-default-features --features mock,testing -- sim init
 ```
 
 ## Troubleshooting
 
-Use `RISC0_SKIP_BUILD=1` for faster development (skips proof generation).
-Reset corrupted state with `cargo run -- sim init`.
-Switch backends with `--features sp1`.
-Use `--release` mode for large operations.
+**Always use `--release` for SP1 and RISC0 backends** - they require release mode for proof generation.
+Use mock backend for fast testing without real proofs: `cargo run --no-default-features --features mock,testing -- sim init`
+Reset corrupted state with `cargo run --release -- sim init --reset`
+Switch backends with feature flags: `--no-default-features --features risc0,testing` or `--features mock,testing`
 
 ## Use cases
 

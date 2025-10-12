@@ -92,8 +92,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ) {
         Ok(result) => {
             println!("Simple mod program ZK proof generated successfully!");
-            println!("   - Output: {:?}", result.result());
-            println!("   - Proof size: {} bytes", result.zk_proof.len());
+            println!("   - Output: {:?}", result.output.clvm_res);
+            println!("   - Proof size: {} bytes", result.proof.len());
         }
         Err(e) => {
             println!("Simple mod program failed: {e}");
@@ -110,8 +110,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ) {
         Ok(result) => {
             println!("Guest-compiled create_coin succeeded!");
-            println!("   - Output: {:?}", result.result());
-            println!("   - Proof size: {} bytes", result.zk_proof.len());
+            println!("   - Output: {:?}", result.output.clvm_res);
+            println!("   - Proof size: {} bytes", result.proof.len());
         }
         Err(e) => {
             println!("Guest-compiled create_coin failed: {e}");
@@ -125,8 +125,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ) {
         Ok(result) => {
             println!("Guest-compiled reserve_fee succeeded!");
-            println!("   - Output: {:?}", result.result());
-            println!("   - Proof size: {} bytes", result.zk_proof.len());
+            println!("   - Output: {:?}", result.output.clvm_res);
+            println!("   - Proof size: {} bytes", result.proof.len());
         }
         Err(e) => {
             println!("Guest-compiled reserve_fee failed: {e}");
@@ -140,7 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   - Public key bytes: {:02x?}", &bob_public_key_bytes[..8]);
     println!("   - Message bytes: {:02x?}", &required_message[..8]);
     println!("   - Signature bytes: {:02x?}", &signature_bytes[..8]);
-    println!("   - Message hash: {:02x?}", &message_hash.as_slice()[..8]);
+    println!("   - Message hash: {:02x?}", &message_hash[..8]);
 
     // The new API is much simpler - we just pass the Chialisp source and parameters!
     // No more host-side compilation, everything happens in the guest
@@ -161,10 +161,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ],
     ) {
         Ok(result) => {
-            println!("✅ ECDSA signature verification in ZK succeeded!");
-            println!("   - Proof size: {} bytes", result.zk_proof.len());
-            println!("   - Output: {:?}", result.result());
-            println!("   - Cost: {} cycles", result.cost());
+            println!("ECDSA signature verification in ZK succeeded!");
+            println!("   - Proof size: {} bytes", result.proof.len());
+            println!("   - Output: {:?}", result.output.clvm_res);
+            println!("   - Cost: {} cycles", result.output.clvm_res.cost);
 
             // The output should be [1] for valid signature, [0] for invalid
             println!("   - Expected output: [1] (signature verification passed)");
@@ -172,10 +172,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // === ZK PROOF VERIFICATION ===
             println!("\nVerifying ZK proof publicly...");
             let program_hash = compile_chialisp_template_hash_default(&signature_program).unwrap();
-            match ClvmZkProver::verify_proof(program_hash, &result.zk_proof, Some(result.result()))
-            {
+            match ClvmZkProver::verify_proof(
+                program_hash,
+                &result.proof,
+                Some(&result.output.clvm_res.output),
+            ) {
                 Ok((true, _)) => {
-                    println!("✅ ZK proof verification successful!");
+                    println!("ZK proof verification successful!");
                     println!("   - ECDSA signature was verified in zero-knowledge!");
                     println!(
                         "   - Bob's authorization was proven without revealing the signature!"
@@ -183,16 +186,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("   - Alice can be confident Bob authorized this transaction!");
                 }
                 Ok((false, _)) => {
-                    println!("❌ ZK proof verification failed!");
+                    println!("ZK proof verification failed!");
                     println!("   - Proof is invalid or tampered with");
                 }
                 Err(e) => {
-                    println!("❌ ZK proof verification error: {e}");
+                    println!("ZK proof verification error: {e}");
                 }
             }
         }
         Err(e) => {
-            println!("❌ ECDSA signature verification failed: {e}");
+            println!("ECDSA signature verification failed: {e}");
             println!("   This could happen if:");
             println!("   - The signature is invalid or doesn't match the message");
             println!("   - The public key doesn't correspond to the private key used for signing");
@@ -205,9 +208,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &[ProgramParameter::int(41)],
             ) {
                 Ok(_) => {
-                    println!("   ✅ Simple program works, issue is with signature verification")
+                    println!("   Simple program works, issue is with signature verification")
                 }
-                Err(e2) => println!("   ❌ Even simple program fails: {e2}"),
+                Err(e2) => println!("   Even simple program fails: {e2}"),
             }
         }
     }
