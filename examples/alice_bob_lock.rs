@@ -164,7 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("ECDSA signature verification in ZK succeeded!");
             println!("   - Proof size: {} bytes", result.proof.len());
             println!("   - Output: {:?}", result.output);
-            println!("   - Cost: {} cycles", result.cost);
+            println!("   - Cost: {} cycles", result.output.cost);
 
             // The output should be [1] for valid signature, [0] for invalid
             println!("   - Expected output: [1] (signature verification passed)");
@@ -172,7 +172,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // === ZK PROOF VERIFICATION ===
             println!("\nVerifying ZK proof publicly...");
             let program_hash = compile_chialisp_template_hash_default(&signature_program).unwrap();
-            match ClvmZkProver::verify_proof(program_hash, &result.proof, Some(&result.output)) {
+            match ClvmZkProver::verify_proof(program_hash, &result.proof, Some(&result.output.result)) {
                 Ok((true, _)) => {
                     println!("ZK proof verification successful!");
                     println!("   - ECDSA signature was verified in zero-knowledge!");
