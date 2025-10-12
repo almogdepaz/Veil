@@ -267,10 +267,9 @@ fn test_multiple_signature_coins_in_transaction() {
             let expected_nullifiers = [coin1.nullifier(), coin2.nullifier()];
             match validate_transaction_proofs(&tx, &expected_nullifiers) {
                 Ok(()) => println!("   Multi-coin proof validation passed"),
-                Err(validation_error) => panic!(
-                    "Multi-coin proof validation failed: {}",
-                    validation_error
-                ),
+                Err(validation_error) => {
+                    panic!("Multi-coin proof validation failed: {}", validation_error)
+                }
             }
 
             assert_eq!(tx.nullifiers.len(), 2);
