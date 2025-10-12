@@ -140,7 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   - Public key bytes: {:02x?}", &bob_public_key_bytes[..8]);
     println!("   - Message bytes: {:02x?}", &required_message[..8]);
     println!("   - Signature bytes: {:02x?}", &signature_bytes[..8]);
-    println!("   - Message hash: {:02x?}", &message_hash.as_slice()[..8]);
+    println!("   - Message hash: {:02x?}", &message_hash[..8]);
 
     // The new API is much simpler - we just pass the Chialisp source and parameters!
     // No more host-side compilation, everything happens in the guest
