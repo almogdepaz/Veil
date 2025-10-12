@@ -77,7 +77,7 @@ fn fuzz_malformed_expressions() -> Result<(), String> {
         // If program creation succeeds, proof generation should fail
         match ClvmZkProver::prove(expr, &param_list) {
             Ok(proof_result) => {
-                let output = proof_result.output;
+                let output = proof_result.clvm_res;
                 let _proof = proof_result.proof;
                 // If proof somehow succeeds, it should be an error result
                 return Err(format!("Malformed expression '{expr}' should not generate proof but got output: {output:?}"));
@@ -140,12 +140,12 @@ async fn fuzz_complex_nested_expressions() -> Result<(), String> {
 
                     match ClvmZkProver::prove(&expr, &param_list) {
                         Ok(proof_result) => {
-                            let output = proof_result.output;
+                            let output = proof_result.clvm_res;
                             let _proof = proof_result.proof;
                             // Verify the proof
                             let program_hash =compile_chialisp_template_hash_default(&expr)
                                 .map_err(|e| format!("Hash template failed: {:?}", e))?;
-                            let (verified, _) = ClvmZkProver::verify_proof(program_hash, &_proof, Some(&output))
+                            let (verified, _) = ClvmZkProver::verify_proof(program_hash, &_proof, Some(&output.output))
                                 .map_err(|e| format!("Verification error: {e}"))?;
 
                             if !verified {
@@ -154,10 +154,10 @@ async fn fuzz_complex_nested_expressions() -> Result<(), String> {
                                 ));
                             }
                             // Check output is reasonable
-                            if output.is_empty() {
+                            if output.output.is_empty() {
                                 return Err("Output should not be empty".to_string());
                             }
-                            if output.len() > 8 {
+                            if output.output.len() > 8 {
                                 return Err("Output should be reasonable size".to_string());
                             }
                             test_info!("  Success: {expr} -> {output:?}");

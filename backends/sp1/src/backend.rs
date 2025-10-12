@@ -130,7 +130,7 @@ impl Sp1Backend {
         })?;
 
         Ok(ZKClvmResult {
-            output: output.clvm_output,
+            clvm_res: output.clvm_output,
             proof: proof_bytes,
         })
     }
@@ -196,8 +196,8 @@ impl Sp1Backend {
 
         Ok(ZKClvmNullifierResult {
             nullifier: output.nullifier.unwrap_or([0u8; 32]), // fallback for backwards compat
-            base: ZKClvmResult {
-                output: output.clvm_output,
+            zk_clvm_res: ZKClvmResult {
+                clvm_res: output.clvm_output,
                 proof: proof_bytes,
             },
         })
@@ -226,7 +226,7 @@ impl Sp1Backend {
         let output = public_values.read::<clvm_zk_core::ProofOutput>();
 
         // return success, extracted program hash, and output
-        Ok((true, output.program_hash, output.clvm_output.result))
+        Ok((true, output.program_hash, output.clvm_output.output))
     }
 
     pub fn backend_name(&self) -> &'static str {

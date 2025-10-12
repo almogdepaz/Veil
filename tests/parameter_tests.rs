@@ -62,7 +62,7 @@ fn fuzz_mixed_parameters() -> Result<(), Box<dyn std::error::Error>> {
 
         let proof_result = ClvmZkProver::prove(expression, params)
             .map_err(|e| format!("Proof generation failed for {test_name}: {e}"))?;
-        let output = proof_result.output;
+        let output = proof_result.clvm_res;
         let proof = proof_result.proof;
 
         test_info!("  Proof generated: {} bytes", proof.len());
@@ -71,7 +71,7 @@ fn fuzz_mixed_parameters() -> Result<(), Box<dyn std::error::Error>> {
         let (verified, _) = ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(&expression).unwrap(),
             &proof,
-            Some(&output),
+            Some(&output.output),
         )
         .map_err(|e| format!("Verification error for {test_name}: {e}"))?;
 
@@ -82,15 +82,15 @@ fn fuzz_mixed_parameters() -> Result<(), Box<dyn std::error::Error>> {
         test_info!("  Proof verified successfully");
 
         // Validate result (all test cases must have expected values and single-byte outputs)
-        if output.len() != 1 {
+        if output.output.len() != 1 {
             return Err(format!(
                 "Test {test_name}: expected single-byte output, got {} bytes: {output:?}",
-                output.len()
+                output.output.len()
             )
             .into());
         }
 
-        let actual_val = output[0] as i64;
+        let actual_val = output.output[0] as i64;
         if actual_val != *expected {
             return Err(format!("Test {test_name}: expected {expected}, got {actual_val}").into());
         }

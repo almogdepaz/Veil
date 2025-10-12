@@ -84,7 +84,7 @@ impl MockBackend {
             })?;
 
         let clvm_output = ClvmResult {
-            result: output_bytes,
+            output: output_bytes,
             cost: 0, // mock backend doesn't track cycles
         };
 
@@ -101,7 +101,7 @@ impl MockBackend {
         })?;
 
         Ok(ZKClvmResult {
-            output: clvm_output,
+            clvm_res: clvm_output,
             proof: proof_bytes,
         })
     }
@@ -114,7 +114,7 @@ impl MockBackend {
         expected_result: &[u8],
     ) -> Result<bool, ClvmZkError> {
         let result = self.prove_chialisp_program(chialisp_source, program_parameters)?;
-        Ok(result.output.result == expected_result)
+        Ok(result.clvm_res.output == expected_result)
     }
 
     /// same as prove_chialisp_program but with nullifier generation
@@ -148,7 +148,7 @@ impl MockBackend {
         let computed_nullifier = generate_nullifier(hash_data, &spend_secret, &program_hash);
 
         let clvm_output = ClvmResult {
-            result: output_bytes,
+            output: output_bytes,
             cost: 0, // mock backend doesn't track cycles
         };
 
@@ -166,8 +166,8 @@ impl MockBackend {
 
         Ok(ZKClvmNullifierResult {
             nullifier: computed_nullifier,
-            base: ZKClvmResult {
-                output: clvm_output,
+            zk_clvm_res: ZKClvmResult {
+                clvm_res: clvm_output,
                 proof: proof_bytes,
             },
         })
@@ -183,7 +183,7 @@ impl MockBackend {
         })?;
 
         // always return true for mock verification since we trust our own execution
-        Ok((true, output.program_hash, output.clvm_output.result))
+        Ok((true, output.program_hash, output.clvm_output.output))
     }
 
     pub fn backend_name(&self) -> &'static str {

@@ -96,9 +96,9 @@ impl Spender {
 
         // 6. package everything up into a secure bundle
         let spend_bundle = PrivateSpendBundle::new(
-            zkvm_result.base.proof,
+            zkvm_result.zk_clvm_res.proof,
             zkvm_result.nullifier,
-            zkvm_result.base.output.result.clone(),
+            zkvm_result.zk_clvm_res.clvm_res.output.clone(),
         );
 
         // 7. FINAL VALIDATION: Ensure bundle is well-formed

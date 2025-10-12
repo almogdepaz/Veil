@@ -140,7 +140,7 @@ fn main() {
     let _validated_conditions = conditions;
 
     let clvm_output = ClvmResult {
-        result: output_bytes,
+        output: output_bytes,
         cost: 0, // SP1 doesn't have cycle counting like RISC0
     };
 

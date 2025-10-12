@@ -152,7 +152,7 @@ fn fuzz_proof_integrity_attacks() -> Result<(), Box<dyn std::error::Error>> {
         match ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr).unwrap(),
             &tampered_proof,
-            Some(&output),
+            Some(&clvm_res.output),
         ) {
             Ok((false, _)) => {
                 test_info!("    ✓ Attack correctly rejected by verification");
@@ -216,7 +216,7 @@ async fn fuzz_program_binding_attacks() -> Result<(), Box<dyn std::error::Error>
                 let params = params.clone();
                 task::spawn_blocking(move || match ClvmZkProver::prove(&expr, &params) {
                     Ok(proof_result) => {
-                        let output = proof_result.output;
+                        let output = proof_result.clvm_res;
                         let proof = proof_result.proof;
                         Ok((batch_idx, output, proof))
                     }

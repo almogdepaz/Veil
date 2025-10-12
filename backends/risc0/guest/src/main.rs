@@ -148,7 +148,7 @@ fn main() {
     let total_cycles = end_cycles.saturating_sub(start_cycles);
 
     let clvm_output = ClvmResult {
-        result: output_bytes,
+        output: output_bytes,
         cost: total_cycles,
     };
 
