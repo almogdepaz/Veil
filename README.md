@@ -30,16 +30,16 @@ curl -L https://risczero.com/install | bash && rzup
 ### Choose backend
 
 ```bash
-# Default: SP1 backend
-cargo build
-cargo test
-cargo test --test <test file name>
+# Default: SP1 backend (requires --release for proof generation)
+cargo build --release
+cargo test --release
+cargo test --release --test <test file name>
 
-# Use RISC0 backend
-cargo build --no-default-features --features risc0,testing
-cargo test --no-default-features --features "risc0,testing"
+# Use RISC0 backend (requires --release for proof generation)
+cargo build --release --no-default-features --features risc0,testing
+cargo test --release --no-default-features --features "risc0,testing"
 
-# Use mock backend (for testing without zkvm overhead)
+# Use mock backend (for testing without zkvm overhead, no --release needed)
 cargo test --no-default-features --features "mock,testing"
 ```
 
@@ -49,9 +49,9 @@ cargo test --no-default-features --features "mock,testing"
 # Build the binary
 cargo build --release
 
-# Run with cargo
-cargo run -- demo
-cargo run -- prove --expression "(mod (a b) (+ a b))" --variables "5,3"
+# Run with cargo (use --release for actual proof generation)
+cargo run --release -- demo
+cargo run --release -- prove --expression "(mod (a b) (+ a b))" --variables "5,3"
 
 # Or run the binary directly (faster, no rebuild)
 ./target/release/clvm-zk demo
