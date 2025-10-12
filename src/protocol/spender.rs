@@ -151,7 +151,7 @@ impl Spender {
 
             // Verify puzzle hash
             let computed_hash = Sha256::digest(puzzle_code.as_bytes());
-            if computed_hash.as_slice() != coin.puzzle_hash {
+            if &computed_hash[..] != coin.puzzle_hash {
                 return Err(ProtocolError::InvalidSpendSecret(format!(
                     "Puzzle code hash mismatch for coin {}: expected {}, computed {}",
                     hex::encode(nullifier),
