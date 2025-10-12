@@ -22,7 +22,7 @@ pub fn convert_proving_error(error: impl std::fmt::Display, backend_name: &str) 
 /// Validate that proof output contains expected values
 pub fn validate_proof_output(output: &ProofOutput, backend_name: &str) -> Result<(), ClvmZkError> {
     // Make sure the program actually committed values
-    if output.clvm_output.output.is_empty() {
+    if output.clvm_res.output.is_empty() {
         return Err(ClvmZkError::ProofGenerationFailed(format!(
             "{} proof appears to have exited before commit - no outputs generated",
             backend_name
@@ -37,7 +37,7 @@ pub fn validate_nullifier_proof_output(
     backend_name: &str,
 ) -> Result<(), ClvmZkError> {
     // Make sure the program actually committed values
-    if output.clvm_output.output.is_empty() && output.nullifier.is_none() {
+    if output.clvm_res.output.is_empty() && output.nullifier.is_none() {
         return Err(ClvmZkError::ProofGenerationFailed(format!(
             "{} proof appears to have exited before commit - no outputs generated",
             backend_name

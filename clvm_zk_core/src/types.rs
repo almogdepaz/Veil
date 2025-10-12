@@ -139,5 +139,5 @@ pub struct ProofOutput {
     /// Nullifier for double-spend prevention
     pub nullifier: Option<[u8; 32]>,
     /// CLVM execution result
-    pub clvm_output: ClvmResult,
+    pub clvm_res: ClvmResult,
 }

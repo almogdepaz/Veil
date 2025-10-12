@@ -93,7 +93,7 @@ impl MockBackend {
             public_inputs: PublicInputs {}, // empty for now
             program_hash,
             nullifier: None,
-            clvm_output: clvm_output.clone(),
+            clvm_res: clvm_output.clone(),
         };
 
         let proof_bytes = borsh::to_vec(&proof_output).map_err(|e| {
@@ -157,7 +157,7 @@ impl MockBackend {
             public_inputs: PublicInputs {},
             program_hash,
             nullifier: Some(computed_nullifier),
-            clvm_output: clvm_output.clone(),
+            clvm_res: clvm_output.clone(),
         };
 
         let proof_bytes = borsh::to_vec(&proof_output).map_err(|e| {
@@ -183,7 +183,7 @@ impl MockBackend {
         })?;
 
         // always return true for mock verification since we trust our own execution
-        Ok((true, output.program_hash, output.clvm_output.output))
+        Ok((true, output.program_hash, output.clvm_res.output))
     }
 
     pub fn backend_name(&self) -> &'static str {

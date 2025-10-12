@@ -71,7 +71,7 @@ impl Risc0Backend {
         })?;
 
         Ok(ZKClvmResult {
-            clvm_res: result.clvm_output,
+            clvm_res: result.clvm_res,
             proof: proof_bytes,
         })
     }
@@ -125,7 +125,7 @@ impl Risc0Backend {
         Ok(ZKClvmNullifierResult {
             nullifier: result.nullifier.unwrap_or([0u8; 32]),
             zk_clvm_res: ZKClvmResult {
-                clvm_res: result.clvm_output,
+                clvm_res: result.clvm_res,
                 proof: proof_bytes,
             },
         })
@@ -150,7 +150,7 @@ impl Risc0Backend {
                 ClvmZkError::InvalidProofFormat(format!("failed to decode journal: {e}"))
             })?;
 
-        Ok((true, output.program_hash, output.clvm_output.output))
+        Ok((true, output.program_hash, output.clvm_res.output))
     }
 
     pub fn backend_name(&self) -> &'static str {

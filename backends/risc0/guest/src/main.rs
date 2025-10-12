@@ -161,6 +161,6 @@ fn main() {
         } else {
             None
         },
-        clvm_output,
+        clvm_res: clvm_output,
     });
 }
