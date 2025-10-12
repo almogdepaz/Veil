@@ -8,7 +8,7 @@ General purpose zkvm approach - supports arbitrary chialisp programs instead of 
 
 ## What it does
 
-- Run chialisp programs in zkvm (currently suppourts RISC0 or SP1 zkvm's)
+- Run chialisp programs in zkvm (SP1 by default, RISC0 also supported)
 - Generate proofs that hide inputs and program logic
 - Verify proofs without seeing the private data
 - BLS and ECDSA signature verification support
@@ -30,30 +30,44 @@ curl -L https://risczero.com/install | bash && rzup
 ### Choose backend
 
 ```bash
-# Default: risc0 backend
+# Default: SP1 backend
 cargo build
 cargo test
-cargo test --test <test file name> 
-# Use sp1 backend
+cargo test --test <test file name>
 
-cargo build --no-default-features --features sp1
-cargo test --no-default-features --features "sp1,testing"
-cargo test --test <test file name> --features sp1
+# Use RISC0 backend
+cargo build --no-default-features --features risc0,testing
+cargo test --no-default-features --features "risc0,testing"
 
+# Use mock backend (for testing without zkvm overhead)
+cargo test --no-default-features --features "mock,testing"
+```
 
-# Run examples
-cargo run --example <name>
+### Build and run
+
+```bash
+# Build the binary
+cargo build --release
+
+# Run with cargo
+cargo run -- demo
+cargo run -- prove --expression "(mod (a b) (+ a b))" --variables "5,3"
+
+# Or run the binary directly (faster, no rebuild)
+./target/release/clvm-zk demo
+./target/release/clvm-zk prove --expression "(mod (a b) (+ a b))" --variables "5,3"
+./target/release/clvm-zk verify --proof-file proof.bin --template "(mod (a b) (+ a b))"
 
 # Interactive demo
-cargo run -- demo
-
-# Generate proofs
-cargo run -- prove --expression "(+ amount fee)" --arg1 5 --arg2 3
+./target/release/clvm-zk demo
 
 # Start simulator
-cargo run -- sim init
+./target/release/clvm-zk sim init
+./target/release/clvm-zk sim wallet alice create
+./target/release/clvm-zk sim faucet alice --amount 1000 --count 5
 
-
+# Run examples
+cargo run --release --example <name>
 ```
 
 
@@ -69,7 +83,7 @@ cargo run -- sim init
 **Blockchain**: `create_coin`, `agg_sig_unsafe`, `reserve_fee`, etc
 **Modules**: `mod` wrapper syntax for named parameters
 
-BLS signature verification (`bls_verify`) works on RISC0 and SP1 backends.
+BLS signature verification (`bls_verify`) works on SP1 and RISC0 backends.
 
 ### Program structure
 
