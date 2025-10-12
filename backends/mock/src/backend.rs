@@ -1,6 +1,6 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmOutput,
+    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmResult,
     ClvmZkError, ProgramParameter, ProofOutput, PublicInputs, ZKClvmNullifierResult, ZKClvmResult,
 };
 use sha2::{Digest, Sha256};
@@ -83,7 +83,7 @@ impl MockBackend {
                 ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
             })?;
 
-        let clvm_output = ClvmOutput {
+        let clvm_output = ClvmResult {
             result: output_bytes,
             cost: 0, // mock backend doesn't track cycles
         };
@@ -101,8 +101,7 @@ impl MockBackend {
         })?;
 
         Ok(ZKClvmResult {
-            result: clvm_output.result,
-            cost: clvm_output.cost,
+            output: clvm_output,
             proof: proof_bytes,
         })
     }
@@ -115,7 +114,7 @@ impl MockBackend {
         expected_result: &[u8],
     ) -> Result<bool, ClvmZkError> {
         let result = self.prove_chialisp_program(chialisp_source, program_parameters)?;
-        Ok(result.result == expected_result)
+        Ok(result.output.result == expected_result)
     }
 
     /// same as prove_chialisp_program but with nullifier generation
@@ -148,7 +147,7 @@ impl MockBackend {
         // generate nullifier using program hash (same as guest)
         let computed_nullifier = generate_nullifier(hash_data, &spend_secret, &program_hash);
 
-        let clvm_output = ClvmOutput {
+        let clvm_output = ClvmResult {
             result: output_bytes,
             cost: 0, // mock backend doesn't track cycles
         };
@@ -168,8 +167,7 @@ impl MockBackend {
         Ok(ZKClvmNullifierResult {
             nullifier: computed_nullifier,
             base: ZKClvmResult {
-                result: clvm_output.result,
-                cost: clvm_output.cost,
+                output: clvm_output,
                 proof: proof_bytes,
             },
         })

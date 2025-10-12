@@ -5,7 +5,7 @@ use crate::CLVM_ZK_SP1_ELF;
 
 // use common types from clvm_zk_core
 pub use clvm_zk_core::{
-    ClvmOutput, ClvmZkError, Input, ProgramParameter, ProofOutput, PublicInputs,
+    ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, PublicInputs,
     ZKClvmNullifierResult, ZKClvmResult,
 };
 
@@ -130,8 +130,7 @@ impl Sp1Backend {
         })?;
 
         Ok(ZKClvmResult {
-            result: output.clvm_output.result,
-            cost: total_cycles, // use cycle count from execution
+            output: output.clvm_output,
             proof: proof_bytes,
         })
     }
@@ -198,8 +197,7 @@ impl Sp1Backend {
         Ok(ZKClvmNullifierResult {
             nullifier: output.nullifier.unwrap_or([0u8; 32]), // fallback for backwards compat
             base: ZKClvmResult {
-                result: output.clvm_output.result,
-                cost: total_cycles, // use cycle count from execution
+                output: output.clvm_output,
                 proof: proof_bytes,
             },
         })

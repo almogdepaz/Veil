@@ -92,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ) {
         Ok(result) => {
             println!("Simple mod program ZK proof generated successfully!");
-            println!("   - Output: {:?}", result.result);
+            println!("   - Output: {:?}", result.output);
             println!("   - Proof size: {} bytes", result.proof.len());
         }
         Err(e) => {
@@ -110,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ) {
         Ok(result) => {
             println!("Guest-compiled create_coin succeeded!");
-            println!("   - Output: {:?}", result.result);
+            println!("   - Output: {:?}", result.output);
             println!("   - Proof size: {} bytes", result.proof.len());
         }
         Err(e) => {
@@ -125,7 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ) {
         Ok(result) => {
             println!("Guest-compiled reserve_fee succeeded!");
-            println!("   - Output: {:?}", result.result);
+            println!("   - Output: {:?}", result.output);
             println!("   - Proof size: {} bytes", result.proof.len());
         }
         Err(e) => {
@@ -163,7 +163,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(result) => {
             println!("ECDSA signature verification in ZK succeeded!");
             println!("   - Proof size: {} bytes", result.proof.len());
-            println!("   - Output: {:?}", result.result);
+            println!("   - Output: {:?}", result.output);
             println!("   - Cost: {} cycles", result.cost);
 
             // The output should be [1] for valid signature, [0] for invalid
@@ -172,7 +172,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // === ZK PROOF VERIFICATION ===
             println!("\nVerifying ZK proof publicly...");
             let program_hash = compile_chialisp_template_hash_default(&signature_program).unwrap();
-            match ClvmZkProver::verify_proof(program_hash, &result.proof, Some(&result.result)) {
+            match ClvmZkProver::verify_proof(program_hash, &result.proof, Some(&result.output)) {
                 Ok((true, _)) => {
                     println!("ZK proof verification successful!");
                     println!("   - ECDSA signature was verified in zero-knowledge!");

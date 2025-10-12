@@ -5,7 +5,7 @@ use crate::global_common::prepare_guest_inputs;
 use crate::{CLVM_RISC0_GUEST_ELF, CLVM_RISC0_GUEST_ID};
 use borsh;
 pub use clvm_zk_core::{
-    ClvmOutput, ClvmZkError, Input, ProgramParameter, ProofOutput, PublicInputs,
+    ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, PublicInputs,
     ZKClvmNullifierResult, ZKClvmResult,
 };
 
@@ -71,8 +71,7 @@ impl Risc0Backend {
         })?;
 
         Ok(ZKClvmResult {
-            result: result.clvm_output.result,
-            cost: result.clvm_output.cost,
+            output: result.clvm_output,
             proof: proof_bytes,
         })
     }
@@ -126,8 +125,7 @@ impl Risc0Backend {
         Ok(ZKClvmNullifierResult {
             nullifier: result.nullifier.unwrap_or([0u8; 32]),
             base: ZKClvmResult {
-                result: result.clvm_output.result,
-                cost: result.clvm_output.cost,
+                output: result.clvm_output,
                 proof: proof_bytes,
             },
         })

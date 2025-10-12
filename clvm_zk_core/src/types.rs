@@ -96,8 +96,8 @@ pub enum ClvmZkError {
 /// common zkvm backend types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZKClvmResult {
-    pub result: Vec<u8>,
-    pub cost: u64,
+    #[serde(flatten)]
+    pub output: ClvmResult,
     pub proof: Vec<u8>,
 }
 
@@ -126,7 +126,7 @@ pub struct Input {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct ClvmOutput {
+pub struct ClvmResult {
     pub result: Vec<u8>,
     pub cost: u64,
 }
@@ -139,5 +139,5 @@ pub struct ProofOutput {
     /// Nullifier for double-spend prevention
     pub nullifier: Option<[u8; 32]>,
     /// CLVM execution result
-    pub clvm_output: ClvmOutput,
+    pub clvm_output: ClvmResult,
 }

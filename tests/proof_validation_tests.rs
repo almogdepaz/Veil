@@ -16,7 +16,7 @@ fn test_proofs_differ_for_different_inputs() -> Result<(), Box<dyn std::error::E
         &[ProgramParameter::int(2), ProgramParameter::int(3)],
     )
     .expect("Failed to generate proof 1");
-    let output1 = proof_result1.result;
+    let output1 = proof_result1.output;
     let proof1 = proof_result1.proof;
 
     let proof_result2 = ClvmZkProver::prove(
@@ -24,7 +24,7 @@ fn test_proofs_differ_for_different_inputs() -> Result<(), Box<dyn std::error::E
         &[ProgramParameter::int(5), ProgramParameter::int(7)],
     )
     .expect("Failed to generate proof 2");
-    let output2 = proof_result2.result;
+    let output2 = proof_result2.output;
     let proof2 = proof_result2.proof;
 
     // Outputs should be different
@@ -37,7 +37,7 @@ fn test_proofs_differ_for_different_inputs() -> Result<(), Box<dyn std::error::E
 
     // Test simple parameter access
     let test_a = ClvmZkProver::prove("(mod (a) a)", &[ProgramParameter::int(42)]).unwrap();
-    println!("DEBUG: 'a' alone = {:?}, expected = [42]", test_a.result);
+    println!("DEBUG: 'a' alone = {:?}, expected = [42]", test_a.output);
 
     let test_b = ClvmZkProver::prove(
         "(mod (a b) b)",
@@ -46,7 +46,7 @@ fn test_proofs_differ_for_different_inputs() -> Result<(), Box<dyn std::error::E
     .unwrap();
     println!(
         "DEBUG: 'b' with (a=10, b=20) = {:?}, expected = [20]",
-        test_b.result
+        test_b.output
     );
 
     if output1 != vec![5] {
@@ -84,7 +84,7 @@ fn test_verification_rejects_wrong_program() -> Result<(), Box<dyn std::error::E
         "(mod (a b) (+ a b))",
         &[ProgramParameter::int(5), ProgramParameter::int(3)],
     )?;
-    let output1 = proof_result1.result;
+    let output1 = proof_result1.output;
     let proof1 = proof_result1.proof;
 
     // Verify proof1 against correct template (should succeed)
@@ -134,7 +134,7 @@ fn test_verification_rejects_tampered_proof() -> Result<(), String> {
         &[ProgramParameter::int(5), ProgramParameter::int(3)],
     )
     .map_err(|e| format!("Failed to prove program: {e:?}"))?;
-    let output = proof_result.result;
+    let output = proof_result.output;
     let mut proof = proof_result.proof;
 
     // Verify original proof works
@@ -214,7 +214,7 @@ async fn test_complex_nested_expressions() -> Result<(), String> {
                         // Generate proof
                         let proof_result = ClvmZkProver::prove(expression, &param_list)
                             .map_err(|e| format!("Failed to prove complex expression {a},{b},{c},{d}: {e}"))?;
-                        let output = proof_result.result;
+                        let output = proof_result.output;
 
                         // Debug output
                         println!("DEBUG complex: params={:?}, output={:?}, expected={}", [a,b,c,d,100], output, expected);
@@ -323,7 +323,7 @@ async fn test_arithmetic_operations() -> Result<(), String> {
 
                     let proof_result = ClvmZkProver::prove(&expression, &param_list)
                         .map_err(|e| format!("Failed to prove {op} operation: {e:?}"))?;
-                    let output = proof_result.result;
+                    let output = proof_result.output;
                     let proof = proof_result.proof;
 
                     if output != vec![expected as u8] {
@@ -410,7 +410,7 @@ async fn test_modpow_operator() -> Result<(), String> {
                     let proof_result =
                         ClvmZkProver::prove(&expression, &param_list)
                             .map_err(|e| format!("Failed to prove modpow operation: {e:?}"))?;
-                    let output = proof_result.result;
+                    let output = proof_result.output;
 
                     // Debug output
                     println!("DEBUG modpow: {}^{} mod {} = {}, output={:?}", base, exponent, modulus, expected, output);
@@ -534,7 +534,7 @@ async fn test_list_operators() -> Result<(), String> {
 
                     let proof_result = ClvmZkProver::prove(expr, &param_list)
                         .map_err(|e| format!("Failed to prove {op_name} operation: {e:?}"))?;
-                    let output = proof_result.result;
+                    let output = proof_result.output;
                     if output != expected_output {
                         return Err(format!(
                             "{description} - expected {expected_output:?}, got {output:?}"
@@ -604,7 +604,7 @@ async fn test_divmod_operator() -> Result<(), String> {
                     let expression = "(mod (a b) (divmod a b))".to_string();                   
                     let proof_result = ClvmZkProver::prove(&expression, &param_list)
                         .map_err(|e| format!("Failed to prove divmod operation: {e:?}"))?;
-                    let output = proof_result.result;
+                    let output = proof_result.output;
                     let proof = proof_result.proof;
 
                     let expected_bytes = vec![0xFF, expected_quot as u8, expected_rem as u8];
@@ -760,14 +760,14 @@ fn test_output_determinism() -> Result<(), String> {
         &[ProgramParameter::int(42), ProgramParameter::int(13)],
     )
     .map_err(|e| format!("Failed to prove program first time: {e}"))?;
-    let output1 = proof_result1.result;
+    let output1 = proof_result1.output;
     let proof1 = proof_result1.proof;
     let proof_result2 = ClvmZkProver::prove(
         expr,
         &[ProgramParameter::int(42), ProgramParameter::int(13)],
     )
     .map_err(|e| format!("Failed to prove program second time: {e}"))?;
-    let output2 = proof_result2.result;
+    let output2 = proof_result2.output;
     let proof2 = proof_result2.proof;
 
     // Outputs should be identical (deterministic computation)

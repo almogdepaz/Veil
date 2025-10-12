@@ -6,7 +6,7 @@ extern crate alloc;
 
 // Use our no-std Chialisp compiler and evaluation engine
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmOutput, Input,
+    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmResult, Input,
     ProofOutput, PublicInputs,
 };
 
@@ -139,7 +139,7 @@ fn main() {
     // Conditions are validated internally but not exposed publicly
     let _validated_conditions = conditions;
 
-    let clvm_output = ClvmOutput {
+    let clvm_output = ClvmResult {
         result: output_bytes,
         cost: 0, // SP1 doesn't have cycle counting like RISC0
     };

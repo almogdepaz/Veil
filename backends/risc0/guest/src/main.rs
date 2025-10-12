@@ -5,7 +5,7 @@ use risc0_zkvm::sha::{Impl, Sha256 as RiscSha256};
 
 // Use our no-std Chialisp compiler and evaluation engine
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmOutput, Input,
+    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmResult, Input,
     ProofOutput, PublicInputs,
 };
 
@@ -147,7 +147,7 @@ fn main() {
     let end_cycles = env::cycle_count();
     let total_cycles = end_cycles.saturating_sub(start_cycles);
 
-    let clvm_output = ClvmOutput {
+    let clvm_output = ClvmResult {
         result: output_bytes,
         cost: total_cycles,
     };

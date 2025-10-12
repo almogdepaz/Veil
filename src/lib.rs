@@ -27,7 +27,7 @@ pub mod simulator;
 pub mod testing_helpers;
 pub mod wallet;
 pub use clvm_zk_core::{
-    ClvmOutput, ClvmZkError, Input, ProgramParameter, PublicInputs, ZKClvmNullifierResult,
+    ClvmResult, ClvmZkError, Input, ProgramParameter, PublicInputs, ZKClvmNullifierResult,
     ZKClvmResult,
 };
 

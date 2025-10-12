@@ -84,7 +84,7 @@ fn run_benchmark(
         match ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expression).unwrap(),
             &proof_result.proof,
-            Some(&proof_result.result),
+            Some(&proof_result.output),
         ) {
             Ok((true, _)) => {
                 let verify_time = verify_start.elapsed();
@@ -97,7 +97,7 @@ fn run_benchmark(
                     "prove: {}ms, verify: {}ms (result: {}B, proof: {}KB, cost: {})",
                     prove_time.as_millis(),
                     verify_time.as_millis(),
-                    proof_result.result.len(),
+                    proof_result.output.len(),
                     proof_result.proof.len() / 1024,
                     proof_result.cost
                 );
