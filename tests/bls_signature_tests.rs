@@ -137,7 +137,7 @@ fn test_bls_program_with_backend() {
             // Program executed successfully
             // With dummy BLS data (all zeros), signature verification should fail
             // so the program should return 0 (false branch)
-            let output = &proof_result.clvm_res;
+            let output = &proof_result.output.clvm_res;
             assert_eq!(
                 output.output.len(),
                 1,

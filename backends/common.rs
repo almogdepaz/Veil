@@ -1,22 +1,18 @@
 //! Common utilities shared between different zkVM backends
 
-use clvm_zk_core::{ClvmZkError, Input, ProgramParameter, ProofOutput, PublicInputs};
+use clvm_zk_core::{ClvmZkError, Input, ProgramParameter, ProofOutput};
 
 /// Prepare inputs for guest-side compilation
 pub fn prepare_guest_inputs(
     chialisp_source: &str,
     program_parameters: &[ProgramParameter],
     spend_secret: Option<[u8; 32]>,
-) -> (PublicInputs, Input) {
-    let public_inputs = PublicInputs {};
-
-    let private_inputs = Input {
+) -> Input {
+    Input {
         chialisp_source: chialisp_source.to_string(),
         program_parameters: program_parameters.to_vec(),
         spend_secret,
-    };
-
-    (public_inputs, private_inputs)
+    }
 }
 
 /// Convert proving errors from zkVM into clean user-facing error messages

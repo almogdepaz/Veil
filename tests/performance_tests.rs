@@ -28,7 +28,7 @@ fn fuzz_performance_limits() -> Result<(), Box<dyn std::error::Error>> {
         let prove_start = std::time::Instant::now();
         let proof_result = ClvmZkProver::prove(expr, &param_list)
             .map_err(|e| format!("Proof generation failed for {name}: {e}"))?;
-        let output = proof_result.clvm_res;
+        let output = proof_result.output.clvm_res;
         let proof = proof_result.proof;
         let prove_time = prove_start.elapsed();
         test_info!("  Proof generation: {prove_time:?}");
@@ -122,7 +122,7 @@ async fn fuzz_deterministic_behavior() -> Result<(), String> {
                             ClvmZkProver::prove(&expr, &param_list).map_err(|e| {
                                 format!("Proof generation failed for {actual_expr}: {e}")
                             })?;
-                        let output = proof_result.clvm_res;
+                        let output = proof_result.output.clvm_res;
                         let proof = proof_result.proof;
                         let program_hash =
                             compile_chialisp_template_hash_default(&expr).map_err(|e| {

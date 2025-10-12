@@ -26,10 +26,7 @@ pub mod simulator;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing_helpers;
 pub mod wallet;
-pub use clvm_zk_core::{
-    ClvmResult, ClvmZkError, Input, ProgramParameter, PublicInputs, ZKClvmNullifierResult,
-    ZKClvmResult,
-};
+pub use clvm_zk_core::{ClvmResult, ClvmZkError, Input, ProgramParameter, ZKClvmResult};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct OperandInput {
@@ -159,7 +156,7 @@ impl ClvmZkProver {
         expression: &str,
         parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
-    ) -> Result<clvm_zk_core::ZKClvmNullifierResult, ClvmZkError> {
+    ) -> Result<ZKClvmResult, ClvmZkError> {
         if parameters.len() > 10 {
             return Err(ClvmZkError::InvalidProgram(
                 "Too many parameters (maximum 10: a-j)".to_string(),

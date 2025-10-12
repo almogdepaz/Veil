@@ -216,7 +216,7 @@ async fn fuzz_program_binding_attacks() -> Result<(), Box<dyn std::error::Error>
                 let params = params.clone();
                 task::spawn_blocking(move || match ClvmZkProver::prove(&expr, &params) {
                     Ok(proof_result) => {
-                        let output = proof_result.clvm_res;
+                        let output = proof_result.output.clvm_res;
                         let proof = proof_result.proof;
                         Ok((batch_idx, output, proof))
                     }

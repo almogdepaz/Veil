@@ -18,7 +18,7 @@ fn test_large_atom_operations() -> Result<(), Box<dyn std::error::Error>> {
     ) {
         Ok(proof_result) => println!(
             "   CREATE_COIN with large atoms: SUCCESS {:?}",
-            proof_result.clvm_res
+            proof_result.output.clvm_res
         ),
         Err(e) => println!("   CREATE_COIN with large atoms: FAILED {e}"),
     }
@@ -39,7 +39,7 @@ fn test_large_atom_operations() -> Result<(), Box<dyn std::error::Error>> {
     ) {
         Ok(proof_result) => println!(
             "   AGG_SIG_UNSAFE with large atoms: SUCCESS {:?}",
-            proof_result.clvm_res
+            proof_result.output.clvm_res
         ),
         Err(e) => {
             println!("   AGG_SIG_UNSAFE with large atoms: FAILED {e}");
@@ -67,7 +67,7 @@ fn test_large_atom_operations() -> Result<(), Box<dyn std::error::Error>> {
     ) {
         Ok(proof_result) => println!(
             "   AGG_SIG_UNSAFE with small atoms: SUCCESS {:?}",
-            proof_result.clvm_res
+            proof_result.output.clvm_res
         ),
         Err(e) => {
             println!("   AGG_SIG_UNSAFE with small atoms: FAILED {e}");

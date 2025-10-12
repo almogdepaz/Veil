@@ -1,7 +1,7 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
     compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmResult,
-    ClvmZkError, ProgramParameter, ProofOutput, PublicInputs, ZKClvmNullifierResult, ZKClvmResult,
+    ClvmZkError, ProgramParameter, ProofOutput, ZKClvmResult,
 };
 use sha2::{Digest, Sha256};
 
@@ -90,7 +90,6 @@ impl MockBackend {
 
         // create fake proof (just serialize the output for now)
         let proof_output = ProofOutput {
-            public_inputs: PublicInputs {}, // empty for now
             program_hash,
             nullifier: None,
             clvm_res: clvm_output.clone(),
@@ -101,7 +100,7 @@ impl MockBackend {
         })?;
 
         Ok(ZKClvmResult {
-            clvm_res: clvm_output,
+            output: proof_output,
             proof: proof_bytes,
         })
     }
@@ -114,7 +113,7 @@ impl MockBackend {
         expected_result: &[u8],
     ) -> Result<bool, ClvmZkError> {
         let result = self.prove_chialisp_program(chialisp_source, program_parameters)?;
-        Ok(result.clvm_res.output == expected_result)
+        Ok(result.output.clvm_res.output == expected_result)
     }
 
     /// same as prove_chialisp_program but with nullifier generation
@@ -123,7 +122,7 @@ impl MockBackend {
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
-    ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
+    ) -> Result<ZKClvmResult, ClvmZkError> {
         // compile chialisp source to bytecode WITH function table (same as prove_chialisp_program)
         let (instance_bytecode, program_hash, function_table) =
             compile_chialisp_to_bytecode_with_table(hash_data, chialisp_source, program_parameters)
@@ -154,7 +153,6 @@ impl MockBackend {
 
         // create fake proof with nullifier
         let proof_output = ProofOutput {
-            public_inputs: PublicInputs {},
             program_hash,
             nullifier: Some(computed_nullifier),
             clvm_res: clvm_output.clone(),
@@ -164,12 +162,9 @@ impl MockBackend {
             ClvmZkError::SerializationError(format!("failed to serialize mock proof: {e}"))
         })?;
 
-        Ok(ZKClvmNullifierResult {
-            nullifier: computed_nullifier,
-            zk_clvm_res: ZKClvmResult {
-                clvm_res: clvm_output,
-                proof: proof_bytes,
-            },
+        Ok(ZKClvmResult {
+            output: proof_output,
+            proof: proof_bytes,
         })
     }
 

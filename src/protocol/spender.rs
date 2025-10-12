@@ -86,19 +86,23 @@ impl Spender {
         .map_err(|e| ProtocolError::ProofGenerationFailed(format!("ZK proof failed: {e}")))?;
 
         // 5. double check the nullifier is what we expected
-        if zkvm_result.nullifier != expected_nullifier {
+        let actual_nullifier = zkvm_result
+            .output
+            .nullifier
+            .ok_or_else(|| ProtocolError::InvalidNullifier("No nullifier in proof".to_string()))?;
+        if actual_nullifier != expected_nullifier {
             return Err(ProtocolError::InvalidNullifier(format!(
                 "Nullifier mismatch: expected {}, got {}",
                 hex::encode(expected_nullifier),
-                hex::encode(zkvm_result.nullifier)
+                hex::encode(actual_nullifier)
             )));
         }
 
         // 6. package everything up into a secure bundle
         let spend_bundle = PrivateSpendBundle::new(
-            zkvm_result.zk_clvm_res.proof,
-            zkvm_result.nullifier,
-            zkvm_result.zk_clvm_res.clvm_res.output.clone(),
+            zkvm_result.proof,
+            actual_nullifier,
+            zkvm_result.output.clvm_res.output.clone(),
         );
 
         // 7. FINAL VALIDATION: Ensure bundle is well-formed

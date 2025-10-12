@@ -1,6 +1,6 @@
 use crate::{ClvmZkError, ProgramParameter};
 
-pub use clvm_zk_core::{ZKClvmNullifierResult, ZKClvmResult};
+pub use clvm_zk_core::ZKClvmResult;
 
 pub trait ZKCLVMBackend {
     fn prove_program(
@@ -14,7 +14,7 @@ pub trait ZKCLVMBackend {
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
-    ) -> Result<ZKClvmNullifierResult, ClvmZkError>;
+    ) -> Result<ZKClvmResult, ClvmZkError>;
 
     fn verify_proof(&self, proof: &[u8]) -> Result<(bool, [u8; 32], Vec<u8>), ClvmZkError>;
 
@@ -81,7 +81,7 @@ impl ZKCLVMBackend for Risc0Backend {
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
-    ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
+    ) -> Result<ZKClvmResult, ClvmZkError> {
         self.prove_chialisp_with_nullifier(chialisp_source, program_parameters, spend_secret)
     }
 
@@ -114,7 +114,7 @@ impl ZKCLVMBackend for Sp1Backend {
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
-    ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
+    ) -> Result<ZKClvmResult, ClvmZkError> {
         self.prove_chialisp_with_nullifier(chialisp_source, program_parameters, spend_secret)
     }
 
@@ -147,7 +147,7 @@ impl ZKCLVMBackend for MockBackend {
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
-    ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
+    ) -> Result<ZKClvmResult, ClvmZkError> {
         self.prove_chialisp_with_nullifier(chialisp_source, program_parameters, spend_secret)
     }
 

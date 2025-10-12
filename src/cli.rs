@@ -298,13 +298,13 @@ fn run_demo() -> Result<(), ClvmZkError> {
                 println!("   Program hash from proof: {}", hex::encode(program_hash));
                 println!(
                     "   Output matches: {}",
-                    output == proof_result.clvm_res.output
+                    output == proof_result.output.clvm_res.output
                 );
 
                 match ClvmZkProver::verify_proof(
                     program_hash,
                     &proof_result.proof,
-                    Some(&proof_result.clvm_res.output),
+                    Some(&proof_result.output.clvm_res.output),
                 ) {
                     Ok((true, _)) => println!("   Proof verified"),
                     Ok((false, _)) => println!("   Proof invalid"),
@@ -459,7 +459,7 @@ fn run_prove(
             println!("Proof generated in {duration:?}");
 
             // Display output in both hex and decoded format
-            let output_bytes = &proof_result.clvm_res.output;
+            let output_bytes = &proof_result.output.clvm_res.output;
             let hex_output = hex::encode(output_bytes);
             println!("Output (hex): {}", hex_output);
 
@@ -468,7 +468,7 @@ fn run_prove(
                 println!("Output (decoded): {}", decoded);
             }
             println!("Proof: {} bytes", proof_result.proof.len());
-            println!("Cost: {}", proof_result.clvm_res.cost);
+            println!("Cost: {}", proof_result.output.clvm_res.cost);
 
             // Save proof to file
             std::fs::write("proof.bin", &proof_result.proof).map_err(|e| {

@@ -73,7 +73,7 @@ pub fn test_expression(expr: &str, params: &[i64]) -> TestResult {
         params.iter().map(|&x| ProgramParameter::int(x)).collect();
     match ClvmZkProver::prove(expr, &param_list) {
         Ok(proof_result) => {
-            let output = proof_result.clvm_res;
+            let output = proof_result.output.clvm_res;
             let proof = proof_result.proof;
 
             // Verify proof using new approach

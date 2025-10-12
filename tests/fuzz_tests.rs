@@ -277,7 +277,7 @@ async fn fuzz_conditions_basic() -> Result<(), String> {
                 task::spawn_blocking(move || {
                     let proof_result = ClvmZkProver::prove(&expr, &[])
                         .map_err(|e| format!("Proof generation failed for {test_name}: {e}"))?;
-                    let output = proof_result.clvm_res;
+                    let output = proof_result.output.clvm_res;
                     let proof = proof_result.proof;
                     let (verified, _) = ClvmZkProver::verify_proof(
                         compile_chialisp_template_hash_default(&expr).unwrap(),
@@ -454,7 +454,7 @@ async fn fuzz_conditions_edge_cases() -> Result<(), String> {
                 task::spawn_blocking(move || {
                     let proof_result = ClvmZkProver::prove(&expr, &[])
                         .map_err(|e| format!("Proof generation failed for {test_name}: {e}"))?;
-                    let output = proof_result.clvm_res;
+                    let output = proof_result.output.clvm_res;
                     let proof = proof_result.proof;
                     let (verified, _) = ClvmZkProver::verify_proof(
                         compile_chialisp_template_hash_default(&expr).unwrap(),
@@ -502,7 +502,7 @@ fn test_condition_validation_logic() -> Result<(), String> {
         let param_list: Vec<ProgramParameter> = vec![];
         match ClvmZkProver::prove(expr, &param_list) {
             Ok(proof_result) => {
-                let output = proof_result.clvm_res;
+                let output = proof_result.output.clvm_res;
                 let proof = proof_result.proof;
                 // Verify the proof is valid
                 match ClvmZkProver::verify_proof(
@@ -532,7 +532,7 @@ fn test_condition_validation_logic() -> Result<(), String> {
     match ClvmZkProver::prove(expr, params) {
         Ok(proof_result) => {
             let mut proof = proof_result.proof;
-            let output = proof_result.clvm_res;
+            let output = proof_result.output.clvm_res;
             // Tamper with the proof by modifying length metadata rather than proof data
             // This avoids creating invalid bit patterns that cause bytemuck panics
             if proof.len() > 8 {
@@ -632,7 +632,7 @@ fn comprehensive_fuzz_conditions_security() -> Result<(), String> {
                 continue;
             }
         };
-        let res = proof_result.clvm_res;
+        let res = proof_result.output.clvm_res;
         let original_proof = proof_result.proof;
 
         // Security attack vectors specific to conditions
@@ -791,8 +791,8 @@ fn known_failing_cases_test_suite() -> Result<(), Box<dyn std::error::Error>> {
         ),
     ) {
         (Ok(proof_result1), Ok(proof_result2)) => {
-            let out1 = proof_result1.clvm_res;
-            let out2 = proof_result2.clvm_res;
+            let out1 = proof_result1.output.clvm_res;
+            let out2 = proof_result2.output.clvm_res;
             test_info!("   Program 1 output: {out1:?} (expected: [5])");
             test_info!("   Program 2 output: {out2:?} (expected: [12])");
             if out1 == out2 {

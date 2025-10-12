@@ -27,21 +27,26 @@ fn test_mock_recursive_factorial() {
     match result {
         Ok(zk_result) => {
             println!("Mock execution succeeded!");
-            println!("Result: {:?}", zk_result.clvm_res.output);
+            println!("Result: {:?}", zk_result.output.clvm_res.output);
 
             // Check if result is 6
-            if zk_result.clvm_res.output.len() == 1 && zk_result.clvm_res.output[0] == 6 {
+            if zk_result.output.clvm_res.output.len() == 1
+                && zk_result.output.clvm_res.output[0] == 6
+            {
                 println!("factorial(3) = 6 ✓");
             } else {
                 println!(
                     "Expected factorial(3) = 6, got {:?}",
-                    zk_result.clvm_res.output
+                    zk_result.output.clvm_res.output
                 );
             }
 
             // Test verification
-            let verification_result =
-                mock.verify_mock_proof(factorial_source, &params, &zk_result.clvm_res.output);
+            let verification_result = mock.verify_mock_proof(
+                factorial_source,
+                &params,
+                &zk_result.output.clvm_res.output,
+            );
 
             assert!(verification_result.is_ok(), "Verification should work");
             assert!(verification_result.unwrap(), "Verification should pass");
@@ -77,15 +82,17 @@ fn test_mock_conditional_function() {
     match result {
         Ok(zk_result) => {
             println!("Mock execution succeeded!");
-            println!("Result: {:?}", zk_result.clvm_res.output);
+            println!("Result: {:?}", zk_result.output.clvm_res.output);
 
             // Check if result is 6
-            if zk_result.clvm_res.output.len() == 1 && zk_result.clvm_res.output[0] == 6 {
+            if zk_result.output.clvm_res.output.len() == 1
+                && zk_result.output.clvm_res.output[0] == 6
+            {
                 println!("test_if(3) = 6 ✓");
             } else {
                 println!(
                     "Expected test_if(3) = 6, got {:?}",
-                    zk_result.clvm_res.output
+                    zk_result.output.clvm_res.output
                 );
             }
         }
@@ -123,7 +130,7 @@ fn test_mock_factorial_like_non_recursive() {
 
     println!("Testing direct (* 3 1)...");
     match mock.prove_chialisp_program(test_direct_mul_1, &params) {
-        Ok(result) => println!("Direct (* 3 1) = {:?}", result.clvm_res.output),
+        Ok(result) => println!("Direct (* 3 1) = {:?}", result.output.clvm_res.output),
         Err(e) => {
             println!("Direct (* 3 1) failed: {:?}", e);
             panic!("Direct multiplication by 1 failed - this is the core bug!");
@@ -135,15 +142,17 @@ fn test_mock_factorial_like_non_recursive() {
     match result {
         Ok(zk_result) => {
             println!("Mock execution succeeded!");
-            println!("Result: {:?}", zk_result.clvm_res.output);
+            println!("Result: {:?}", zk_result.output.clvm_res.output);
 
             // Check if result is 3
-            if zk_result.clvm_res.output.len() == 1 && zk_result.clvm_res.output[0] == 3 {
+            if zk_result.output.clvm_res.output.len() == 1
+                && zk_result.output.clvm_res.output[0] == 3
+            {
                 println!("factorial_like(3) = 3 ✓");
             } else {
                 println!(
                     "Expected factorial_like(3) = 3, got {:?}",
-                    zk_result.clvm_res.output
+                    zk_result.output.clvm_res.output
                 );
             }
         }
@@ -174,15 +183,17 @@ fn test_mock_simple_function() {
     match result {
         Ok(zk_result) => {
             println!("Mock execution succeeded!");
-            println!("Result: {:?}", zk_result.clvm_res.output);
+            println!("Result: {:?}", zk_result.output.clvm_res.output);
 
             // Check if result is 10
-            if zk_result.clvm_res.output.len() == 1 && zk_result.clvm_res.output[0] == 10 {
+            if zk_result.output.clvm_res.output.len() == 1
+                && zk_result.output.clvm_res.output[0] == 10
+            {
                 println!("double(5) = 10 ✓");
             } else {
                 println!(
                     "Expected double(5) = 10, got {:?}",
-                    zk_result.clvm_res.output
+                    zk_result.output.clvm_res.output
                 );
             }
         }
@@ -216,12 +227,17 @@ fn test_mock_deep_recursion() {
     match result {
         Ok(zk_result) => {
             println!("Mock execution succeeded!");
-            println!("Result: {:?}", zk_result.clvm_res.output);
+            println!("Result: {:?}", zk_result.output.clvm_res.output);
 
-            if zk_result.clvm_res.output.len() == 1 && zk_result.clvm_res.output[0] == 13 {
-                println!("fib(7) = {} ✓", zk_result.clvm_res.output[0]);
+            if zk_result.output.clvm_res.output.len() == 1
+                && zk_result.output.clvm_res.output[0] == 13
+            {
+                println!("fib(7) = {} ✓", zk_result.output.clvm_res.output[0]);
             } else {
-                panic!("Expected fib(7) = 13, got {:?}", zk_result.clvm_res.output);
+                panic!(
+                    "Expected fib(7) = 13, got {:?}",
+                    zk_result.output.clvm_res.output
+                );
             }
         }
         Err(e) => {
@@ -254,7 +270,7 @@ fn test_deeper_factorial_recursion() {
         .expect("Should compute factorial(5)");
 
     assert_eq!(
-        result.clvm_res.output,
+        result.output.clvm_res.output,
         vec![120],
         "factorial(5) should equal 120"
     );
@@ -269,7 +285,7 @@ fn test_deeper_factorial_recursion() {
     // 720 = 0x02d0, requires multi-byte encoding
     let expected = vec![0x82, 0x02, 0xd0]; // CLVM encoding for 720
     assert_eq!(
-        result.clvm_res.output, expected,
+        result.output.clvm_res.output, expected,
         "factorial(6) should equal 720 (encoded as {:?})",
         expected
     );
@@ -302,7 +318,7 @@ fn test_recursion_with_helper_functions() {
         .expect("Should compute sum_doubled(3)");
 
     assert_eq!(
-        result.clvm_res.output,
+        result.output.clvm_res.output,
         vec![12],
         "sum_doubled(3) should equal 12"
     );
@@ -316,7 +332,7 @@ fn test_recursion_with_helper_functions() {
 
     // sum_doubled(5) = 10 + 8 + 6 + 4 + 2 = 30
     assert_eq!(
-        result.clvm_res.output,
+        result.output.clvm_res.output,
         vec![30],
         "sum_doubled(5) should equal 30"
     );
@@ -352,7 +368,7 @@ fn test_mutual_recursion() {
         .expect("Should compute is_even(4)");
 
     assert_eq!(
-        result.clvm_res.output,
+        result.output.clvm_res.output,
         vec![1],
         "is_even(4) should be true (1)"
     );
@@ -365,11 +381,12 @@ fn test_mutual_recursion() {
         .expect("Should compute is_even(5)");
 
     // CLVM can encode 0 as either [0x00] or [0x80] (nil)
-    let is_zero = result.clvm_res.output == vec![0] || result.clvm_res.output == vec![0x80];
+    let is_zero =
+        result.output.clvm_res.output == vec![0] || result.output.clvm_res.output == vec![0x80];
     assert!(
         is_zero,
         "is_even(5) should be false (0), got {:?}",
-        result.clvm_res.output
+        result.output.clvm_res.output
     );
     println!("is_even(5) = 0 ✓");
 
@@ -380,7 +397,7 @@ fn test_mutual_recursion() {
         .expect("Should compute is_even(10)");
 
     assert_eq!(
-        result.clvm_res.output,
+        result.output.clvm_res.output,
         vec![1],
         "is_even(10) should be true (1)"
     );
@@ -417,7 +434,7 @@ fn test_nested_function_calls_in_recursion() {
         .expect("Should compute sum_processed(3)");
 
     assert_eq!(
-        result.clvm_res.output,
+        result.output.clvm_res.output,
         vec![18],
         "sum_processed(3) should equal 18"
     );
@@ -449,7 +466,7 @@ fn test_deep_call_stack() {
         .expect("Should compute sum_to_n(10)");
 
     assert_eq!(
-        result.clvm_res.output,
+        result.output.clvm_res.output,
         vec![55],
         "sum_to_n(10) should equal 55"
     );
@@ -463,7 +480,7 @@ fn test_deep_call_stack() {
 
     // 210 = 0xd2, single byte
     assert_eq!(
-        result.clvm_res.output,
+        result.output.clvm_res.output,
         vec![0x81, 0xd2],
         "sum_to_n(20) should equal 210"
     );
@@ -496,7 +513,11 @@ fn test_recursion_with_multiple_parameters() {
         .prove_chialisp_program(source, &params)
         .expect("Should compute ack(0,0)");
 
-    assert_eq!(result.clvm_res.output, vec![1], "ack(0,0) should equal 1");
+    assert_eq!(
+        result.output.clvm_res.output,
+        vec![1],
+        "ack(0,0) should equal 1"
+    );
     println!("ack(0,0) = 1 ✓");
 
     // ack(1, 0) = 2
@@ -505,7 +526,11 @@ fn test_recursion_with_multiple_parameters() {
         .prove_chialisp_program(source, &params)
         .expect("Should compute ack(1,0)");
 
-    assert_eq!(result.clvm_res.output, vec![2], "ack(1,0) should equal 2");
+    assert_eq!(
+        result.output.clvm_res.output,
+        vec![2],
+        "ack(1,0) should equal 2"
+    );
     println!("ack(1,0) = 2 ✓");
 
     // ack(1, 1) = 3
@@ -514,7 +539,11 @@ fn test_recursion_with_multiple_parameters() {
         .prove_chialisp_program(source, &params)
         .expect("Should compute ack(1,1)");
 
-    assert_eq!(result.clvm_res.output, vec![3], "ack(1,1) should equal 3");
+    assert_eq!(
+        result.output.clvm_res.output,
+        vec![3],
+        "ack(1,1) should equal 3"
+    );
     println!("ack(1,1) = 3 ✓");
 
     // ack(2, 1) = 5
@@ -523,6 +552,10 @@ fn test_recursion_with_multiple_parameters() {
         .prove_chialisp_program(source, &params)
         .expect("Should compute ack(2,1)");
 
-    assert_eq!(result.clvm_res.output, vec![5], "ack(2,1) should equal 5");
+    assert_eq!(
+        result.output.clvm_res.output,
+        vec![5],
+        "ack(2,1) should equal 5"
+    );
     println!("ack(2,1) = 5 ✓");
 }

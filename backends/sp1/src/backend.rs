@@ -5,8 +5,7 @@ use crate::CLVM_ZK_SP1_ELF;
 
 // use common types from clvm_zk_core
 pub use clvm_zk_core::{
-    ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, PublicInputs,
-    ZKClvmNullifierResult, ZKClvmResult,
+    ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
 };
 
 // use common backend utilities
@@ -79,13 +78,11 @@ impl Sp1Backend {
         use sp1_sdk::{ProverClient, SP1Stdin};
 
         // prepare inputs for the guest
-        let (public_inputs, private_inputs) =
-            prepare_guest_inputs(chialisp_source, program_parameters, None);
+        let inputs = prepare_guest_inputs(chialisp_source, program_parameters, None);
 
         // create stdin for sp1
         let mut stdin = SP1Stdin::new();
-        stdin.write(&public_inputs);
-        stdin.write(&private_inputs);
+        stdin.write(&inputs);
 
         // execute to get cycle count, then generate proof
         let client = ProverClient::from_env();
@@ -130,7 +127,7 @@ impl Sp1Backend {
         })?;
 
         Ok(ZKClvmResult {
-            clvm_res: output.clvm_res,
+            output,
             proof: proof_bytes,
         })
     }
@@ -140,17 +137,15 @@ impl Sp1Backend {
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
-    ) -> Result<ZKClvmNullifierResult, ClvmZkError> {
+    ) -> Result<ZKClvmResult, ClvmZkError> {
         use sp1_sdk::{ProverClient, SP1Stdin};
 
         // prepare inputs for the guest
-        let (public_inputs, private_inputs) =
-            prepare_guest_inputs(chialisp_source, program_parameters, Some(spend_secret));
+        let inputs = prepare_guest_inputs(chialisp_source, program_parameters, Some(spend_secret));
 
         // create stdin for sp1
         let mut stdin = SP1Stdin::new();
-        stdin.write(&public_inputs);
-        stdin.write(&private_inputs);
+        stdin.write(&inputs);
 
         // execute to get cycle count, then generate proof
         let client = ProverClient::from_env();
@@ -194,12 +189,9 @@ impl Sp1Backend {
             ClvmZkError::SerializationError(format!("failed to serialize proof: {e}"))
         })?;
 
-        Ok(ZKClvmNullifierResult {
-            nullifier: output.nullifier.unwrap_or([0u8; 32]), // fallback for backwards compat
-            zk_clvm_res: ZKClvmResult {
-                clvm_res: output.clvm_res,
-                proof: proof_bytes,
-            },
+        Ok(ZKClvmResult {
+            output,
+            proof: proof_bytes,
         })
     }
 
