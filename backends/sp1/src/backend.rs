@@ -197,9 +197,11 @@ impl Sp1Backend {
 
         Ok(ZKClvmNullifierResult {
             nullifier: output.nullifier.unwrap_or([0u8; 32]), // fallback for backwards compat
-            result: output.clvm_output.result,
-            cost: total_cycles, // use cycle count from execution
-            proof: proof_bytes,
+            base: ZKClvmResult {
+                result: output.clvm_output.result,
+                cost: total_cycles, // use cycle count from execution
+                proof: proof_bytes,
+            },
         })
     }
 

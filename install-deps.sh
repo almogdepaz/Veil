@@ -339,14 +339,14 @@ verify_installation() {
     if command_exists sp1up; then
         log_success "✓ SP1 toolchain: $(sp1up --version 2>/dev/null || echo 'installed')"
     else
-        log_warning "⚠ SP1 toolchain not found (optional)"
+        log_warning "SP1 toolchain not found (optional)"
     fi
     
     log_info "Testing CLVM ZK compilation..."
     if cargo build --release > /dev/null 2>&1; then
         log_success "✓ CLVM ZK project compiles successfully"
     else
-        log_warning "⚠ CLVM ZK project compilation failed - this may be due to missing runtime dependencies"
+        log_warning "CLVM ZK project compilation failed - this may be due to missing runtime dependencies"
         log_info "Try running: cargo build --release"
     fi
 }
@@ -467,7 +467,7 @@ main() {
                 shift
                 ;;
             -h|--help)
-                echo "🚀 CLVM ZK Prover Dependency Installer"
+                echo "CLVM ZK Prover Dependency Installer"
                 echo "======================================"
                 echo ""
                 echo "Usage: $0 [OPTIONS]"
@@ -486,7 +486,7 @@ main() {
         esac
     done
     
-    echo "🚀 CLVM ZK Prover Dependency Installer"
+    echo "CLVM ZK Prover Dependency Installer"
     echo "======================================"
     echo ""
     
@@ -519,7 +519,7 @@ main() {
     verify_installation
     echo ""
     
-    log_success "🎉 Installation completed successfully!"
+    log_success "Installation completed successfully!"
     echo ""
     log_info "Next steps:"
     log_info "1. Restart your terminal or run: source ~/.bashrc (or ~/.zshrc)"

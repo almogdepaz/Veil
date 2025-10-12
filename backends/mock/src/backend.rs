@@ -167,9 +167,11 @@ impl MockBackend {
 
         Ok(ZKClvmNullifierResult {
             nullifier: computed_nullifier,
-            result: clvm_output.result,
-            cost: clvm_output.cost,
-            proof: proof_bytes,
+            base: ZKClvmResult {
+                result: clvm_output.result,
+                cost: clvm_output.cost,
+                proof: proof_bytes,
+            },
         })
     }
 

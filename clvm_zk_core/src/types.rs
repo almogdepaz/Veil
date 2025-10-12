@@ -104,9 +104,8 @@ pub struct ZKClvmResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZKClvmNullifierResult {
     pub nullifier: [u8; 32],
-    pub result: Vec<u8>,
-    pub cost: u64,
-    pub proof: Vec<u8>,
+    #[serde(flatten)]
+    pub base: ZKClvmResult,
 }
 
 /// guest program input/output types

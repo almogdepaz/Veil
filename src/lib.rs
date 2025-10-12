@@ -26,64 +26,15 @@ pub mod simulator;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing_helpers;
 pub mod wallet;
-pub use clvm_zk_core::{ClvmOutput, ClvmZkError, Input, ProgramParameter, PublicInputs};
+pub use clvm_zk_core::{
+    ClvmOutput, ClvmZkError, Input, ProgramParameter, PublicInputs, ZKClvmNullifierResult,
+    ZKClvmResult,
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct OperandInput {
     pub operation: String,
     pub operands: Vec<i64>,
-}
-
-/// what you get back when you make a proof
-#[derive(Debug, Clone)]
-pub struct ProofResult<P = Vec<u8>> {
-    /// what your clvm code actually returned and how much it cost
-    pub clvm_output: ClvmOutput,
-    /// the actual zk proof that proves everything worked
-    pub zk_proof: P,
-}
-
-impl<P> ProofResult<P> {
-    /// get the result bytes (handy shortcut)
-    pub fn result(&self) -> &Vec<u8> {
-        &self.clvm_output.result
-    }
-
-    /// get how much it cost to run (handy shortcut)
-    pub fn cost(&self) -> u64 {
-        self.clvm_output.cost
-    }
-}
-
-/// same as ProofResult but with a nullifier to prevent double spending
-#[derive(Debug, Clone)]
-pub struct ResultWithNullifier {
-    /// the proof result from running your program
-    pub result: ProofResult,
-    /// unique id that prevents spending the same coin twice
-    pub nullifier: [u8; 32],
-}
-
-impl ResultWithNullifier {
-    /// get the result bytes (handy shortcut)
-    pub fn result(&self) -> &Vec<u8> {
-        self.result.result()
-    }
-
-    /// get how much it cost to run (handy shortcut)
-    pub fn cost(&self) -> u64 {
-        self.result.cost()
-    }
-
-    /// get the zk proof (handy shortcut)
-    pub fn zk_proof(&self) -> &Vec<u8> {
-        &self.result.zk_proof
-    }
-
-    /// get nullifier as hex string for printing/debugging
-    pub fn nullifier_hex(&self) -> String {
-        hex::encode(self.nullifier)
-    }
 }
 
 /// a chialisp condition - basically an instruction with some data
@@ -192,7 +143,7 @@ impl ClvmZkProver {
     pub fn prove(
         expression: &str,
         parameters: &[ProgramParameter],
-    ) -> Result<ProofResult, ClvmZkError> {
+    ) -> Result<ZKClvmResult, ClvmZkError> {
         if parameters.len() > 10 {
             return Err(ClvmZkError::InvalidProgram(
                 "Too many parameters (maximum 10: a-j)".to_string(),
@@ -201,14 +152,7 @@ impl ClvmZkProver {
 
         Self::validate_chialisp_syntax(expression)?;
         let backend = crate::backends::backend()?;
-        let zkvm_result = backend.prove_program(expression, parameters, parameters)?;
-        Ok(ProofResult {
-            clvm_output: ClvmOutput {
-                result: zkvm_result.result,
-                cost: zkvm_result.cost,
-            },
-            zk_proof: zkvm_result.proof,
-        })
+        backend.prove_program(expression, parameters)
     }
 
     pub fn prove_with_nullifier(
@@ -224,6 +168,6 @@ impl ClvmZkProver {
 
         Self::validate_chialisp_syntax(expression)?;
         let backend = crate::backends::backend()?;
-        backend.prove_with_nullifier(expression, parameters, parameters, spend_secret)
+        backend.prove_with_nullifier(expression, parameters, spend_secret)
     }
 }

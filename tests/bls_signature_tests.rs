@@ -7,7 +7,7 @@ fn compile_and_test_program(
     params: &[ProgramParameter],
 ) -> Result<ZKClvmResult, ClvmZkError> {
     let backend = backend()?;
-    backend.prove_program(program, params, &[])
+    backend.prove_program(program, params)
 }
 
 #[test]

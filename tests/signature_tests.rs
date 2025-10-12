@@ -62,8 +62,8 @@ fn fuzz_agg_sig_unsafe_valid() -> Result<(), Box<dyn std::error::Error>> {
     test_info!("Generating proof for agg_sig_unsafe...");
     let proof_result = ClvmZkProver::prove(expr, &params)
         .map_err(|e| format!("Proof generation failed for valid agg_sig_unsafe: {e}"))?;
-    let output = proof_result.clvm_output.result;
-    let proof = proof_result.zk_proof;
+    let output = proof_result.result;
+    let proof = proof_result.proof;
 
     test_info!("Verifying proof for agg_sig_unsafe...");
     let program_hash = compile_chialisp_template_hash_default(expr)
@@ -108,8 +108,8 @@ fn fuzz_agg_sig_unsafe_invalid() -> Result<(), Box<dyn std::error::Error>> {
     test_info!("Attempting proof generation for invalid agg_sig_unsafe...");
     match ClvmZkProver::prove(expr, &params) {
         Ok(proof_result) => {
-            let output = proof_result.clvm_output.result;
-            let proof = proof_result.zk_proof;
+            let output = proof_result.result;
+            let proof = proof_result.proof;
             test_info!("Proof generation succeeded, checking if verification catches the invalid signature...");
 
             // The proof might succeed but verification should fail or return invalid result

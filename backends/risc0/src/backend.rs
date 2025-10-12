@@ -125,9 +125,11 @@ impl Risc0Backend {
 
         Ok(ZKClvmNullifierResult {
             nullifier: result.nullifier.unwrap_or([0u8; 32]),
-            result: result.clvm_output.result,
-            cost: result.clvm_output.cost,
-            proof: proof_bytes,
+            base: ZKClvmResult {
+                result: result.clvm_output.result,
+                cost: result.clvm_output.cost,
+                proof: proof_bytes,
+            },
         })
     }
 

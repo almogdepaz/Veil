@@ -18,7 +18,7 @@ fn fuzz_proof_integrity_attacks() -> Result<(), Box<dyn std::error::Error>> {
     let proof_result = ClvmZkProver::prove(expr, params)
         .map_err(|e| format!("Failed to generate original proof: {e}"))?;
     let output = proof_result.clvm_output.result;
-    let original_proof = proof_result.zk_proof;
+    let original_proof = proof_result.proof;
 
     test_info!(
         "Successfully generated proof of {} bytes",
@@ -216,8 +216,8 @@ async fn fuzz_program_binding_attacks() -> Result<(), Box<dyn std::error::Error>
                 let params = params.clone();
                 task::spawn_blocking(move || match ClvmZkProver::prove(&expr, &params) {
                     Ok(proof_result) => {
-                        let output = proof_result.clvm_output.result;
-                        let proof = proof_result.zk_proof;
+                        let output = proof_result.result;
+                        let proof = proof_result.proof;
                         Ok((batch_idx, output, proof))
                     }
                     Err(e) => Err(format!(

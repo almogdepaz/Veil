@@ -283,12 +283,12 @@ fn run_demo() -> Result<(), ClvmZkError> {
         println!("\nTesting {name}");
         match ClvmZkProver::prove(expression, &parameters) {
             Ok(proof_result) => {
-                println!("   Proof generated: {} bytes", proof_result.zk_proof.len());
+                println!("   Proof generated: {} bytes", proof_result.proof.len());
 
                 // Extract program hash from proof for verification
                 let backend = crate::backends::backend()?;
                 let (proof_valid, program_hash, output) =
-                    backend.verify_proof(&proof_result.zk_proof)?;
+                    backend.verify_proof(&proof_result.proof)?;
 
                 if !proof_valid {
                     println!("   ERROR: Proof verification failed");
@@ -296,12 +296,12 @@ fn run_demo() -> Result<(), ClvmZkError> {
                 }
 
                 println!("   Program hash from proof: {}", hex::encode(program_hash));
-                println!("   Output matches: {}", output == *proof_result.result());
+                println!("   Output matches: {}", output == proof_result.result);
 
                 match ClvmZkProver::verify_proof(
                     program_hash,
-                    &proof_result.zk_proof,
-                    Some(proof_result.result()),
+                    &proof_result.proof,
+                    Some(&proof_result.result),
                 ) {
                     Ok((true, _)) => println!("   Proof verified"),
                     Ok((false, _)) => println!("   Proof invalid"),
@@ -456,7 +456,7 @@ fn run_prove(
             println!("Proof generated in {duration:?}");
 
             // Display output in both hex and decoded format
-            let output_bytes = proof_result.result();
+            let output_bytes = &proof_result.result;
             let hex_output = hex::encode(output_bytes);
             println!("Output (hex): {}", hex_output);
 
@@ -464,10 +464,10 @@ fn run_prove(
             if let Some(decoded) = decode_clvm_output(output_bytes) {
                 println!("Output (decoded): {}", decoded);
             }
-            println!("Proof: {} bytes", proof_result.zk_proof.len());
+            println!("Proof: {} bytes", proof_result.proof.len());
 
             // Save proof to file
-            std::fs::write("proof.bin", &proof_result.zk_proof).map_err(|e| {
+            std::fs::write("proof.bin", &proof_result.proof).map_err(|e| {
                 ClvmZkError::SerializationError(format!("Failed to save proof: {e}"))
             })?;
 
@@ -592,7 +592,7 @@ fn run_verify(
             println!("Proof verified successfully in {duration:?}");
 
             // Display the public output in both hex and decoded format
-            println!("✅ Proof is VALID");
+            println!("Proof is VALID");
             println!("Output (hex): {}", hex::encode(&output));
 
             // Try to decode as a simple integer
@@ -602,11 +602,11 @@ fn run_verify(
 
             // If expected output was provided, confirm it matches
             if expected_output.is_some() {
-                println!("✅ Output matches expected value");
+                println!("Output matches expected value");
             }
         }
         Ok((false, output)) => {
-            println!("❌ Proof verification FAILED - invalid proof");
+            println!("Proof verification FAILED - invalid proof");
             println!("Output (hex): {}", hex::encode(&output));
 
             // Try to decode as a simple integer
@@ -617,7 +617,7 @@ fn run_verify(
             return Err(ClvmZkError::VerificationError("Invalid proof".to_string()));
         }
         Err(e) => {
-            println!("❌ Verification error: {e}");
+            println!("Verification error: {e}");
             return Err(e);
         }
     }
@@ -641,7 +641,7 @@ fn run_benchmark(count: usize) -> Result<(), ClvmZkError> {
     for i in 0..count {
         match ClvmZkProver::prove(expression, &parameters) {
             Ok(proof_result) => {
-                total_proof_size += proof_result.zk_proof.len();
+                total_proof_size += proof_result.proof.len();
                 successful_proofs += 1;
                 if (i + 1) % 10 == 0 {
                     println!("   Completed {}/{} proofs", i + 1, count);
@@ -870,12 +870,12 @@ fn run_simulator_command(data_dir: &PathBuf, action: SimAction) -> Result<(), Cl
                 fs::remove_dir_all(data_dir).map_err(|e| {
                     ClvmZkError::SerializationError(format!("failed to reset: {e}"))
                 })?;
-                println!("✅ reset simulator state");
+                println!("reset simulator state");
             }
 
             let state = SimulatorState::new();
             state.save(data_dir)?;
-            println!("✅ initialized simulator at {}", data_dir.display());
+            println!("initialized simulator at {}", data_dir.display());
         }
 
         SimAction::Faucet {
@@ -970,7 +970,7 @@ fn faucet_command(
     state.save(data_dir)?;
 
     println!(
-        "✅ funded wallet '{}' with {} coins of {} each (total: {})",
+        "funded wallet '{}' with {} coins of {} each (total: {})",
         wallet_name, count, amount, total_funded
     );
 
@@ -1005,7 +1005,7 @@ fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Resul
             state.wallets.insert(name.to_string(), wallet);
             state.save(data_dir)?;
 
-            println!("✅ created wallet '{}'", name);
+            println!("created wallet '{}'", name);
         }
 
         WalletAction::Show => {
@@ -1345,7 +1345,7 @@ fn send_command(
 
     match tx_result {
         Ok(tx) => {
-            println!("✅ transaction successful: {}", tx);
+            println!("transaction successful: {}", tx);
 
             // update wallet states
             let from_wallet_mut = state.wallets.get_mut(from).unwrap();
@@ -1388,7 +1388,7 @@ fn send_command(
             state.save(data_dir)?;
 
             println!(
-                "✅ sent {} from '{}' to '{}' (change: {})",
+                "sent {} from '{}' to '{}' (change: {})",
                 amount, from, to, change
             );
         }
@@ -1510,7 +1510,7 @@ fn spend_to_puzzle_command(
 
             state.save(data_dir)?;
             println!(
-                "✅ locked {} in puzzle coin (nullifier: {}..., program: {})",
+                "locked {} in puzzle coin (nullifier: {}..., program: {})",
                 amount,
                 hex::encode(&puzzle_coin.nullifier[0..8]),
                 program
@@ -1616,7 +1616,7 @@ fn spend_to_wallet_command(
 
             state.save(data_dir)?;
             println!(
-                "✅ unlocked {} from puzzle coin to wallet '{}' (program: {})",
+                "unlocked {} from puzzle coin to wallet '{}' (program: {})",
                 amount, to, program
             );
         }
@@ -1686,7 +1686,7 @@ fn observer_command(data_dir: &PathBuf, action: ObserverAction) -> Result<(), Cl
             state.observer_wallets.insert(name.clone(), observer_wallet);
             state.save(data_dir)?;
 
-            println!("✅ created observer wallet \"{}\"", name);
+            println!("created observer wallet \"{}\"", name);
         }
 
         ObserverAction::Show { name } => {
@@ -1759,7 +1759,7 @@ fn observer_command(data_dir: &PathBuf, action: ObserverAction) -> Result<(), Cl
 
             state.save(data_dir)?;
             println!(
-                "✅ scanned {} coin indices, discovered {} new coins",
+                "scanned {} coin indices, discovered {} new coins",
                 max_index, discovered
             );
         }
