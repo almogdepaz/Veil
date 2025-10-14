@@ -133,11 +133,11 @@ fn test_bls_program_with_backend() {
     let result = compile_and_test_program(program, &params);
 
     match result {
-        Ok(proof_result) => {
+        Ok(result) => {
             // Program executed successfully
             // With dummy BLS data (all zeros), signature verification should fail
             // so the program should return 0 (false branch)
-            let output = &proof_result.output.clvm_res;
+            let output = &result.proof_output.clvm_res;
             assert_eq!(
                 output.output.len(),
                 1,

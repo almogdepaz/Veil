@@ -97,9 +97,9 @@ pub enum ClvmZkError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZKClvmResult {
     /// All committed data from the guest (program_hash, nullifier, clvm_res)
-    pub output: ProofOutput,
+    pub proof_output: ProofOutput,
     /// The actual proof bytes
-    pub proof: Vec<u8>,
+    pub proof_bytes: Vec<u8>,
 }
 
 /// guest program input/output types

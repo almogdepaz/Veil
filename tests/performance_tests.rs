@@ -26,10 +26,10 @@ fn fuzz_performance_limits() -> Result<(), Box<dyn std::error::Error>> {
         let param_list: Vec<ProgramParameter> = vec![];
 
         let prove_start = std::time::Instant::now();
-        let proof_result = ClvmZkProver::prove(expr, &param_list)
+        let result = ClvmZkProver::prove(expr, &param_list)
             .map_err(|e| format!("Proof generation failed for {name}: {e}"))?;
-        let output = proof_result.output.clvm_res;
-        let proof = proof_result.proof;
+        let output = result.proof_output.clvm_res;
+        let proof = result.proof_bytes;
         let prove_time = prove_start.elapsed();
         test_info!("  Proof generation: {prove_time:?}");
         test_info!("  Proof size: {} bytes", proof.len());
@@ -118,12 +118,11 @@ async fn fuzz_deterministic_behavior() -> Result<(), String> {
                     task::spawn_blocking(move || -> Result<(Vec<u8>, Vec<u8>), String> {
                         let param_list: Vec<ProgramParameter> =
                             vars.iter().map(|&x| ProgramParameter::int(x)).collect();
-                        let proof_result =
-                            ClvmZkProver::prove(&expr, &param_list).map_err(|e| {
-                                format!("Proof generation failed for {actual_expr}: {e}")
-                            })?;
-                        let output = proof_result.output.clvm_res;
-                        let proof = proof_result.proof;
+                        let result = ClvmZkProver::prove(&expr, &param_list).map_err(|e| {
+                            format!("Proof generation failed for {actual_expr}: {e}")
+                        })?;
+                        let output = result.proof_output.clvm_res;
+                        let proof = result.proof_bytes;
                         let program_hash =
                             compile_chialisp_template_hash_default(&expr).map_err(|e| {
                                 format!(

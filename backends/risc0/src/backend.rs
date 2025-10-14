@@ -65,8 +65,8 @@ impl Risc0Backend {
         })?;
 
         Ok(ZKClvmResult {
-            output: result,
-            proof: proof_bytes,
+            proof_output: result,
+            proof_bytes,
         })
     }
 
@@ -112,8 +112,8 @@ impl Risc0Backend {
         })?;
 
         Ok(ZKClvmResult {
-            output: result,
-            proof: proof_bytes,
+            proof_output: result,
+            proof_bytes,
         })
     }
 

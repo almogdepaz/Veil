@@ -87,7 +87,7 @@ impl Spender {
 
         // 5. double check the nullifier is what we expected
         let actual_nullifier = zkvm_result
-            .output
+            .proof_output
             .nullifier
             .ok_or_else(|| ProtocolError::InvalidNullifier("No nullifier in proof".to_string()))?;
         if actual_nullifier != expected_nullifier {
@@ -100,9 +100,9 @@ impl Spender {
 
         // 6. package everything up into a secure bundle
         let spend_bundle = PrivateSpendBundle::new(
-            zkvm_result.proof,
+            zkvm_result.proof_bytes,
             actual_nullifier,
-            zkvm_result.output.clvm_res.output.clone(),
+            zkvm_result.proof_output.clvm_res.output.clone(),
         );
 
         // 7. FINAL VALIDATION: Ensure bundle is well-formed

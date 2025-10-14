@@ -120,8 +120,8 @@ impl Sp1Backend {
         })?;
 
         Ok(ZKClvmResult {
-            output,
-            proof: proof_bytes,
+            proof_output: output,
+            proof_bytes,
         })
     }
 
@@ -178,8 +178,8 @@ impl Sp1Backend {
         })?;
 
         Ok(ZKClvmResult {
-            output,
-            proof: proof_bytes,
+            proof_output: output,
+            proof_bytes,
         })
     }
 

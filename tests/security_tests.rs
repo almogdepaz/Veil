@@ -7,7 +7,6 @@ use tokio::task;
 /// Test proof integrity attacks - tampering with proofs should cause verification to fail
 /// Mock backend doesn't do real cryptographic verification, so skip this test
 #[test]
-#[cfg(not(feature = "mock"))]
 fn fuzz_proof_integrity_attacks() -> Result<(), Box<dyn std::error::Error>> {
     test_info!("\nStarting proof integrity attack tests...");
 
@@ -15,10 +14,10 @@ fn fuzz_proof_integrity_attacks() -> Result<(), Box<dyn std::error::Error>> {
     let params = &[ProgramParameter::int(42), ProgramParameter::int(13)];
 
     test_info!("Generating original proof...");
-    let proof_result = ClvmZkProver::prove(expr, params)
+    let result = ClvmZkProver::prove(expr, params)
         .map_err(|e| format!("Failed to generate original proof: {e}"))?;
-    let output = proof_result.output.clvm_res.output;
-    let original_proof = proof_result.proof;
+    let output = result.proof_output.clvm_res.output;
+    let original_proof = result.proof_bytes;
 
     test_info!(
         "Successfully generated proof of {} bytes",
@@ -152,7 +151,7 @@ fn fuzz_proof_integrity_attacks() -> Result<(), Box<dyn std::error::Error>> {
         match ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr).unwrap(),
             &tampered_proof,
-            Some(&clvm_res.output),
+            Some(&output),
         ) {
             Ok((false, _)) => {
                 test_info!("    ✓ Attack correctly rejected by verification");
@@ -215,9 +214,9 @@ async fn fuzz_program_binding_attacks() -> Result<(), Box<dyn std::error::Error>
                 let expr = expr.to_string();
                 let params = params.clone();
                 task::spawn_blocking(move || match ClvmZkProver::prove(&expr, &params) {
-                    Ok(proof_result) => {
-                        let output = proof_result.output.clvm_res;
-                        let proof = proof_result.proof;
+                    Ok(result) => {
+                        let output = result.proof_output.clvm_res;
+                        let proof = result.proof_bytes;
                         Ok((batch_idx, output, proof))
                     }
                     Err(e) => Err(format!(

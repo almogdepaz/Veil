@@ -72,9 +72,9 @@ pub fn test_expression(expr: &str, params: &[i64]) -> TestResult {
     let param_list: Vec<ProgramParameter> =
         params.iter().map(|&x| ProgramParameter::int(x)).collect();
     match ClvmZkProver::prove(expr, &param_list) {
-        Ok(proof_result) => {
-            let output = proof_result.output.clvm_res;
-            let proof = proof_result.proof;
+        Ok(result) => {
+            let output = result.proof_output.clvm_res;
+            let proof = result.proof_bytes;
 
             // Verify proof using new approach
             let program_hash = match compile_chialisp_template_hash_default(expr) {

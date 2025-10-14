@@ -55,9 +55,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let proof_time = proof_start.elapsed();
 
             proof_times.push(proof_time);
-            proof_sizes.push(result.proof.len());
-            last_proof = result.proof.clone();
-            last_output = result.output.clvm_res.output.clone();
+            proof_sizes.push(result.proof_bytes.len());
+            last_proof = result.proof_bytes.clone();
+            last_output = result.proof_output.clvm_res.output.clone();
         }
 
         // Measure verification time (5 runs for average)

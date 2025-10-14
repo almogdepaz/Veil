@@ -76,9 +76,9 @@ fn fuzz_malformed_expressions() -> Result<(), String> {
 
         // If program creation succeeds, proof generation should fail
         match ClvmZkProver::prove(expr, &param_list) {
-            Ok(proof_result) => {
-                let output = proof_result.output.clvm_res;
-                let _proof = proof_result.proof;
+            Ok(result) => {
+                let output = result.proof_output.clvm_res;
+                let _proof = result.proof_bytes;
                 // If proof somehow succeeds, it should be an error result
                 return Err(format!("Malformed expression '{expr}' should not generate proof but got output: {output:?}"));
             }
@@ -139,9 +139,9 @@ async fn fuzz_complex_nested_expressions() -> Result<(), String> {
                     let param_list: Vec<ProgramParameter> = vec![];
 
                     match ClvmZkProver::prove(&expr, &param_list) {
-                        Ok(proof_result) => {
-                            let output = proof_result.output.clvm_res;
-                            let _proof = proof_result.proof;
+                        Ok(result) => {
+                            let output = result.proof_output.clvm_res;
+                            let _proof = result.proof_bytes;
                             // Verify the proof
                             let program_hash =compile_chialisp_template_hash_default(&expr)
                                 .map_err(|e| format!("Hash template failed: {:?}", e))?;

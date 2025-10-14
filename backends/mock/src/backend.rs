@@ -100,8 +100,8 @@ impl MockBackend {
         })?;
 
         Ok(ZKClvmResult {
-            output: proof_output,
-            proof: proof_bytes,
+            proof_output,
+            proof_bytes,
         })
     }
 
@@ -113,7 +113,7 @@ impl MockBackend {
         expected_result: &[u8],
     ) -> Result<bool, ClvmZkError> {
         let result = self.prove_chialisp_program(chialisp_source, program_parameters)?;
-        Ok(result.output.clvm_res.output == expected_result)
+        Ok(result.proof_output.clvm_res.output == expected_result)
     }
 
     /// same as prove_chialisp_program but with nullifier generation
@@ -163,8 +163,8 @@ impl MockBackend {
         })?;
 
         Ok(ZKClvmResult {
-            output: proof_output,
-            proof: proof_bytes,
+            proof_output,
+            proof_bytes,
         })
     }
 

@@ -60,10 +60,10 @@ fn fuzz_mixed_parameters() -> Result<(), Box<dyn std::error::Error>> {
     for (test_name, expression, params, expected) in &test_cases {
         test_info!("Testing: {test_name} - {expression}");
 
-        let proof_result = ClvmZkProver::prove(expression, params)
+        let result = ClvmZkProver::prove(expression, params)
             .map_err(|e| format!("Proof generation failed for {test_name}: {e}"))?;
-        let output = proof_result.output.clvm_res;
-        let proof = proof_result.proof;
+        let output = result.proof_output.clvm_res;
+        let proof = result.proof_bytes;
 
         test_info!("  Proof generated: {} bytes", proof.len());
 
