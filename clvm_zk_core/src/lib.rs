@@ -30,6 +30,10 @@ pub type Hasher = fn(&[u8]) -> [u8; 32];
 pub type BlsVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
 pub type EcdsaVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
 
+/// clvm-zk bls signature domain separation tag
+/// min_sig variant: pk in g2, sig in g1
+pub const BLS_DST: &[u8] = b"CLVM_ZK_BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_";
+
 /// Runtime function definition
 #[derive(Debug, Clone)]
 pub struct RuntimeFunction {
