@@ -36,8 +36,6 @@ fn test_recursive_factorial() {
                     zk_result.output.clvm_res.output
                 );
             }
-
-
         }
         Err(e) => {
             panic!("Execution failed: {:?}", e);

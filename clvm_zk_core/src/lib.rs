@@ -1258,12 +1258,12 @@ pub fn number_to_atom(num: i64) -> ClvmValue {
             n >>= 8;
         }
         bytes.reverse();
-        
+
         // Handle negative numbers by setting high bit
         if num < 0 && !bytes.is_empty() {
             bytes[0] |= 0x80;
         }
-        
+
         ClvmValue::Atom(bytes)
     }
 }

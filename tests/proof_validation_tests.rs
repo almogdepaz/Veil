@@ -188,7 +188,7 @@ async fn test_complex_nested_expressions() -> Result<(), String> {
         // Note: CLVM encoding - true (1) = [1], false (0) = [0x80]
         (10, 5, 75, 25, 1), // 10*5 + (75-25) = 50 + 50 = 100, so (= 100 100) = 1
         (10, 5, 76, 25, 0x80), // 10*5 + (76-25) = 50 + 51 = 101, so (= 101 100) = 0 (encoded as 0x80)
-        (2, 3, 100, 6, 1),  // 2*3 + (100-6) = 6 + 94 = 100, so (= 100 100) = 1
+        (2, 3, 100, 6, 1),     // 2*3 + (100-6) = 6 + 94 = 100, so (= 100 100) = 1
     ];
 
     let total_cases = test_cases.len();
