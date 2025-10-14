@@ -152,7 +152,7 @@ fn fuzz_proof_integrity_attacks() -> Result<(), Box<dyn std::error::Error>> {
         match ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr).unwrap(),
             &tampered_proof,
-            Some(&output),
+            Some(&clvm_res.output),
         ) {
             Ok((false, _)) => {
                 test_info!("    ✓ Attack correctly rejected by verification");
