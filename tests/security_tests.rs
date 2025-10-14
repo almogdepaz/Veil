@@ -7,6 +7,7 @@ use tokio::task;
 /// Test proof integrity attacks - tampering with proofs should cause verification to fail
 /// Mock backend doesn't do real cryptographic verification, so skip this test
 #[test]
+#[cfg(not(feature = "mock"))]
 fn fuzz_proof_integrity_attacks() -> Result<(), Box<dyn std::error::Error>> {
     test_info!("\nStarting proof integrity attack tests...");
 
