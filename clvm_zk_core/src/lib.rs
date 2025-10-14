@@ -15,6 +15,7 @@ use std::string::String;
 #[cfg(feature = "sha2-hasher")]
 use sha2::{Digest, Sha256};
 
+pub mod backend_utils;
 pub mod chialisp;
 pub mod operators;
 pub mod parser;

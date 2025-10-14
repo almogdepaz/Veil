@@ -1,6 +1,13 @@
 //! Common utilities shared between different zkVM backends
 
-use clvm_zk_core::{ClvmZkError, Input, ProgramParameter, ProofOutput};
+use crate::{ClvmZkError, Input, ProgramParameter, ProofOutput};
+use core::fmt::Display;
+
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::ToString};
+
+#[cfg(feature = "std")]
+use std::string::ToString;
 
 /// Prepare inputs for guest-side compilation
 pub fn prepare_guest_inputs(
@@ -16,7 +23,7 @@ pub fn prepare_guest_inputs(
 }
 
 /// Convert proving errors from zkVM into clean user-facing error messages
-pub fn convert_proving_error(error: impl std::fmt::Display, backend_name: &str) -> ClvmZkError {
+pub fn convert_proving_error(error: impl Display, backend_name: &str) -> ClvmZkError {
     let error_msg = error.to_string();
     // Check if the error is from guest compilation or execution failure
     if error_msg.contains("Chialisp compilation failed") {
@@ -35,7 +42,7 @@ pub fn convert_proving_error(error: impl std::fmt::Display, backend_name: &str) 
 /// Validate that proof output contains expected values
 pub fn validate_proof_output(output: &ProofOutput, backend_name: &str) -> Result<(), ClvmZkError> {
     // Make sure the program actually committed values
-    if output.clvm_output.result.is_empty() {
+    if output.clvm_res.output.is_empty() {
         return Err(ClvmZkError::ProofGenerationFailed(format!(
             "{} proof appears to have exited before commit - no outputs generated",
             backend_name
@@ -50,7 +57,7 @@ pub fn validate_nullifier_proof_output(
     backend_name: &str,
 ) -> Result<(), ClvmZkError> {
     // Make sure the program actually committed values
-    if output.clvm_output.result.is_empty() && output.nullifier.is_none() {
+    if output.clvm_res.output.is_empty() && output.nullifier.is_none() {
         return Err(ClvmZkError::ProofGenerationFailed(format!(
             "{} proof appears to have exited before commit - no outputs generated",
             backend_name

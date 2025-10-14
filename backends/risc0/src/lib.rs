@@ -3,13 +3,6 @@
 mod backend;
 mod methods;
 
-// include common backend utilities
-mod common;
-
-// include global common with prepare_guest_inputs
-#[path = "../../common.rs"]
-pub mod global_common;
-
 // re-export the methods constants
 pub use methods::*;
 // re-export everything from the backend implementation

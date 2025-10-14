@@ -17,7 +17,7 @@ fn fuzz_proof_integrity_attacks() -> Result<(), Box<dyn std::error::Error>> {
     test_info!("Generating original proof...");
     let proof_result = ClvmZkProver::prove(expr, params)
         .map_err(|e| format!("Failed to generate original proof: {e}"))?;
-    let output = proof_result.clvm_output.result;
+    let output = proof_result.output.clvm_res.output;
     let original_proof = proof_result.proof;
 
     test_info!(
@@ -152,7 +152,7 @@ fn fuzz_proof_integrity_attacks() -> Result<(), Box<dyn std::error::Error>> {
         match ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expr).unwrap(),
             &tampered_proof,
-            Some(&clvm_res.output),
+            Some(&output),
         ) {
             Ok((false, _)) => {
                 test_info!("    ✓ Attack correctly rejected by verification");
