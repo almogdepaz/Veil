@@ -8,8 +8,8 @@ description = "core clvm evaluation engine and shared types for clvm-zk"
 default = []
 std = []
 sha2-hasher = ["dep:sha2"]
-risc0 = ["dep:risc0-zkvm", "dep:bls12_381", "dep:sha2"]
-sp1 = ["dep:sha2", "sha2-hasher"]  # sp1 uses standard crypto libraries with sha2-hasher
+risc0 = ["dep:risc0-zkvm", "dep:bls12_381", "sha2-hasher"]
+sp1 = ["sha2-hasher"]
 
 [dependencies]
 serde = { version = "1.0.219", features = ["derive", "alloc"], default-features = false }

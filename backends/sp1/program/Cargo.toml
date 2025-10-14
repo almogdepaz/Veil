@@ -5,12 +5,10 @@ edition = "2021"
 
 [dependencies]
 sp1-zkvm = "5.2.2"
+sp1-lib = "5.2.2"
 clvm-zk-core = { path = "../../../clvm_zk_core", default-features = false, features = ["sp1"] }
-borsh = { version = "1.5.7", default-features = false }
-serde = { version = "1.0", default-features = false, features = ["derive"] }
-# ecdsa signature verification support for sp1
-k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
-sha2 = { version = "0.10", default-features = false }
+# use sp1's patched sha2 for syscall optimization
+sha2 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", package = "sha2", branch = "patch-sha2-v0.10.8", default-features = false }
 # BLS signature verification support with SP1 precompiles (v2 = digest 0.9 compatible)
 bls12_381 = { git = "https://github.com/sp1-patches/bls12_381.git", tag = "patch-0.8.0-sp1-5.0.0-v2", default-features = false, features = ["groups", "pairings", "experimental", "alloc"] }
 # Use sha2 0.9 to match bls12_381's digest 0.9 dependency
