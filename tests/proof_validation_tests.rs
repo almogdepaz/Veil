@@ -185,8 +185,9 @@ async fn test_complex_nested_expressions() -> Result<(), String> {
     // Test: (= (+ (* a b) (- c d)) 100)
     let test_cases = [
         // (a, b, c, d, expected_result)
+        // Note: CLVM encoding - true (1) = [1], false (0) = [0x80]
         (10, 5, 75, 25, 1), // 10*5 + (75-25) = 50 + 50 = 100, so (= 100 100) = 1
-        (10, 5, 76, 25, 0), // 10*5 + (76-25) = 50 + 51 = 101, so (= 101 100) = 0
+        (10, 5, 76, 25, 0x80), // 10*5 + (76-25) = 50 + 51 = 101, so (= 101 100) = 0 (encoded as 0x80)
         (2, 3, 100, 6, 1),  // 2*3 + (100-6) = 6 + 94 = 100, so (= 100 100) = 1
     ];
 
@@ -292,13 +293,14 @@ async fn test_complex_nested_expressions() -> Result<(), String> {
 /// Test arithmetic operations not covered in fuzz tests (/, %, <)
 #[tokio::test]
 async fn test_arithmetic_operations() -> Result<(), String> {
+    // Note: CLVM encoding - true (1) = [1], false (0) = [0x80]
     let test_cases = vec![
         ("/", 15, 3, 5),
         ("%", 15, 7, 1),
         ("/", 20, 4, 5),
         ("%", 10, 3, 1),
         ("<", 5, 10, 1),
-        ("<", 10, 5, 0),
+        ("<", 10, 5, 0x80), // false encoded as 0x80
     ];
 
     let total_cases = test_cases.len();

@@ -367,8 +367,8 @@ fn test_mutual_recursion() {
 
     assert_eq!(
         result.output.clvm_res.output,
-        vec![0],
-        "is_even(5) should be false (0)"
+        vec![0x80],
+        "is_even(5) should be false (0 = empty atom, encoded as 0x80)"
     );
     println!("is_even(5) = 0 ✓");
 

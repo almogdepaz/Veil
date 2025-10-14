@@ -1240,7 +1240,7 @@ pub fn atom_to_number(value: &ClvmValue) -> Result<i64, &'static str> {
 
 pub fn number_to_atom(num: i64) -> ClvmValue {
     if num == 0 {
-        ClvmValue::Atom(vec![0]) // keep compatibility with existing tests
+        ClvmValue::Atom(vec![]) // nil: represents 0/false/empty-list, encodes to 0x80
     } else if num > 0 && num <= 255 {
         ClvmValue::Atom(vec![num as u8])
     } else {
@@ -1258,6 +1258,12 @@ pub fn number_to_atom(num: i64) -> ClvmValue {
             n >>= 8;
         }
         bytes.reverse();
+        
+        // Handle negative numbers by setting high bit
+        if num < 0 && !bytes.is_empty() {
+            bytes[0] |= 0x80;
+        }
+        
         ClvmValue::Atom(bytes)
     }
 }

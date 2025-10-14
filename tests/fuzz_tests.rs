@@ -148,20 +148,21 @@ async fn fuzz_comparison_operations() -> Result<(), String> {
                     let result = test_expression(&expr, &[a, b]);
 
                     if let TestResult::Success(output) = &result {
-                        if output.len() == 1 && (output[0] == 0 || output[0] == 1) {
+                        // CLVM encoding: true=1 (encoded as [1]), false=0 (empty atom, encoded as [0x80])
+                        if output.len() == 1 && (output[0] == 1 || output[0] == 0x80) {
                             let expected = match op.as_str() {
                                 "=" => {
                                     if a == b {
                                         1
                                     } else {
-                                        0
+                                        0x80 // false is encoded as 0x80 (empty atom)
                                     }
                                 }
                                 ">" => {
                                     if a > b {
                                         1
                                     } else {
-                                        0
+                                        0x80 // false is encoded as 0x80 (empty atom)
                                     }
                                 }
                                 _ => {
@@ -171,7 +172,8 @@ async fn fuzz_comparison_operations() -> Result<(), String> {
                                 }
                             };
                             if output[0] == expected {
-                                test_info!("{expr} = {} (correct)", output[0]);
+                                let result_str = if output[0] == 1 { "true" } else { "false" };
+                                test_info!("{expr} = {} (correct)", result_str);
                             } else {
                                 return TestResult::VerifyFailed(format!(
                                     "Logic error: expected {expected}, got {}",
@@ -180,7 +182,7 @@ async fn fuzz_comparison_operations() -> Result<(), String> {
                             }
                         } else {
                             return TestResult::VerifyFailed(format!(
-                                "Invalid output format: expected single byte 0 or 1, got {output:?}"
+                                "Invalid output format: expected single byte 1 or 0x80, got {output:?}"
                             ));
                         }
                     }
