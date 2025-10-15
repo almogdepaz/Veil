@@ -30,7 +30,7 @@ default = ["sp1", "testing"]
 # when switching backends, use: cargo <cmd> --no-default-features --features <backend>,testing
 risc0 = ["dep:clvm-zk-risc0", "clvm-zk-core/risc0"]  # risc0 zkvm backend with precompiles
 sp1 = ["dep:clvm-zk-sp1", "clvm-zk-core/sp1"]        # sp1 zkvm backend (default, faster proving)
-mock = ["dep:clvm-zk-mock", "clvm-zk-core/std"]       # mock backend for testing
+mock = ["dep:clvm-zk-mock"]                           # mock backend for testing
 
 # testing utilities (enabled by default for tests)
 testing = ["clvm-zk-core/sha2-hasher"]

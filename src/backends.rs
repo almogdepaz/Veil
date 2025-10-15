@@ -23,7 +23,6 @@ pub trait ZKCLVMBackend {
     fn is_available(&self) -> bool;
 }
 
-/// Pick which zkvm to use based on features
 pub fn backend() -> Result<Box<dyn ZKCLVMBackend>, ClvmZkError> {
     #[cfg(feature = "risc0")]
     {
@@ -51,7 +50,6 @@ pub fn backend() -> Result<Box<dyn ZKCLVMBackend>, ClvmZkError> {
     }
 }
 
-// use backends directly - no wrapper needed since types are unified
 #[cfg(feature = "risc0")]
 use clvm_zk_risc0::Risc0Backend;
 
@@ -61,11 +59,9 @@ use clvm_zk_sp1::Sp1Backend;
 #[cfg(feature = "mock")]
 use clvm_zk_mock::MockBackend;
 
-// expose mock backend module for testing
 #[cfg(feature = "mock")]
 pub use clvm_zk_mock as mock;
 
-// implement the trait for the risc0 backend
 #[cfg(feature = "risc0")]
 impl ZKCLVMBackend for Risc0Backend {
     fn prove_program(
@@ -98,7 +94,6 @@ impl ZKCLVMBackend for Risc0Backend {
     }
 }
 
-// implement the trait for the sp1 backend
 #[cfg(feature = "sp1")]
 impl ZKCLVMBackend for Sp1Backend {
     fn prove_program(
@@ -131,7 +126,6 @@ impl ZKCLVMBackend for Sp1Backend {
     }
 }
 
-// implement the trait for the mock backend
 #[cfg(feature = "mock")]
 impl ZKCLVMBackend for MockBackend {
     fn prove_program(

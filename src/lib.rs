@@ -1,8 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-// Using guest-side compilation now
-
-// ensure at least one backend is enabled
 #[cfg(all(not(feature = "risc0"), not(feature = "sp1"), not(feature = "mock")))]
 compile_error!("At least one backend feature must be enabled: risc0, sp1, or mock");
 
@@ -16,7 +13,6 @@ compile_error!("cannot enable both risc0 and mock backends simultaneously");
 #[cfg(all(feature = "sp1", feature = "mock"))]
 compile_error!("cannot enable both sp1 and mock backends simultaneously");
 
-// Module declarations
 pub mod backends;
 pub mod cli;
 pub mod crypto_utils;
@@ -34,7 +30,6 @@ pub struct OperandInput {
     pub operands: Vec<i64>,
 }
 
-/// a chialisp condition - basically an instruction with some data
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Condition {
     pub opcode: u8,
@@ -42,12 +37,10 @@ pub struct Condition {
 }
 
 impl Condition {
-    /// make a new condition
     pub fn new(opcode: u8, args: Vec<Vec<u8>>) -> Self {
         Self { opcode, args }
     }
 
-    /// make a "create coin" condition
     pub fn create_coin(puzzle_hash: Vec<u8>, amount: u64) -> Self {
         Self::new(
             condition_opcodes::CREATE_COIN,
@@ -55,12 +48,10 @@ impl Condition {
         )
     }
 
-    /// make an "assert my coin id" condition
     pub fn assert_my_coin_id(coin_id: Vec<u8>) -> Self {
         Self::new(condition_opcodes::ASSERT_MY_COIN_ID, vec![coin_id])
     }
 
-    /// make an "assert my amount" condition
     pub fn assert_my_amount(amount: u64) -> Self {
         Self::new(
             condition_opcodes::ASSERT_MY_AMOUNT,
@@ -68,12 +59,10 @@ impl Condition {
         )
     }
 
-    /// make an "assert concurrent spend" condition
     pub fn assert_concurrent_spend(coin_id: Vec<u8>) -> Self {
         Self::new(condition_opcodes::ASSERT_CONCURRENT_SPEND, vec![coin_id])
     }
 
-    /// make an "assert concurrent puzzle" condition
     pub fn assert_concurrent_puzzle(puzzle_hash: Vec<u8>) -> Self {
         Self::new(
             condition_opcodes::ASSERT_CONCURRENT_PUZZLE,

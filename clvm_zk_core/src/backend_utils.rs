@@ -1,13 +1,8 @@
 //! Common utilities shared between different zkVM backends
 
 use crate::{ClvmZkError, Input, ProgramParameter, ProofOutput};
-use core::fmt::Display;
-
-#[cfg(not(feature = "std"))]
 use alloc::{format, string::ToString};
-
-#[cfg(feature = "std")]
-use std::string::ToString;
+use core::fmt::Display;
 
 /// Prepare inputs for guest-side compilation
 pub fn prepare_guest_inputs(

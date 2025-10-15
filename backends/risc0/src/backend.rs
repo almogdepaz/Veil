@@ -18,8 +18,6 @@ impl Risc0Backend {
             ));
         }
 
-        // RISC0 backend uses feature flags - no runtime initialization needed
-
         Ok(Self {})
     }
 

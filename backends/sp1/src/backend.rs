@@ -1,14 +1,9 @@
-//! sp1 zkvm backend
-
-// import sp1 elf from this crate
 use crate::CLVM_ZK_SP1_ELF;
 
-// use common types from clvm_zk_core
 pub use clvm_zk_core::{
     ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
 };
 
-// use common backend utilities from clvm_zk_core
 use clvm_zk_core::backend_utils::{
     convert_proving_error, prepare_guest_inputs, validate_nullifier_proof_output,
     validate_proof_output,
@@ -16,7 +11,6 @@ use clvm_zk_core::backend_utils::{
 
 use sp1_sdk::SP1ProofMode;
 
-/// sp1 zkvm backend
 pub struct Sp1Backend {
     skip_execution: bool,
     proof_mode: String,
@@ -24,7 +18,6 @@ pub struct Sp1Backend {
 
 impl Sp1Backend {
     pub fn new() -> Result<Self, ClvmZkError> {
-        // check if sp1 is available
         if !Self::is_sp1_available() {
             return Err(ClvmZkError::ConfigurationError(
                 "sp1 zkvm not available - install sp1 toolchain".to_string(),
@@ -40,7 +33,6 @@ impl Sp1Backend {
     }
 
     fn is_sp1_available() -> bool {
-        // check if we have the program elf
         !CLVM_ZK_SP1_ELF.is_empty()
     }
 
@@ -60,14 +52,6 @@ impl Sp1Backend {
         }
     }
 
-    // Legacy function - no longer used with guest-side compilation
-    #[allow(dead_code)]
-    fn serialize_parameters(parameters: &[ProgramParameter]) -> Result<Vec<u8>, ClvmZkError> {
-        borsh::to_vec(parameters).map_err(|e| {
-            ClvmZkError::SerializationError(format!("failed to serialize parameters: {e}"))
-        })
-    }
-
     pub fn prove_chialisp_program(
         &self,
         chialisp_source: &str,
@@ -75,19 +59,15 @@ impl Sp1Backend {
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use sp1_sdk::{ProverClient, SP1Stdin};
 
-        // prepare inputs for the guest
         let inputs = prepare_guest_inputs(chialisp_source, program_parameters, None);
 
-        // create stdin for sp1
         let mut stdin = SP1Stdin::new();
         stdin.write(&inputs);
 
-        // execute to get cycle count, then generate proof
         let client = ProverClient::from_env();
         let (pk, _vk) = client.setup(CLVM_ZK_SP1_ELF);
 
         if !self.skip_execution {
-            // execute to get timing info
             let execute_start = std::time::Instant::now();
             let _ = client.execute(CLVM_ZK_SP1_ELF, &stdin).run().map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("sp1 execution failed: {e}"))
@@ -108,13 +88,10 @@ impl Sp1Backend {
             .map_err(|e| convert_proving_error(e, "SP1"))?
         };
 
-        // extract outputs from the proof
         let output: ProofOutput = proof.public_values.read();
 
-        // Validate proof output
         validate_proof_output(&output, "SP1")?;
 
-        // SP1 proofs use serde/bincode serialization, not borsh
         let proof_bytes = bincode::serialize(&proof).map_err(|e| {
             ClvmZkError::SerializationError(format!("failed to serialize proof: {e}"))
         })?;
@@ -133,19 +110,15 @@ impl Sp1Backend {
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use sp1_sdk::{ProverClient, SP1Stdin};
 
-        // prepare inputs for the guest
         let inputs = prepare_guest_inputs(chialisp_source, program_parameters, Some(spend_secret));
 
-        // create stdin for sp1
         let mut stdin = SP1Stdin::new();
         stdin.write(&inputs);
 
-        // execute to get cycle count, then generate proof
         let client = ProverClient::from_env();
         let (pk, _vk) = client.setup(CLVM_ZK_SP1_ELF);
 
         if !self.skip_execution {
-            // execute to get timing info
             let execute_start = std::time::Instant::now();
             let _ = client.execute(CLVM_ZK_SP1_ELF, &stdin).run().map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("sp1 execution failed: {e}"))
@@ -166,13 +139,10 @@ impl Sp1Backend {
             .map_err(|e| convert_proving_error(e, "SP1"))?
         };
 
-        // extract nullifier-aware outputs from the proof
         let output: ProofOutput = proof.public_values.read();
 
-        // Validate nullifier proof output
         validate_nullifier_proof_output(&output, "SP1")?;
 
-        // SP1 proofs use serde/bincode serialization, not borsh
         let proof_bytes = bincode::serialize(&proof).map_err(|e| {
             ClvmZkError::SerializationError(format!("failed to serialize proof: {e}"))
         })?;
@@ -189,23 +159,19 @@ impl Sp1Backend {
     ) -> Result<(bool, [u8; 32], Vec<u8>), ClvmZkError> {
         use sp1_sdk::{ProverClient, SP1ProofWithPublicValues};
 
-        // deserialize the proof using bincode
         let proof: SP1ProofWithPublicValues = bincode::deserialize(proof).map_err(|e| {
             ClvmZkError::InvalidProofFormat(format!("failed to deserialize proof: {e}"))
         })?;
 
-        // verify the proof cryptographically first
         let client = ProverClient::from_env();
         let (_, vk) = client.setup(CLVM_ZK_SP1_ELF);
         client.verify(&proof, &vk).map_err(|e| {
             ClvmZkError::VerificationFailed(format!("sp1 verification failed: {e}"))
         })?;
 
-        // extract and validate outputs from the proof
         let mut public_values = proof.public_values;
         let output = public_values.read::<clvm_zk_core::ProofOutput>();
 
-        // return success, extracted program hash, and output
         Ok((true, output.program_hash, output.clvm_res.output))
     }
 

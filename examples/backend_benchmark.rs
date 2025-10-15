@@ -22,17 +22,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let test_cases = vec![
         (
             "simple addition",
-            "(+ a b)",
+            "(mod (a b) (+ a b))",
             vec![ProgramParameter::int(42), ProgramParameter::int(13)],
         ),
         (
             "multiplication",
-            "(* a b)",
+            "(mod (a b) (* a b))",
             vec![ProgramParameter::int(7), ProgramParameter::int(8)],
         ),
         (
             "nested operations",
-            "(+ (* a b) (+ c d))",
+            "(mod (a b c d) (+ (* a b) (+ c d)))",
             vec![
                 ProgramParameter::int(3),
                 ProgramParameter::int(4),
@@ -42,12 +42,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         (
             "comparison",
-            "(> a b)",
+            "(mod (a b) (> a b))",
             vec![ProgramParameter::int(10), ProgramParameter::int(5)],
         ),
         (
             "blockchain condition",
-            "(create_coin a b)",
+            "(mod (a b) (create_coin a b))",
             vec![ProgramParameter::int(1000), ProgramParameter::int(500)],
         ),
     ];
