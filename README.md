@@ -128,27 +128,39 @@ clvm-zk/
 ├── src/                           # main api and host functionality
 │   ├── lib.rs                     # primary api entry point
 │   ├── cli.rs                     # command line interface
-│   ├── protocol/                  # protocol layer (spender, structures)
+│   ├── protocol/                  # protocol layer (spender, structures, puzzles)
 │   ├── wallet/                    # wallet functionality (hd_wallet, types)
 │   └── backends.rs                # zkvm backend abstraction
 │
-├── clvm_zk_core/                  # chialisp compilation and clvm execution
+├── clvm_zk_core/                  # chialisp compilation and clvm execution (no_std)
 │   ├── src/
 │   │   ├── lib.rs                 # ClvmEvaluator and all opcode handler methods
 │   │   ├── types.rs               # core types (ProgramParameter, etc)
-│   │   ├── chialisp/              # chialisp parser and compiler
-│   │   ├── operators.rs           # CLVM operator definitions and parsing
-│   │   └── parser.rs              # CLVM bytecode parsing utilities
-│   └── Cargo.toml                 # no zkvm dependencies, no_std compatible
+│   │   ├── backend_utils.rs       # shared backend utilities
+│   │   ├── chialisp/              # chialisp source parser and compiler
+│   │   │   ├── parser.rs          # chialisp source → s-expressions
+│   │   │   ├── frontend.rs        # s-expressions → ast
+│   │   │   └── compiler_utils.rs  # compilation helpers
+│   │   ├── operators.rs           # CLVM operator definitions
+│   │   └── clvm_parser.rs         # CLVM binary bytecode → ClvmValue
+│   └── Cargo.toml                 # no zkvm dependencies, unconditionally no_std
 │
 ├── backends/                      # zkvm backend implementations  
 │   ├── risc0/                     # risc0 backend
-│   │   ├── src/lib.rs             # risc0 host integration
-│   │   ├── guest/src/main.rs      # risc0 guest wrapper (~170 lines)
+│   │   ├── src/
+│   │   │   ├── lib.rs             # implementation + methods re-exports
+│   │   │   └── methods.rs         # generated elf/id constants wrapper
+│   │   ├── guest/src/main.rs      # risc0 guest program
 │   │   └── Cargo.toml
-│   └── sp1/                       # sp1 backend
-│       ├── src/lib.rs             # sp1 host integration
-│       ├── program/src/main.rs    # sp1 guest wrapper (~170 lines)
+│   ├── sp1/                       # sp1 backend (default)
+│   │   ├── src/
+│   │   │   ├── lib.rs             # implementation + methods re-exports
+│   │   │   └── methods.rs         # elf loading wrapper
+│   │   ├── program/src/main.rs    # sp1 guest program
+│   │   └── Cargo.toml
+│   └── mock/                      # mock backend for testing
+│       ├── src/
+│       │   └── backend.rs         # no-zkvm test implementation
 │       └── Cargo.toml
 │
 ├── examples/                      # working code examples
@@ -159,17 +171,10 @@ clvm-zk/
 ├── tests/                         # test suite
 │   ├── fuzz_tests.rs              # fuzzing tests (500+ cases)
 │   ├── simulator_tests.rs         # simulator tests (10/10 tests pass)
-│   ├── expression_tests.rs        # expression parsing tests
+│   ├── bls_signature_tests.rs     # BLS12-381 signature verification
+│   ├── signature_tests.rs         # signature verification tests
 │   ├── proof_validation_tests.rs  # security validation tests
-│   ├── signature_integration_tests.rs # signature verification tests
-│   ├── signature_tests.rs         # additional signature tests
-│   ├── bls_signature_tests.rs     # BLS12-381 signature verification tests
-│   ├── verification_security_tests.rs # proof verification security
-│   ├── parameter_tests.rs         # parameter handling
-│   ├── performance_tests.rs       # performance benchmarks
-│   ├── security_tests.rs          # security tests
-│   ├── test_large_atoms.rs        # large atom handling tests
-│   └── test_large_values.rs       # large value tests
+│   └── ...                        # additional test files
 │
 └── Cargo.toml                     # workspace configuration
 ```
@@ -178,38 +183,31 @@ clvm-zk/
 ### Core components
 
 #### `clvm_zk_core/` - Backend-agnostic compilation and execution
-Handles chialisp compilation and CLVM execution with dependency injection:
+Unconditionally no_std chialisp compiler and CLVM executor with dependency injection for zkvm-optimized crypto:
 
 **Compilation:**
-- **`src/chialisp/parser.rs`**: parses chialisp source into S-expressions
-- **`src/chialisp/frontend.rs`**: converts S-expressions to abstract syntax tree (AST)
-- **`src/chialisp/codegen.rs`**: compiles AST to CLVM bytecode
-- **`compile_chialisp_to_bytecode()`**: main compilation function used by guests
-- **`compile_chialisp_template_hash()`**: generates deterministic program hashes
+- **`compile_chialisp_to_bytecode_with_table()`**: compiles chialisp source to CLVM bytecode with function table
+- **`compile_chialisp_template_hash()`**: generates deterministic program hashes for verification
+- **Compilation pipeline**: chialisp source → s-expressions → AST → CLVM bytecode → ClvmValue
 
 **Execution:**
-- **`ClvmEvaluator`**: main evaluation struct with injected backend dependencies
-  - `hasher: fn(&[u8]) -> [u8; 32]` - hash function for general operations
+- **`ClvmEvaluator`**: main evaluation struct with injected backend crypto
+  - `hasher: fn(&[u8]) -> [u8; 32]` - hash function (zkvm-optimized)
   - `bls_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>` - BLS signature verification
   - `ecdsa_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>` - ECDSA signature verification
-- **`ClvmEvaluator::new()`**: creates evaluator with default implementations
-- **`ClvmEvaluator::with_backends()`**: creates evaluator with optimized implementations
-- **All opcode handlers as evaluator methods**: `handle_op_add()`, `handle_op_sha256()`, etc.
-- **`evaluate_clvm_program_with_params()`**: executes bytecode with parameter substitution
+- **`evaluate_clvm_program()`**: executes bytecode with parameter substitution
+- **All CLVM opcodes**: arithmetic, comparison, list operations, conditionals, crypto, blockchain conditions
   
-#### `src/cli.rs` - command line interface
-- `demo` - interactive demonstration
-- `prove` - generate proofs from command line
-- `verify` - verify proof files
-- `bench` - performance benchmarking
+#### `backends/` - zkvm implementations
+Each backend provides host integration and guest program:
+- **risc0**: mature backend with optimized precompiles for BLS/ECDSA
+- **sp1**: default backend, potentially faster proving times
+- **mock**: no-zkvm testing backend for fast iteration
 
 #### `examples/` - working code examples
-- `alice_bob_lock.rs` - ECDSA signature verification
-- `performance_profiling.rs` - benchmarking
-- `backend_benchmark.rs` - compare backends
-
-#### `tests/` - test suite
-fuzz tests, simulator tests, signature verification, and security tests.
+- `alice_bob_lock.rs` - ECDSA signature verification with ZK proofs
+- `performance_profiling.rs` - performance benchmarking suite
+- `backend_benchmark.rs` - backend comparison tool
 ## Development
 
 ### Basic usage
@@ -247,7 +245,15 @@ See **[SIMULATOR.md](SIMULATOR.md)** for detailed documentation.
 
 ## Adding new zkvm backends
 
-Want to add a new zkvm? Implement `ZKCLVMBackend` trait in `backends/your_zkvm/src/lib.rs` and create a guest program that uses `clvm_zk_core`. See `backends/risc0/` or `backends/sp1/` for examples.
+To add a new zkvm backend:
+
+1. Create `backends/your_zkvm/src/lib.rs` implementing the backend
+2. Create guest program using `clvm_zk_core` (no_std compatible)
+3. Inject zkvm-optimized crypto functions into `ClvmEvaluator`
+4. Add feature flag to workspace `Cargo.toml`
+5. Implement `ZKCLVMBackend` trait in `src/backends.rs`
+
+See `backends/risc0/` or `backends/sp1/` as reference implementations.
 
 ## Contributing
 

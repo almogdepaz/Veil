@@ -50,14 +50,11 @@ impl MockBackend {
         Ok(Self)
     }
 
-    /// runs the exact same logic as the guest but without zkvm overhead
-    /// now with function table support and detailed logging
     pub fn prove_chialisp_program(
         &self,
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        // compile chialisp source to bytecode WITH function table
         let (instance_bytecode, program_hash, function_table) =
             compile_chialisp_to_bytecode_with_table(hash_data, chialisp_source, program_parameters)
                 .map_err(|e| {
@@ -67,7 +64,6 @@ impl MockBackend {
                     ))
                 })?;
 
-        // execute the compiled bytecode using evaluator with function table
         let mut evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
         evaluator.function_table = function_table;
 
@@ -79,10 +75,9 @@ impl MockBackend {
 
         let clvm_output = ClvmResult {
             output: output_bytes,
-            cost: 0, // mock backend doesn't track cycles
+            cost: 0,
         };
 
-        // create fake proof (just serialize the output for now)
         let proof_output = ProofOutput {
             program_hash,
             nullifier: None,
@@ -99,7 +94,6 @@ impl MockBackend {
         })
     }
 
-    /// verify a mock proof by re-executing and comparing results
     pub fn verify_mock_proof(
         &self,
         chialisp_source: &str,
@@ -110,14 +104,12 @@ impl MockBackend {
         Ok(result.proof_output.clvm_res.output == expected_result)
     }
 
-    /// same as prove_chialisp_program but with nullifier generation
     pub fn prove_chialisp_with_nullifier(
         &self,
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        // compile chialisp source to bytecode WITH function table (same as prove_chialisp_program)
         let (instance_bytecode, program_hash, function_table) =
             compile_chialisp_to_bytecode_with_table(hash_data, chialisp_source, program_parameters)
                 .map_err(|e| {
@@ -127,7 +119,6 @@ impl MockBackend {
                     ))
                 })?;
 
-        // execute the compiled bytecode using evaluator with function table
         let mut evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
         evaluator.function_table = function_table;
 
@@ -137,15 +128,13 @@ impl MockBackend {
                 ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
             })?;
 
-        // generate nullifier using program hash (same as guest)
         let computed_nullifier = generate_nullifier(hash_data, &spend_secret, &program_hash);
 
         let clvm_output = ClvmResult {
             output: output_bytes,
-            cost: 0, // mock backend doesn't track cycles
+            cost: 0,
         };
 
-        // create fake proof with nullifier
         let proof_output = ProofOutput {
             program_hash,
             nullifier: Some(computed_nullifier),
@@ -162,7 +151,6 @@ impl MockBackend {
         })
     }
 
-    /// "verify" the mock proof by just deserializing it
     pub fn verify_proof_and_extract(
         &self,
         proof: &[u8],
@@ -171,7 +159,6 @@ impl MockBackend {
             ClvmZkError::InvalidProofFormat(format!("failed to deserialize mock proof: {e}"))
         })?;
 
-        // always return true for mock verification since we trust our own execution
         Ok((true, output.program_hash, output.clvm_res.output))
     }
 

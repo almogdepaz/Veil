@@ -1,29 +1,23 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
-#[cfg(not(feature = "std"))]
 extern crate alloc;
 
-#[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, collections::BTreeMap, string::String, vec, vec::Vec};
 
 use k256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
-#[cfg(feature = "std")]
-use std::collections::BTreeMap;
-#[cfg(feature = "std")]
-use std::string::String;
 
 #[cfg(feature = "sha2-hasher")]
 use sha2::{Digest, Sha256};
 
 pub mod backend_utils;
 pub mod chialisp;
+pub mod clvm_parser;
 pub mod operators;
-pub mod parser;
 pub mod types;
 
 pub use chialisp::*;
+pub use clvm_parser::*;
 pub use operators::*;
-pub use parser::*;
 pub use types::*;
 
 pub type Hasher = fn(&[u8]) -> [u8; 32];
