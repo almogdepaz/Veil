@@ -11,13 +11,13 @@ use sha2::{Digest, Sha256};
 
 pub mod backend_utils;
 pub mod chialisp;
+pub mod clvm_parser;
 pub mod operators;
-pub mod parser;
 pub mod types;
 
 pub use chialisp::*;
+pub use clvm_parser::*;
 pub use operators::*;
-pub use parser::*;
 pub use types::*;
 
 pub type Hasher = fn(&[u8]) -> [u8; 32];

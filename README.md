@@ -137,12 +137,12 @@ clvm-zk/
 │   │   ├── lib.rs                 # ClvmEvaluator and all opcode handler methods
 │   │   ├── types.rs               # core types (ProgramParameter, etc)
 │   │   ├── backend_utils.rs       # shared backend utilities
-│   │   ├── chialisp/              # chialisp parser and compiler
-│   │   │   ├── parser.rs          # s-expression parser
-│   │   │   ├── frontend.rs        # ast construction
+│   │   ├── chialisp/              # chialisp source parser and compiler
+│   │   │   ├── parser.rs          # chialisp source → s-expressions
+│   │   │   ├── frontend.rs        # s-expressions → ast
 │   │   │   └── compiler_utils.rs  # compilation helpers
 │   │   ├── operators.rs           # CLVM operator definitions
-│   │   └── parser.rs              # CLVM bytecode parser
+│   │   └── clvm_parser.rs         # CLVM binary bytecode → ClvmValue
 │   └── Cargo.toml                 # no zkvm dependencies, unconditionally no_std
 │
 ├── backends/                      # zkvm backend implementations  
@@ -188,7 +188,7 @@ Unconditionally no_std chialisp compiler and CLVM executor with dependency injec
 **Compilation:**
 - **`compile_chialisp_to_bytecode_with_table()`**: compiles chialisp source to CLVM bytecode with function table
 - **`compile_chialisp_template_hash()`**: generates deterministic program hashes for verification
-- **Parser pipeline**: chialisp source → s-expressions → AST → CLVM bytecode
+- **Compilation pipeline**: chialisp source → s-expressions → AST → CLVM bytecode → ClvmValue
 
 **Execution:**
 - **`ClvmEvaluator`**: main evaluation struct with injected backend crypto
