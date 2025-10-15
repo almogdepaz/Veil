@@ -1,67 +1,132 @@
 #!/bin/bash
+set -e
 
-echo "clvm-zk backend benchmark runner"
+# colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # no color
+
+echo -e "${BLUE}clvm-zk backend benchmark runner${NC}"
 echo "====================================="
 echo
 
-# check if risc0 is available
+
+TESTED_BACKENDS=()
+FAILED_BACKENDS=()
+
+
+RISC0_AVAILABLE=false
 if [ -f "./install-deps.sh" ]; then
-    echo "📦 risc0 dependencies available"
+    if command -v cargo-risczero &> /dev/null || rustup target list --installed | grep -q riscv32im-unknown-none-elf; then
+        echo -e "${GREEN}✓${NC} risc0 dependencies available"
+        RISC0_AVAILABLE=true
+    else
+        echo -e "${YELLOW}⚠${NC} risc0 target not installed - run ./install-deps.sh"
+    fi
 else
-    echo "risc0 dependencies not available - run ./install-deps.sh"
+    echo -e "${YELLOW}⚠${NC} install-deps.sh not found"
 fi
 
-# check if sp1 is available  
+
+SP1_AVAILABLE=false
 if command -v cargo-prove &> /dev/null; then
-    echo "📦 sp1 toolchain available"
+    echo -e "${GREEN}✓${NC} sp1 toolchain available"
+    SP1_AVAILABLE=true
 else
-    echo "sp1 toolchain not available - run 'curl -L https://sp1.succinct.xyz | bash && sp1up'"
+    echo -e "${YELLOW}⚠${NC} sp1 toolchain not available - run 'curl -L https://sp1.succinct.xyz | bash && sp1up'"
 fi
 
 # check if docker is available for plonk/groth16 modes
+DOCKER_AVAILABLE=false
 if command -v docker &> /dev/null; then
-    if docker info &> /dev/null; then
-        echo "📦 docker available (plonk/groth16 modes supported)"
+    if docker info &> /dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} docker available (plonk/groth16 modes supported)"
         DOCKER_AVAILABLE=true
     else
-        echo "docker installed but not running - plonk/groth16 modes will be skipped"
+        echo -e "${YELLOW}⚠${NC} docker installed but not running - plonk/groth16 modes will be skipped"
         echo "    start docker: 'open -a Docker' (macOS) or 'sudo systemctl start docker' (linux)"
-        DOCKER_AVAILABLE=false
     fi
 else
-    echo "docker not installed - plonk/groth16 modes will be skipped"
+    echo -e "${YELLOW}⚠${NC} docker not installed - plonk/groth16 modes will be skipped"
     echo "    install docker: './install-deps.sh -d'"
-    DOCKER_AVAILABLE=false
 fi
 
 echo
 
 # test risc0 backend
-echo "testing risc0 backend..."
-cargo run --example backend_benchmark --features risc0 --no-default-features --release || echo "risc0 test failed"
-
-echo
-
-# test sp1 backend in all modes
-echo "testing sp1 backend (core mode)..."
-SP1_PROOF_MODE=core cargo run --example backend_benchmark --features sp1 --no-default-features --release || echo "sp1 core test failed"
-
-echo
-echo "testing sp1 backend (compressed mode)..."  
-SP1_PROOF_MODE=compressed cargo run --example backend_benchmark --features sp1 --no-default-features --release || echo "sp1 compressed test failed"
-
-if [ "$DOCKER_AVAILABLE" = true ]; then
+if [ "$RISC0_AVAILABLE" = true ]; then
+    echo -e "${BLUE}━━━ testing risc0 backend ━━━${NC}"
+    if cargo run --example backend_benchmark --features risc0 --no-default-features --release 2>&1; then
+        TESTED_BACKENDS+=("risc0")
+        echo -e "${GREEN}✓ risc0 test passed${NC}"
+    else
+        FAILED_BACKENDS+=("risc0")
+        echo -e "${RED}✗ risc0 test failed${NC}"
+    fi
     echo
-    echo "testing sp1 backend (plonk mode)..."
-    SP1_PROOF_MODE=plonk cargo run --example backend_benchmark --features sp1 --no-default-features --release || echo "sp1 plonk test failed"
-
-    echo
-    echo "testing sp1 backend (groth16 mode)..."
-    SP1_PROOF_MODE=groth16 cargo run --example backend_benchmark --features sp1 --no-default-features --release || echo "sp1 groth16 test failed"
 else
+    echo -e "${YELLOW}skipping risc0 (not available)${NC}"
     echo
-    echo "skipping plonk and groth16 modes (docker required)"
 fi
 
-echo
-echo "benchmark complete"
+# test sp1 backend in all modes
+if [ "$SP1_AVAILABLE" = true ]; then
+    for MODE in core compressed; do
+        echo -e "${BLUE}━━━ testing sp1 backend ($MODE mode) ━━━${NC}"
+        if SP1_PROOF_MODE=$MODE cargo run --example backend_benchmark --features sp1 --no-default-features --release 2>&1; then
+            TESTED_BACKENDS+=("sp1-$MODE")
+            echo -e "${GREEN}✓ sp1 $MODE test passed${NC}"
+        else
+            FAILED_BACKENDS+=("sp1-$MODE")
+            echo -e "${RED}✗ sp1 $MODE test failed${NC}"
+        fi
+        echo
+    done
+
+    # test docker-based modes
+    if [ "$DOCKER_AVAILABLE" = true ]; then
+        for MODE in plonk groth16; do
+            echo -e "${BLUE}━━━ testing sp1 backend ($MODE mode) ━━━${NC}"
+            if SP1_PROOF_MODE=$MODE cargo run --example backend_benchmark --features sp1 --no-default-features --release 2>&1; then
+                TESTED_BACKENDS+=("sp1-$MODE")
+                echo -e "${GREEN}✓ sp1 $MODE test passed${NC}"
+            else
+                FAILED_BACKENDS+=("sp1-$MODE")
+                echo -e "${RED}✗ sp1 $MODE test failed${NC}"
+            fi
+            echo
+        done
+    else
+        echo -e "${YELLOW}skipping sp1 plonk/groth16 modes (docker required)${NC}"
+        echo
+    fi
+else
+    echo -e "${YELLOW}skipping sp1 (not available)${NC}"
+    echo
+fi
+
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "${BLUE}benchmark summary${NC}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "tested backends: ${#TESTED_BACKENDS[@]}"
+echo -e "failed backends: ${#FAILED_BACKENDS[@]}"
+
+if [ ${#TESTED_BACKENDS[@]} -gt 0 ]; then
+    echo -e "\n${GREEN}passed:${NC}"
+    for backend in "${TESTED_BACKENDS[@]}"; do
+        echo "  ✓ $backend"
+    done
+fi
+
+if [ ${#FAILED_BACKENDS[@]} -gt 0 ]; then
+    echo -e "\n${RED}failed:${NC}"
+    for backend in "${FAILED_BACKENDS[@]}"; do
+        echo "  ✗ $backend"
+    done
+    exit 1
+fi
+
+echo -e "\n${GREEN}all benchmarks passed!${NC}"

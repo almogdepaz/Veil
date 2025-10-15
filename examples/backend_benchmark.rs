@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // detect which backend is active
-    let backend_name = if cfg!(all(feature = "risc0", not(feature = "sp1"))) {
+    let backend_name = if cfg!(feature = "mock") {
+        "mock".to_string()
+    } else if cfg!(all(feature = "risc0", not(feature = "sp1"))) {
         "risc0".to_string()
     } else if cfg!(all(feature = "sp1", not(feature = "risc0"))) {
         let mode = std::env::var("SP1_PROOF_MODE").unwrap_or_else(|_| "core".to_string());
