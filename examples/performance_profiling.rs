@@ -10,30 +10,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test cases with different complexity levels
     let test_cases = vec![
         // Simple operations (baseline)
-        ("Simple Addition", "(+ a b)", vec![5, 3]),
-        ("Simple Multiplication", "(* a b)", vec![7, 8]),
+        ("Simple Addition", "(mod (a b) (+ a b))", vec![5, 3]),
+        ("Simple Multiplication", "(mod (a b) (* a b))", vec![7, 8]),
         // Medium complexity
         (
             "Nested Arithmetic",
-            "(+ (* a b) (- c d))",
+            "(mod (a b c d) (+ (* a b) (- c d)))",
             vec![5, 3, 10, 4],
         ),
-        ("Conditional Logic", "(i (> a b) c d)", vec![7, 3, 100, 200]),
+        ("Conditional Logic", "(mod (a b c d) (i (> a b) c d))", vec![7, 3, 100, 200]),
         // Complex operations
         (
             "Deep Nesting",
-            "(+ (+ (+ a b) (+ c d)) (+ (+ e f) (+ g h)))",
+            "(mod (a b c d e f g h) (+ (+ (+ a b) (+ c d)) (+ (+ e f) (+ g h))))",
             vec![1, 2, 3, 4, 5, 6, 7, 8],
         ),
-        ("Modular Exponentiation", "(modpow a b c)", vec![5, 3, 13]),
-        ("Division with Remainder", "(divmod a b)", vec![17, 5]),
+        ("Modular Exponentiation", "(mod (a b c) (modpow a b c))", vec![5, 3, 13]),
+        ("Division with Remainder", "(mod (a b) (divmod a b))", vec![17, 5]),
         // Blockchain conditions
         (
             "Create Coin Condition",
-            "(create_coin a b)",
+            "(mod (a b) (create_coin a b))",
             vec![1000, 500],
         ),
-        ("Reserve Fee Condition", "(reserve_fee a)", vec![100]),
+        ("Reserve Fee Condition", "(mod (a) (reserve_fee a))", vec![100]),
     ];
 
     let mut results = Vec::new();
@@ -89,10 +89,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n📊 Performance Summary:");
     println!(
-        "{:<25} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10}",
-        "Operation", "Program μs", "Proof ms", "Verify ms", "Prog B", "Proof KB"
+        "{:<25} | {:>10} | {:>10} | {:>10}",
+        "Operation", "Proof ms", "Verify ms", "Proof KB"
     );
-    println!("{}", "-".repeat(95));
+    println!("{}", "-".repeat(75));
 
     for (name, proof_time, verify_time, proof_size) in &results {
         println!(
