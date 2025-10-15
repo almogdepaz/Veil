@@ -18,22 +18,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "(mod (a b c d) (+ (* a b) (- c d)))",
             vec![5, 3, 10, 4],
         ),
-        ("Conditional Logic", "(mod (a b c d) (i (> a b) c d))", vec![7, 3, 100, 200]),
+        (
+            "Conditional Logic",
+            "(mod (a b c d) (i (> a b) c d))",
+            vec![7, 3, 100, 200],
+        ),
         // Complex operations
         (
             "Deep Nesting",
             "(mod (a b c d e f g h) (+ (+ (+ a b) (+ c d)) (+ (+ e f) (+ g h))))",
             vec![1, 2, 3, 4, 5, 6, 7, 8],
         ),
-        ("Modular Exponentiation", "(mod (a b c) (modpow a b c))", vec![5, 3, 13]),
-        ("Division with Remainder", "(mod (a b) (divmod a b))", vec![17, 5]),
+        (
+            "Modular Exponentiation",
+            "(mod (a b c) (modpow a b c))",
+            vec![5, 3, 13],
+        ),
+        (
+            "Division with Remainder",
+            "(mod (a b) (divmod a b))",
+            vec![17, 5],
+        ),
         // Blockchain conditions
         (
             "Create Coin Condition",
             "(mod (a b) (create_coin a b))",
             vec![1000, 500],
         ),
-        ("Reserve Fee Condition", "(mod (a) (reserve_fee a))", vec![100]),
+        (
+            "Reserve Fee Condition",
+            "(mod (a) (reserve_fee a))",
+            vec![100],
+        ),
     ];
 
     let mut results = Vec::new();
