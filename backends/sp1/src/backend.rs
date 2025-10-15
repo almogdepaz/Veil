@@ -8,13 +8,11 @@ pub use clvm_zk_core::{
     ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
 };
 
-// use common backend utilities
-use crate::common::{
-    convert_proving_error, validate_nullifier_proof_output, validate_proof_output,
+// use common backend utilities from clvm_zk_core
+use clvm_zk_core::backend_utils::{
+    convert_proving_error, prepare_guest_inputs, validate_nullifier_proof_output,
+    validate_proof_output,
 };
-
-// import the global common module with prepare_guest_inputs
-use crate::global_common::prepare_guest_inputs;
 
 use sp1_sdk::SP1ProofMode;
 
@@ -88,22 +86,17 @@ impl Sp1Backend {
         let client = ProverClient::from_env();
         let (pk, _vk) = client.setup(CLVM_ZK_SP1_ELF);
 
-        let total_cycles = if self.skip_execution {
-            println!("sp1 cycle counting skipped - cost will be 0");
-            0
-        } else {
-            // execute to get cycle count
+        if !self.skip_execution {
+            // execute to get timing info
             let execute_start = std::time::Instant::now();
-            let (_public_values, execution_report) =
-                client.execute(CLVM_ZK_SP1_ELF, &stdin).run().map_err(|e| {
-                    ClvmZkError::ProofGenerationFailed(format!("sp1 execution failed: {e}"))
-                })?;
+            let _ = client.execute(CLVM_ZK_SP1_ELF, &stdin).run().map_err(|e| {
+                ClvmZkError::ProofGenerationFailed(format!("sp1 execution failed: {e}"))
+            })?;
             let execute_time = execute_start.elapsed();
             println!("sp1 execute took: {}ms", execute_time.as_millis());
-
-            // get instruction count from execution report
-            execution_report.total_instruction_count()
-        };
+        } else {
+            println!("sp1 cycle counting skipped - cost will be 0");
+        }
 
         let proof_mode = self.parse_proof_mode();
         let mut proof = {
@@ -127,8 +120,8 @@ impl Sp1Backend {
         })?;
 
         Ok(ZKClvmResult {
-            output,
-            proof: proof_bytes,
+            proof_output: output,
+            proof_bytes,
         })
     }
 
@@ -151,22 +144,17 @@ impl Sp1Backend {
         let client = ProverClient::from_env();
         let (pk, _vk) = client.setup(CLVM_ZK_SP1_ELF);
 
-        let total_cycles = if self.skip_execution {
-            println!("sp1 cycle counting skipped - cost will be 0");
-            0
-        } else {
-            // execute to get cycle count
+        if !self.skip_execution {
+            // execute to get timing info
             let execute_start = std::time::Instant::now();
-            let (_public_values, execution_report) =
-                client.execute(CLVM_ZK_SP1_ELF, &stdin).run().map_err(|e| {
-                    ClvmZkError::ProofGenerationFailed(format!("sp1 execution failed: {e}"))
-                })?;
+            let _ = client.execute(CLVM_ZK_SP1_ELF, &stdin).run().map_err(|e| {
+                ClvmZkError::ProofGenerationFailed(format!("sp1 execution failed: {e}"))
+            })?;
             let execute_time = execute_start.elapsed();
             println!("sp1 execute took: {}ms", execute_time.as_millis());
-
-            // get instruction count from execution report
-            execution_report.total_instruction_count()
-        };
+        } else {
+            println!("sp1 cycle counting skipped - cost will be 0");
+        }
 
         let proof_mode = self.parse_proof_mode();
         let mut proof = {
@@ -190,8 +178,8 @@ impl Sp1Backend {
         })?;
 
         Ok(ZKClvmResult {
-            output,
-            proof: proof_bytes,
+            proof_output: output,
+            proof_bytes,
         })
     }
 

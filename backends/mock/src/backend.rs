@@ -1,11 +1,11 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
     compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmResult,
-    ClvmZkError, ProgramParameter, ProofOutput, ZKClvmResult,
+    ClvmZkError, ProgramParameter, ProofOutput, ZKClvmResult, BLS_DST,
 };
 use sha2::{Digest, Sha256};
 
-use blst::min_pk as blst_core;
+use blst::min_sig as blst_core;
 use blst::BLST_ERROR;
 
 pub struct MockBackend;
@@ -17,20 +17,14 @@ pub fn default_bls_verifier(
     message_bytes: &[u8],
     signature_bytes: &[u8],
 ) -> Result<bool, &'static str> {
-    // Deserialize public key
+    // using min_sig variant: pk in G2 (96 bytes), sig in G1 (48 bytes)
     let pk = blst_core::PublicKey::from_bytes(public_key_bytes)
         .map_err(|_| "invalid public key bytes")?;
 
-    // Deserialize signature
     let sig =
         blst_core::Signature::from_bytes(signature_bytes).map_err(|_| "invalid signature bytes")?;
 
-    // Domain separation tag (Ethereum-style)
-    const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
-
-    // The verify() function signature is:
-    // verify(hash_or_encode: bool, msg: &[u8], dst: &[u8], aug: &[u8], pk: &PublicKey, validate: bool)
-    let res: BLST_ERROR = sig.verify(true, message_bytes, DST, &[], &pk, true);
+    let res: BLST_ERROR = sig.verify(true, message_bytes, BLS_DST, &[], &pk, true);
 
     Ok(res == BLST_ERROR::BLST_SUCCESS)
 }
@@ -100,8 +94,8 @@ impl MockBackend {
         })?;
 
         Ok(ZKClvmResult {
-            output: proof_output,
-            proof: proof_bytes,
+            proof_output,
+            proof_bytes,
         })
     }
 
@@ -113,7 +107,7 @@ impl MockBackend {
         expected_result: &[u8],
     ) -> Result<bool, ClvmZkError> {
         let result = self.prove_chialisp_program(chialisp_source, program_parameters)?;
-        Ok(result.output.clvm_res.output == expected_result)
+        Ok(result.proof_output.clvm_res.output == expected_result)
     }
 
     /// same as prove_chialisp_program but with nullifier generation
@@ -163,8 +157,8 @@ impl MockBackend {
         })?;
 
         Ok(ZKClvmResult {
-            output: proof_output,
-            proof: proof_bytes,
+            proof_output,
+            proof_bytes,
         })
     }
 

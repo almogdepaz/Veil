@@ -1,9 +1,9 @@
-use crate::common::{
-    convert_proving_error, validate_nullifier_proof_output, validate_proof_output,
-};
-use crate::global_common::prepare_guest_inputs;
 use crate::{CLVM_RISC0_GUEST_ELF, CLVM_RISC0_GUEST_ID};
 use borsh;
+use clvm_zk_core::backend_utils::{
+    convert_proving_error, prepare_guest_inputs, validate_nullifier_proof_output,
+    validate_proof_output,
+};
 pub use clvm_zk_core::{
     ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
 };
@@ -65,8 +65,8 @@ impl Risc0Backend {
         })?;
 
         Ok(ZKClvmResult {
-            output: result,
-            proof: proof_bytes,
+            proof_output: result,
+            proof_bytes,
         })
     }
 
@@ -112,8 +112,8 @@ impl Risc0Backend {
         })?;
 
         Ok(ZKClvmResult {
-            output: result,
-            proof: proof_bytes,
+            proof_output: result,
+            proof_bytes,
         })
     }
 

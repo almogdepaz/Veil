@@ -16,9 +16,9 @@ fn test_large_atom_operations() -> Result<(), Box<dyn std::error::Error>> {
             ProgramParameter::from_bytes(&large_amount),
         ],
     ) {
-        Ok(proof_result) => println!(
+        Ok(result) => println!(
             "   CREATE_COIN with large atoms: SUCCESS {:?}",
-            proof_result.output.clvm_res
+            result.proof_output.clvm_res
         ),
         Err(e) => println!("   CREATE_COIN with large atoms: FAILED {e}"),
     }
@@ -37,9 +37,9 @@ fn test_large_atom_operations() -> Result<(), Box<dyn std::error::Error>> {
             ProgramParameter::from_bytes(&large_signature),
         ],
     ) {
-        Ok(proof_result) => println!(
+        Ok(result) => println!(
             "   AGG_SIG_UNSAFE with large atoms: SUCCESS {:?}",
-            proof_result.output.clvm_res
+            result.proof_output.clvm_res
         ),
         Err(e) => {
             println!("   AGG_SIG_UNSAFE with large atoms: FAILED {e}");
@@ -65,9 +65,9 @@ fn test_large_atom_operations() -> Result<(), Box<dyn std::error::Error>> {
             ProgramParameter::from_bytes(&small_signature),
         ],
     ) {
-        Ok(proof_result) => println!(
+        Ok(result) => println!(
             "   AGG_SIG_UNSAFE with small atoms: SUCCESS {:?}",
-            proof_result.output.clvm_res
+            result.proof_output.clvm_res
         ),
         Err(e) => {
             println!("   AGG_SIG_UNSAFE with small atoms: FAILED {e}");

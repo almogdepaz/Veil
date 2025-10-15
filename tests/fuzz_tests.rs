@@ -148,20 +148,21 @@ async fn fuzz_comparison_operations() -> Result<(), String> {
                     let result = test_expression(&expr, &[a, b]);
 
                     if let TestResult::Success(output) = &result {
-                        if output.len() == 1 && (output[0] == 0 || output[0] == 1) {
+                        // CLVM encoding: true=1 (encoded as [1]), false=0 (empty atom, encoded as [0x80])
+                        if output.len() == 1 && (output[0] == 1 || output[0] == 0x80) {
                             let expected = match op.as_str() {
                                 "=" => {
                                     if a == b {
                                         1
                                     } else {
-                                        0
+                                        0x80 // false is encoded as 0x80 (empty atom)
                                     }
                                 }
                                 ">" => {
                                     if a > b {
                                         1
                                     } else {
-                                        0
+                                        0x80 // false is encoded as 0x80 (empty atom)
                                     }
                                 }
                                 _ => {
@@ -171,7 +172,8 @@ async fn fuzz_comparison_operations() -> Result<(), String> {
                                 }
                             };
                             if output[0] == expected {
-                                test_info!("{expr} = {} (correct)", output[0]);
+                                let result_str = if output[0] == 1 { "true" } else { "false" };
+                                test_info!("{expr} = {} (correct)", result_str);
                             } else {
                                 return TestResult::VerifyFailed(format!(
                                     "Logic error: expected {expected}, got {}",
@@ -180,7 +182,7 @@ async fn fuzz_comparison_operations() -> Result<(), String> {
                             }
                         } else {
                             return TestResult::VerifyFailed(format!(
-                                "Invalid output format: expected single byte 0 or 1, got {output:?}"
+                                "Invalid output format: expected single byte 1 or 0x80, got {output:?}"
                             ));
                         }
                     }
@@ -275,10 +277,10 @@ async fn fuzz_conditions_basic() -> Result<(), String> {
                 let test_name = test_name.to_string();
                 let expr = expr.to_string();
                 task::spawn_blocking(move || {
-                    let proof_result = ClvmZkProver::prove(&expr, &[])
+                    let result = ClvmZkProver::prove(&expr, &[])
                         .map_err(|e| format!("Proof generation failed for {test_name}: {e}"))?;
-                    let output = proof_result.output.clvm_res;
-                    let proof = proof_result.proof;
+                    let output = result.proof_output.clvm_res;
+                    let proof = result.proof_bytes;
                     let (verified, _) = ClvmZkProver::verify_proof(
                         compile_chialisp_template_hash_default(&expr).unwrap(),
                         &proof,
@@ -452,10 +454,10 @@ async fn fuzz_conditions_edge_cases() -> Result<(), String> {
                 let test_name = test_name.to_string();
                 let expr = expr.to_string();
                 task::spawn_blocking(move || {
-                    let proof_result = ClvmZkProver::prove(&expr, &[])
+                    let result = ClvmZkProver::prove(&expr, &[])
                         .map_err(|e| format!("Proof generation failed for {test_name}: {e}"))?;
-                    let output = proof_result.output.clvm_res;
-                    let proof = proof_result.proof;
+                    let output = result.proof_output.clvm_res;
+                    let proof = result.proof_bytes;
                     let (verified, _) = ClvmZkProver::verify_proof(
                         compile_chialisp_template_hash_default(&expr).unwrap(),
                         &proof,
@@ -501,9 +503,9 @@ fn test_condition_validation_logic() -> Result<(), String> {
     for (_test_name, expr) in valid_conditions {
         let param_list: Vec<ProgramParameter> = vec![];
         match ClvmZkProver::prove(expr, &param_list) {
-            Ok(proof_result) => {
-                let output = proof_result.output.clvm_res;
-                let proof = proof_result.proof;
+            Ok(result) => {
+                let output = result.proof_output.clvm_res;
+                let proof = result.proof_bytes;
                 // Verify the proof is valid
                 match ClvmZkProver::verify_proof(
                     compile_chialisp_template_hash_default(expr)
@@ -530,9 +532,9 @@ fn test_condition_validation_logic() -> Result<(), String> {
     let expr = "(mod (a b) (create_coin a b))";
     let params = &[ProgramParameter::int(1000), ProgramParameter::int(500)];
     match ClvmZkProver::prove(expr, params) {
-        Ok(proof_result) => {
-            let mut proof = proof_result.proof;
-            let output = proof_result.output.clvm_res;
+        Ok(result) => {
+            let mut proof = result.proof_bytes;
+            let output = result.proof_output.clvm_res;
             // Tamper with the proof by modifying length metadata rather than proof data
             // This avoids creating invalid bit patterns that cause bytemuck panics
             if proof.len() > 8 {
@@ -564,8 +566,8 @@ fn test_condition_validation_logic() -> Result<(), String> {
     let expr = "(mod (a b) (create_coin a b))";
     let params = &[ProgramParameter::int(1000), ProgramParameter::int(500)];
     match ClvmZkProver::prove(expr, params) {
-        Ok(proof_result) => {
-            let proof = proof_result.proof;
+        Ok(result) => {
+            let proof = result.proof_bytes;
             // Use wrong output
             let wrong_output = b"wrong_output".to_vec();
 
@@ -625,15 +627,15 @@ fn comprehensive_fuzz_conditions_security() -> Result<(), String> {
     let mut security_failures = 0;
 
     for (condition_name, expr, params) in test_conditions {
-        let proof_result = match ClvmZkProver::prove(expr, &params) {
+        let result = match ClvmZkProver::prove(expr, &params) {
             Ok(result) => result,
             Err(e) => {
                 test_info!("   Failed to generate proof for {condition_name}: {e}");
                 continue;
             }
         };
-        let res = proof_result.output.clvm_res;
-        let original_proof = proof_result.proof;
+        let res = result.proof_output.clvm_res;
+        let original_proof = result.proof_bytes;
 
         // Security attack vectors specific to conditions
         let condition_attacks = [
@@ -790,9 +792,9 @@ fn known_failing_cases_test_suite() -> Result<(), Box<dyn std::error::Error>> {
             &[ProgramParameter::int(5), ProgramParameter::int(7)],
         ),
     ) {
-        (Ok(proof_result1), Ok(proof_result2)) => {
-            let out1 = proof_result1.output.clvm_res;
-            let out2 = proof_result2.output.clvm_res;
+        (Ok(result1), Ok(result2)) => {
+            let out1 = result1.proof_output.clvm_res;
+            let out2 = result2.proof_output.clvm_res;
             test_info!("   Program 1 output: {out1:?} (expected: [5])");
             test_info!("   Program 2 output: {out2:?} (expected: [12])");
             if out1 == out2 {

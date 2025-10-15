@@ -6,7 +6,7 @@ use risc0_zkvm::sha::{Impl, Sha256 as RiscSha256};
 // Use our no-std Chialisp compiler and evaluation engine
 use clvm_zk_core::{
     compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmResult, Input,
-    ProofOutput,
+    ProofOutput, BLS_DST,
 };
 
 // BLS12-381 cryptographic operations
@@ -33,49 +33,45 @@ fn risc0_verify_bls_signature_guest(
     message_bytes: &[u8],
     signature_bytes: &[u8],
 ) -> Result<bool, &'static str> {
-    // Validate input sizes for BLS12-381
-    if public_key_bytes.len() != 48 {
-        return Err("invalid public key size - expected 48 bytes for BLS12-381");
+    // Pad public key to 96 bytes if shorter (CLVM may strip leading zeros)
+    // G2 public keys are 96 bytes compressed
+    let mut pk_padded = [0u8; 96];
+    if public_key_bytes.len() > 96 {
+        return Err("invalid public key size - too large (max 96 bytes for BLS12-381 G2)");
     }
-    if signature_bytes.len() != 96 {
-        return Err("invalid signature size - expected 96 bytes for BLS12-381");
-    }
+    let pk_start = 96 - public_key_bytes.len();
+    pk_padded[pk_start..].copy_from_slice(public_key_bytes);
 
-    // Parse public key (G2 point - standard BLS12-381 public keys are in G2)
-    let public_key = G2Affine::from_compressed(
-        public_key_bytes
-            .try_into()
-            .map_err(|_| "invalid public key length")?,
-    );
+    // Pad signature to 48 bytes if shorter (CLVM may strip leading zeros)
+    // G1 signatures are 48 bytes compressed
+    let mut sig_padded = [0u8; 48];
+    if signature_bytes.len() > 48 {
+        return Err("invalid signature size - too large (max 48 bytes for BLS12-381 G1)");
+    }
+    let sig_start = 48 - signature_bytes.len();
+    sig_padded[sig_start..].copy_from_slice(signature_bytes);
+
+    // parse public key (g2)
+    let public_key = G2Affine::from_compressed(&pk_padded);
     let public_key = if public_key.is_some().into() {
         public_key.unwrap()
     } else {
         return Err("invalid BLS public key format");
     };
 
-    // Parse signature (G1 point - standard BLS12-381 signatures are in G1)
-    let signature = G1Affine::from_compressed(
-        signature_bytes
-            .try_into()
-            .map_err(|_| "invalid signature length")?,
-    );
+    // parse signature (g1)
+    let signature = G1Affine::from_compressed(&sig_padded);
     let signature = if signature.is_some().into() {
         signature.unwrap()
     } else {
         return Err("invalid BLS signature format");
     };
 
-    // Hash message to G1 point using proper BLS domain separation
-    const DST: &[u8] = b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_";
-
-    // Hash message using RISC0 optimized hasher first
-    let message_hash = risc0_hash_data_guest(message_bytes);
-
-    // Use the Message trait properly with iterator
-    let message_parts = [&message_hash[..]];
+    // hash message directly to curve (no pre-hashing)
+    let message_parts = [message_bytes];
     let message_point = <G1Projective as HashToCurve<ExpandMsgXmd<Sha256>>>::hash_to_curve(
         message_parts.iter().copied(),
-        DST,
+        BLS_DST,
     );
 
     // Verify using pairing equation: e(signature, g2) = e(message_point, public_key)

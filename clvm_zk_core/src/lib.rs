@@ -15,6 +15,7 @@ use std::string::String;
 #[cfg(feature = "sha2-hasher")]
 use sha2::{Digest, Sha256};
 
+pub mod backend_utils;
 pub mod chialisp;
 pub mod operators;
 pub mod parser;
@@ -28,6 +29,10 @@ pub use types::*;
 pub type Hasher = fn(&[u8]) -> [u8; 32];
 pub type BlsVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
 pub type EcdsaVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
+
+/// clvm-zk bls signature domain separation tag
+/// min_sig variant: pk in g2, sig in g1
+pub const BLS_DST: &[u8] = b"CLVM_ZK_BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_";
 
 /// Runtime function definition
 #[derive(Debug, Clone)]
@@ -1239,7 +1244,7 @@ pub fn atom_to_number(value: &ClvmValue) -> Result<i64, &'static str> {
 
 pub fn number_to_atom(num: i64) -> ClvmValue {
     if num == 0 {
-        ClvmValue::Atom(vec![0]) // keep compatibility with existing tests
+        ClvmValue::Atom(vec![]) // nil: represents 0/false/empty-list, encodes to 0x80
     } else if num > 0 && num <= 255 {
         ClvmValue::Atom(vec![num as u8])
     } else {
@@ -1257,6 +1262,12 @@ pub fn number_to_atom(num: i64) -> ClvmValue {
             n >>= 8;
         }
         bytes.reverse();
+
+        // Handle negative numbers by setting high bit
+        if num < 0 && !bytes.is_empty() {
+            bytes[0] |= 0x80;
+        }
+
         ClvmValue::Atom(bytes)
     }
 }

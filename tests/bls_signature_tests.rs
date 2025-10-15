@@ -1,5 +1,6 @@
 use clvm_zk::backends::{backend, ZKClvmResult};
 use clvm_zk::*;
+use clvm_zk_core::BLS_DST;
 
 // Helper function to compile and test programs with the current backend
 fn compile_and_test_program(
@@ -8,6 +9,23 @@ fn compile_and_test_program(
 ) -> Result<ZKClvmResult, ClvmZkError> {
     let backend = backend()?;
     backend.prove_program(program, params)
+}
+
+// generate valid bls test vectors using clvm-zk dst
+fn get_valid_bls_test_vector() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+    use blst::min_sig as blst_core;
+
+    let message = b"test message for clvm-zk bls verification";
+    let sk_bytes = [1u8; 32]; // deterministic test key
+    let sk = blst_core::SecretKey::from_bytes(&sk_bytes).unwrap();
+    let pk = sk.sk_to_pk();
+    let sig = sk.sign(message, BLS_DST, &[]);
+
+    (
+        pk.to_bytes().to_vec(),
+        message.to_vec(),
+        sig.to_bytes().to_vec(),
+    )
 }
 
 #[test]
@@ -35,43 +53,41 @@ fn test_bls_verify_operator_parsing() {
 
 #[test]
 fn test_bls_verify_compilation() {
-    // Test that BLS verify expressions compile correctly
+    // Test that BLS verify compiles and executes with valid test vectors
     let program = "(mod (public_key message signature) (bls_verify public_key message signature))";
 
-    // Create dummy BLS parameters with correct sizes
-    let pk = vec![0u8; 48]; // 48-byte public key
-    let msg = b"test"; // Simple message
-    let sig = vec![0u8; 96]; // 96-byte signature
+    // Use valid BLS12-381 test vector
+    let (pk, msg, sig) = get_valid_bls_test_vector();
 
     let params = vec![
         ProgramParameter::from_bytes(&pk),
-        ProgramParameter::from_bytes(msg),
+        ProgramParameter::from_bytes(&msg),
         ProgramParameter::from_bytes(&sig),
     ];
 
-    // With working zkVM, this should compile and execute (though BLS verification may fail with dummy data)
+    // With valid test vector, BLS verification should succeed and return true (1)
     let result = compile_and_test_program(program, &params);
     match result {
-        Ok(_) => {
-            // Success - BLS program compiled and executed
-            println!("BLS program compiled and executed successfully");
+        Ok(zk_result) => {
+            // BLS verification succeeded - should return 1 (true)
+            println!("BLS program executed successfully");
+            let output = &zk_result.proof_output.clvm_res.output;
+            assert_eq!(output.len(), 1, "BLS verify should return single value");
+            assert_eq!(
+                output[0], 1,
+                "Valid BLS signature should verify successfully, returning 1"
+            );
+            println!("Valid BLS signature correctly verified ✓");
         }
         Err(e) => {
+            // If zkVM is not available or has issues, that's acceptable for this test
             let error_msg = format!("{:?}", e);
-            // With dummy BLS data, we expect the signature verification to fail
-            // but the program should still compile and execute
             assert!(
-                error_msg.contains("CLVM execution failed") ||
-                error_msg.contains("runtime error") ||
-                error_msg.contains("BLS signature verification") ||
-                error_msg.contains("invalid") ||
-                error_msg.contains("signature") ||
-                error_msg.contains("public key") ||
-                // If zkVM is not properly set up, these are acceptable
-                error_msg.contains("risc0 zkvm not available") ||
-                error_msg.contains("sp1 zkvm not available") ||
-                error_msg.contains("not available"),
-                "Unexpected error (expected BLS verification failure or zkVM setup issue): {}",
+                error_msg.contains("risc0 zkvm not available")
+                    || error_msg.contains("sp1 zkvm not available")
+                    || error_msg.contains("not available")
+                    || error_msg.contains("mock uses blst encoding"),
+                "Unexpected error with valid BLS test vector: {}",
                 error_msg
             );
         }
@@ -118,53 +134,103 @@ fn test_bls_program_with_backend() {
     )
     "#;
 
-    // Create some dummy BLS parameters (correct sizes but invalid content)
-    let pk = vec![0u8; 48]; // 48-byte public key
-    let msg = b"Hello"; // Simple message
-    let sig = vec![0u8; 96]; // 96-byte signature
+    // Use valid BLS12-381 test vector
+    let (pk, msg, sig) = get_valid_bls_test_vector();
 
     let params = vec![
         ProgramParameter::from_bytes(&pk),
-        ProgramParameter::from_bytes(msg),
+        ProgramParameter::from_bytes(&msg),
         ProgramParameter::from_bytes(&sig),
     ];
 
-    // With working zkVM and BLS implementation, this should execute successfully
     let result = compile_and_test_program(program, &params);
 
     match result {
-        Ok(proof_result) => {
-            // Program executed successfully
-            // With dummy BLS data (all zeros), signature verification should fail
-            // so the program should return 0 (false branch)
-            let output = &proof_result.output.clvm_res;
+        Ok(result) => {
+            // With valid test vector, verification should succeed
+            let output = &result.proof_output.clvm_res;
             assert_eq!(
                 output.output.len(),
                 1,
                 "BLS program should return single value"
             );
             assert_eq!(
-                output.output[0], 0,
-                "Dummy BLS signature should fail verification, returning 0"
+                output.output[0], 1,
+                "Valid BLS signature should verify successfully, returning 1"
             );
-            println!("BLS program executed successfully, dummy signature correctly rejected");
+            println!("BLS signature verified successfully ✓");
         }
         Err(e) => {
+            // If zkVM is not available, that's acceptable
             let error_msg = format!("{:?}", e);
-            // If we get an error, it should be related to BLS implementation details or zkVM setup
             assert!(
-                error_msg.contains("CLVM execution failed") ||
-                error_msg.contains("runtime error") ||
-                error_msg.contains("BLS") ||
-                error_msg.contains("signature") ||
-                error_msg.contains("verification") ||
-                error_msg.contains("invalid") ||
-                error_msg.contains("public key") ||
-                // Fallback for zkVM setup issues
-                error_msg.contains("risc0 zkvm not available") ||
-                error_msg.contains("sp1 zkvm not available") ||
-                error_msg.contains("not available"),
-                "Unexpected error (expected BLS-related error or zkVM setup issue): {}",
+                error_msg.contains("risc0 zkvm not available")
+                    || error_msg.contains("sp1 zkvm not available")
+                    || error_msg.contains("not available")
+                    || error_msg.contains("mock uses blst encoding"),
+                "Unexpected error with valid BLS test vector: {}",
+                error_msg
+            );
+        }
+    }
+}
+
+#[test]
+fn test_bls_invalid_signature() {
+    // Test that invalid signatures are rejected
+    let program = r#"
+    (mod (pk msg sig)
+        (if (bls_verify pk msg sig)
+            1
+            0
+        )
+    )
+    "#;
+
+    let (pk, msg, _valid_sig) = get_valid_bls_test_vector();
+
+    // generate a valid bls signature for a different message (will be valid g1 point but won't verify)
+    use blst::min_sig as blst_core;
+    let different_msg = b"different message that produces wrong signature";
+
+    // generate a signature for different message with a random key (valid point, wrong signature)
+    let sk_bytes = [42u8; 32]; // arbitrary secret key
+    let sk = blst_core::SecretKey::from_bytes(&sk_bytes).unwrap();
+    let wrong_sig = sk.sign(different_msg, BLS_DST, &[]).to_bytes();
+    let wrong_sig = wrong_sig.to_vec();
+
+    let params = vec![
+        ProgramParameter::from_bytes(&pk),
+        ProgramParameter::from_bytes(&msg),
+        ProgramParameter::from_bytes(&wrong_sig),
+    ];
+
+    let result = compile_and_test_program(program, &params);
+
+    match result {
+        Ok(result) => {
+            // Invalid signature should fail verification, returning 0
+            let output = &result.proof_output.clvm_res;
+            assert_eq!(
+                output.output.len(),
+                1,
+                "BLS program should return single value"
+            );
+            assert_eq!(
+                output.output[0], 0x80,
+                "Invalid BLS signature should fail verification, returning 0 (encoded as 0x80)"
+            );
+            println!("Invalid BLS signature correctly rejected ✓");
+        }
+        Err(e) => {
+            // If zkVM is not available, that's acceptable
+            let error_msg = format!("{:?}", e);
+            assert!(
+                error_msg.contains("risc0 zkvm not available")
+                    || error_msg.contains("sp1 zkvm not available")
+                    || error_msg.contains("not available")
+                    || error_msg.contains("mock uses blst encoding"),
+                "Unexpected error: {}",
                 error_msg
             );
         }

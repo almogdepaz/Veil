@@ -228,7 +228,7 @@ let parameters = &[
     ProgramParameter::int(50),
 ];
 
-let proof_result = ClvmZkProver::prove(chialisp_source)?;
+let result = ClvmZkProver::prove(chialisp_source, parameters)?;
 ```
 
 See `examples/` for complete working code including `alice_bob_lock.rs` for ECDSA signatures.

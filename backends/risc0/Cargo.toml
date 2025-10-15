@@ -6,14 +6,9 @@ build = "build.rs"
 
 
 [dependencies]
-serde = { version = "1.0.219", features = ["derive"] }
 borsh = { version = "1.5.7", features = ["derive"] }
 risc0-zkvm = { version = "3.0.3", default-features = false, features = ["std", "unstable", "client"] }
 clvm-zk-core = { path = "../../clvm_zk_core" }
-hex = "0.4"
-k256 = { version = "0.13", features = ["ecdsa", "sha256"] }
-sha2 = { version = "0.10" }
-# BLS dependencies removed - only needed in guest code
 
 [build-dependencies]
 risc0-build = "3.0.3"

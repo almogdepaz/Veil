@@ -282,13 +282,13 @@ fn run_demo() -> Result<(), ClvmZkError> {
     for (name, expression, parameters) in demos {
         println!("\nTesting {name}");
         match ClvmZkProver::prove(expression, &parameters) {
-            Ok(proof_result) => {
-                println!("   Proof generated: {} bytes", proof_result.proof.len());
+            Ok(result) => {
+                println!("   Proof generated: {} bytes", result.proof_bytes.len());
 
                 // Extract program hash from proof for verification
                 let backend = crate::backends::backend()?;
                 let (proof_valid, program_hash, output) =
-                    backend.verify_proof(&proof_result.proof)?;
+                    backend.verify_proof(&result.proof_bytes)?;
 
                 if !proof_valid {
                     println!("   ERROR: Proof verification failed");
@@ -298,13 +298,13 @@ fn run_demo() -> Result<(), ClvmZkError> {
                 println!("   Program hash from proof: {}", hex::encode(program_hash));
                 println!(
                     "   Output matches: {}",
-                    output == proof_result.output.clvm_res.output
+                    output == result.proof_output.clvm_res.output
                 );
 
                 match ClvmZkProver::verify_proof(
                     program_hash,
-                    &proof_result.proof,
-                    Some(&proof_result.output.clvm_res.output),
+                    &result.proof_bytes,
+                    Some(&result.proof_output.clvm_res.output),
                 ) {
                     Ok((true, _)) => println!("   Proof verified"),
                     Ok((false, _)) => println!("   Proof invalid"),
@@ -454,12 +454,12 @@ fn run_prove(
     let start_time = std::time::Instant::now();
 
     match ClvmZkProver::prove(&expression, &parameters) {
-        Ok(proof_result) => {
+        Ok(result) => {
             let duration = start_time.elapsed();
             println!("Proof generated in {duration:?}");
 
             // Display output in both hex and decoded format
-            let output_bytes = &proof_result.output.clvm_res.output;
+            let output_bytes = &result.proof_output.clvm_res.output;
             let hex_output = hex::encode(output_bytes);
             println!("Output (hex): {}", hex_output);
 
@@ -467,11 +467,11 @@ fn run_prove(
             if let Some(decoded) = decode_clvm_output(output_bytes) {
                 println!("Output (decoded): {}", decoded);
             }
-            println!("Proof: {} bytes", proof_result.proof.len());
-            println!("Cost: {}", proof_result.output.clvm_res.cost);
+            println!("Proof: {} bytes", result.proof_bytes.len());
+            println!("Cost: {}", result.proof_output.clvm_res.cost);
 
             // Save proof to file
-            std::fs::write("proof.bin", &proof_result.proof).map_err(|e| {
+            std::fs::write("proof.bin", &result.proof_bytes).map_err(|e| {
                 ClvmZkError::SerializationError(format!("Failed to save proof: {e}"))
             })?;
 
@@ -644,8 +644,8 @@ fn run_benchmark(count: usize) -> Result<(), ClvmZkError> {
 
     for i in 0..count {
         match ClvmZkProver::prove(expression, &parameters) {
-            Ok(proof_result) => {
-                total_proof_size += proof_result.proof.len();
+            Ok(result) => {
+                total_proof_size += result.proof_bytes.len();
                 successful_proofs += 1;
                 if (i + 1) % 10 == 0 {
                     println!("   Completed {}/{} proofs", i + 1, count);

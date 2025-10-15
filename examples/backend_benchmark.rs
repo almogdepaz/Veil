@@ -70,7 +70,7 @@ fn run_benchmark(
 
         // prove using high-level api (uses automatic backend selection)
         let prove_start = Instant::now();
-        let proof_result = match ClvmZkProver::prove(expression, params) {
+        let result = match ClvmZkProver::prove(expression, params) {
             Ok(r) => r,
             Err(e) => {
                 println!("proving failed: {}", e);
@@ -83,23 +83,23 @@ fn run_benchmark(
         let verify_start = Instant::now();
         match ClvmZkProver::verify_proof(
             compile_chialisp_template_hash_default(expression).unwrap(),
-            &proof_result.proof,
-            Some(&proof_result.output.clvm_res.output),
+            &result.proof_bytes,
+            Some(&result.proof_output.clvm_res.output),
         ) {
             Ok((true, _)) => {
                 let verify_time = verify_start.elapsed();
                 total_prove_time += prove_time;
                 total_verify_time += verify_time;
-                total_proof_size += proof_result.proof.len();
+                total_proof_size += result.proof_bytes.len();
                 successful_tests += 1;
 
                 println!(
                     "prove: {}ms, verify: {}ms (result: {}B, proof: {}KB, cost: {})",
                     prove_time.as_millis(),
                     verify_time.as_millis(),
-                    proof_result.output.clvm_res.output.len(),
-                    proof_result.proof.len() / 1024,
-                    proof_result.output.clvm_res.cost
+                    result.proof_output.clvm_res.output.len(),
+                    result.proof_bytes.len() / 1024,
+                    result.proof_output.clvm_res.cost
                 );
             }
             Ok((false, _)) => println!("verification failed"),
