@@ -92,6 +92,16 @@ impl CompilerContext {
     }
 }
 
+// Template compilation: converts chialisp source to deterministic binary bytecode for hashing.
+//
+// Why binary bytecode?
+// - Template mode converts variable names to positional indices: "x" → param[0] → (f env)
+// - Binary CLVM format provides canonical serialization independent of variable names
+// - Same program logic always produces identical bytecode hash, even with different names:
+//   "(mod (x y) (+ x y))" ≡ "(mod (a b) (+ a b))" → same template_bytecode → same hash
+//
+// Flow: chialisp → AST → ClvmValue → binary bytecode → hash(bytecode) → program_hash
+// The bytecode is then parsed back to ClvmValue for execution (see clvm_parser.rs)
 fn compile_chialisp_common(
     hasher: Hasher,
     source: &str,

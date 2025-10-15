@@ -1,4 +1,12 @@
-//! clvm binary format parser
+//! CLVM bytecode parser - converts binary CLVM format to ClvmValue tree
+//!
+//! Why parse bytecode instead of using ClvmValue directly?
+//! - Binary CLVM format provides canonical serialization for deterministic hashing
+//! - Template compilation produces bytecode where variable names are erased (converted to positional access)
+//! - This ensures same program logic → same hash, regardless of variable names
+//!
+//! Flow: binary bytecode (from template compilation) → ClvmValue → evaluator
+
 extern crate alloc;
 use crate::types::ClvmValue;
 use alloc::{boxed::Box, vec, vec::Vec};
