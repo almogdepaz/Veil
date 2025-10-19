@@ -466,7 +466,9 @@ mod tests {
         assert_eq!(expr, Expression::number(50));
 
         // test in a list expression
-        let expr = sexp_to_expression(parse_chialisp("(list CREATE_COIN puzzle_hash amount)").unwrap()).unwrap();
+        let expr =
+            sexp_to_expression(parse_chialisp("(list CREATE_COIN puzzle_hash amount)").unwrap())
+                .unwrap();
         match expr {
             Expression::List(items) => {
                 assert_eq!(items.len(), 3);

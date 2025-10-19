@@ -131,11 +131,10 @@ pub struct ProofOutput {
     pub clvm_res: ClvmResult,
 }
 
-
 /// aggregated proof output (no_std compatible)
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AggregatedOutput {
     pub nullifiers: alloc::vec::Vec<[u8; 32]>,
     pub conditions: alloc::vec::Vec<alloc::vec::Vec<u8>>,
-    pub commitments: alloc::vec::Vec<[u8; 32]>,  // flat array of proof commitments
+    pub commitments: alloc::vec::Vec<[u8; 32]>, // flat array of proof commitments
 }
