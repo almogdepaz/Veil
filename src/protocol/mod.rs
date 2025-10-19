@@ -18,25 +18,10 @@
 //! 3. Nullifiers are public and stored on-chain to prevent double-spending
 //! 4. Spend secrets remain private within ZK proofs
 //! 5. L1 blockchain validates nullifiers haven't been used before
-//!
-//! ## Usage Example
-//!
-//! ```rust
-//! use clvm_zk::protocol::{PrivateCoin, Spender};
-//! use clvm_zk::ProgramParameter;
-//!
-//! // Create a private coin
-//! let coin = PrivateCoin::new_random_from_program("(mod (a b) (+ a b))", 1000);
-//! println!("Coin nullifier: {}", coin.nullifier_hex());
-//!
-//! // Spend the coin (will be available after Task 1.3)
-//! // let bundle = Spender::create_spend(&coin, &[
-//! //     ProgramParameter::int(5),
-//! //     ProgramParameter::int(3)
-//! // ])?;
 //! ```
 
 pub mod puzzles;
+pub mod recursive;
 pub mod spender;
 pub mod structures;
 
@@ -46,5 +31,6 @@ pub use puzzles::{
     create_password_spend_params, create_signature_puzzle, create_signature_spend_params,
     create_spend_signature, create_test_signature_setup, hash_password,
 };
+pub use recursive::{AggregatedOutput, AggregatedProof};
 pub use spender::Spender;
 pub use structures::{PrivateCoin, PrivateSpendBundle, ProtocolError};

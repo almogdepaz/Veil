@@ -1,5 +1,8 @@
 mod methods;
+pub mod recursive;
+
 pub use methods::*;
+pub use recursive::RecursiveAggregator;
 
 use borsh;
 use clvm_zk_core::backend_utils::{

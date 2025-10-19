@@ -12,13 +12,18 @@ use sha2::{Digest, Sha256};
 pub mod backend_utils;
 pub mod chialisp;
 pub mod clvm_parser;
+pub mod coin;
 pub mod operators;
 pub mod types;
 
 pub use chialisp::*;
 pub use clvm_parser::*;
+pub use coin::*;
 pub use operators::*;
 pub use types::*;
+
+// re-export AggregatedOutput for guest programs
+pub use types::AggregatedOutput;
 
 pub type Hasher = fn(&[u8]) -> [u8; 32];
 pub type BlsVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;

@@ -5,8 +5,10 @@ members = [
     # backend implementations
     "backends/risc0",              # risc0 backend implementation
     "backends/risc0/guest",        # risc0 guest program
+    "backends/risc0/guest_recursive", # risc0 recursive aggregation guest
     "backends/sp1",                # sp1 backend implementation
     "backends/sp1/program",        # sp1 guest
+    "backends/sp1/program_recursive", # sp1 recursive aggregation guest
     "backends/mock"                # mock backend for testing
 ]
 
@@ -53,6 +55,9 @@ k256 = { version = "0.13", features = ["ecdsa", "sha256"] }  # For ECDSA signatu
 clvm-zk-risc0 = { path = "backends/risc0", optional = true }
 clvm-zk-sp1 = { path = "backends/sp1", optional = true }
 clvm-zk-mock = { path = "backends/mock", optional = true }
+
+# Merkle tree (host-side only)
+rs_merkle = "1.5.0"
 
 
 [dev-dependencies]

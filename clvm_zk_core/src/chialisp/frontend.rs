@@ -266,6 +266,21 @@ fn parse_atom_expression(atom: String) -> Result<Expression, CompileError> {
     // Check for special atoms
     match atom.as_str() {
         "nil" | "()" => Ok(Expression::nil()),
+        // Chia consensus opcodes
+        "AGG_SIG_UNSAFE" => Ok(Expression::number(49)),
+        "AGG_SIG_ME" => Ok(Expression::number(50)),
+        "CREATE_COIN" => Ok(Expression::number(51)),
+        "RESERVE_FEE" => Ok(Expression::number(52)),
+        "ASSERT_CONCURRENT_SPEND" => Ok(Expression::number(64)),
+        "ASSERT_CONCURRENT_PUZZLE" => Ok(Expression::number(65)),
+        "ASSERT_MY_COIN_ID" => Ok(Expression::number(70)),
+        "ASSERT_MY_PARENT_ID" => Ok(Expression::number(71)),
+        "ASSERT_MY_PUZZLEHASH" => Ok(Expression::number(72)),
+        "ASSERT_MY_AMOUNT" => Ok(Expression::number(73)),
+        "CREATE_COIN_ANNOUNCEMENT" => Ok(Expression::number(74)),
+        "ASSERT_COIN_ANNOUNCEMENT" => Ok(Expression::number(75)),
+        "CREATE_PUZZLE_ANNOUNCEMENT" => Ok(Expression::number(76)),
+        "ASSERT_PUZZLE_ANNOUNCEMENT" => Ok(Expression::number(77)),
         _ => Ok(Expression::variable(atom)),
     }
 }
@@ -438,5 +453,28 @@ mod tests {
             result,
             Err(CompileError::InvalidFunctionDefinition(_))
         ));
+    }
+
+    #[test]
+    fn test_chia_opcode_constants() {
+        // test that CREATE_COIN is recognized as the number 51
+        let expr = sexp_to_expression(parse_chialisp("CREATE_COIN").unwrap()).unwrap();
+        assert_eq!(expr, Expression::number(51));
+
+        // test AGG_SIG_ME
+        let expr = sexp_to_expression(parse_chialisp("AGG_SIG_ME").unwrap()).unwrap();
+        assert_eq!(expr, Expression::number(50));
+
+        // test in a list expression
+        let expr = sexp_to_expression(parse_chialisp("(list CREATE_COIN puzzle_hash amount)").unwrap()).unwrap();
+        match expr {
+            Expression::List(items) => {
+                assert_eq!(items.len(), 3);
+                assert_eq!(items[0], Expression::number(51));
+                assert_eq!(items[1], Expression::variable("puzzle_hash"));
+                assert_eq!(items[2], Expression::variable("amount"));
+            }
+            _ => panic!("expected list expression"),
+        }
     }
 }

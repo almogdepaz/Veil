@@ -1,5 +1,8 @@
 mod methods;
+pub mod recursive;
+
 pub use methods::*;
+pub use recursive::RecursiveAggregator;
 
 pub use clvm_zk_core::{
     ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
