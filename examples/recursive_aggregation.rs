@@ -11,7 +11,7 @@ fn main() {
         let proof = ClvmZkProver::prove_with_nullifier(
             "(mod (x) (* x 2))",
             &[ProgramParameter::Int(i as u64)],
-            spend_secret
+            spend_secret,
         )
         .unwrap();
         proofs.push(proof);

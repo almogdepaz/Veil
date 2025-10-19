@@ -11,13 +11,13 @@ pub use clvm_zk_core::AggregatedOutput;
 pub struct AggregatedProof {
     /// single recursive proof replacing N child proofs
     pub zk_proof: Vec<u8>,
-    
+
     /// all nullifiers from aggregated transactions
     pub nullifiers: Vec<[u8; 32]>,
-    
+
     /// all conditions from aggregated transactions
     pub conditions: Vec<Vec<u8>>,
-    
+
     /// metadata
     pub proof_count: usize,
 }

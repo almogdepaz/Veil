@@ -26,7 +26,10 @@ pub fn main() {
     let input: RecursiveInput = sp1_zkvm::io::read();
 
     // verify we have at least 1 proof
-    assert!(!input.expected_outputs.is_empty(), "need at least 1 proof to aggregate");
+    assert!(
+        !input.expected_outputs.is_empty(),
+        "need at least 1 proof to aggregate"
+    );
 
     // NOTE: SP1 verifies child proofs automatically when passed as input
 

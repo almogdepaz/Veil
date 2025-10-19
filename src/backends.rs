@@ -24,9 +24,10 @@ pub trait ZKCLVMBackend {
 
     // recursive aggregation support (optional, not all backends support it)
     fn aggregate_proofs(&self, _proofs: &[&[u8]]) -> Result<Vec<u8>, ClvmZkError> {
-        Err(ClvmZkError::ConfigurationError(
-            format!("{} backend does not support recursive aggregation", self.backend_name())
-        ))
+        Err(ClvmZkError::ConfigurationError(format!(
+            "{} backend does not support recursive aggregation",
+            self.backend_name()
+        )))
     }
 }
 

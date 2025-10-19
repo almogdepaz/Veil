@@ -1,6 +1,6 @@
 use bincode;
 use clvm_zk_core::{ClvmZkError, ProofOutput};
-use sp1_sdk::{ProverClient, SP1Stdin, SP1ProofWithPublicValues};
+use sp1_sdk::{ProverClient, SP1ProofWithPublicValues, SP1Stdin};
 
 extern crate alloc;
 use alloc::vec::Vec;
@@ -18,13 +18,10 @@ impl RecursiveAggregator {
     /// aggregate N base proofs into 1 (flat aggregation: N→1)
     ///
     /// all input proofs must be base proofs from prove_chialisp_with_nullifier()
-    pub fn aggregate_proofs(
-        &self,
-        proofs: &[&[u8]],
-    ) -> Result<Vec<u8>, ClvmZkError> {
+    pub fn aggregate_proofs(&self, proofs: &[&[u8]]) -> Result<Vec<u8>, ClvmZkError> {
         if proofs.is_empty() {
             return Err(ClvmZkError::ConfigurationError(
-                "need at least 1 proof to aggregate".to_string()
+                "need at least 1 proof to aggregate".to_string(),
             ));
         }
 
@@ -32,14 +29,18 @@ impl RecursiveAggregator {
         let mut child_data = Vec::new();
 
         for (i, proof_bytes) in proofs.iter().enumerate() {
-            let proof: SP1ProofWithPublicValues = bincode::deserialize(proof_bytes).map_err(|e| {
-                ClvmZkError::InvalidProofFormat(format!("failed to deserialize proof {i}: {e}"))
-            })?;
+            let proof: SP1ProofWithPublicValues =
+                bincode::deserialize(proof_bytes).map_err(|e| {
+                    ClvmZkError::InvalidProofFormat(format!("failed to deserialize proof {i}: {e}"))
+                })?;
 
             // decode as ProofOutput (base proof only)
-            let output: ProofOutput = bincode::deserialize(&proof.public_values.to_vec()).map_err(|e| {
-                ClvmZkError::InvalidProofFormat(format!("failed to decode base proof public values {i}: {e}"))
-            })?;
+            let output: ProofOutput =
+                bincode::deserialize(&proof.public_values.to_vec()).map_err(|e| {
+                    ClvmZkError::InvalidProofFormat(format!(
+                        "failed to decode base proof public values {i}: {e}"
+                    ))
+                })?;
 
             child_data.push(BaseProofData {
                 program_hash: output.program_hash,
@@ -61,10 +62,9 @@ impl RecursiveAggregator {
         let client = ProverClient::from_env();
         let (pk, _vk) = client.setup(RECURSIVE_SP1_ELF);
 
-        let proof = client
-            .prove(&pk, &stdin)
-            .run()
-            .map_err(|e| ClvmZkError::ProofGenerationFailed(format!("recursive proving failed: {e}")))?;
+        let proof = client.prove(&pk, &stdin).run().map_err(|e| {
+            ClvmZkError::ProofGenerationFailed(format!("recursive proving failed: {e}"))
+        })?;
 
         // serialize and return
         let proof_bytes = bincode::serialize(&proof).map_err(|e| {
@@ -116,7 +116,7 @@ mod tests {
             .prove_chialisp_with_nullifier(
                 "(mod (x) (* x 2))",
                 &[ProgramParameter::Int(5)],
-                spend_secret1
+                spend_secret1,
             )
             .unwrap();
 
@@ -124,7 +124,7 @@ mod tests {
             .prove_chialisp_with_nullifier(
                 "(mod (y) (+ y 10))",
                 &[ProgramParameter::Int(3)],
-                spend_secret2
+                spend_secret2,
             )
             .unwrap();
 
@@ -141,11 +141,16 @@ mod tests {
         let proof: SP1ProofWithPublicValues = bincode::deserialize(&aggregated).unwrap();
 
         // decode and verify aggregated output
-        let aggregated_output: AggregatedOutput = bincode::deserialize(&proof.public_values.to_vec()).unwrap();
+        let aggregated_output: AggregatedOutput =
+            bincode::deserialize(&proof.public_values.to_vec()).unwrap();
 
         assert_eq!(aggregated_output.nullifiers.len(), 2);
         assert_eq!(aggregated_output.conditions.len(), 2);
-        assert_eq!(aggregated_output.commitments.len(), 2, "should have 2 commitments");
+        assert_eq!(
+            aggregated_output.commitments.len(),
+            2,
+            "should have 2 commitments"
+        );
 
         println!("✓ aggregated 2 proofs successfully");
         println!("  - nullifiers: {}", aggregated_output.nullifiers.len());
@@ -165,7 +170,7 @@ mod tests {
                 .prove_chialisp_with_nullifier(
                     "(mod (x) (* x 2))",
                     &[ProgramParameter::Int(i as u64)],
-                    spend_secret
+                    spend_secret,
                 )
                 .unwrap();
             proofs.push(proof);
@@ -178,16 +183,20 @@ mod tests {
 
         // verify
         let proof: SP1ProofWithPublicValues = bincode::deserialize(&aggregated).unwrap();
-        let aggregated_output: AggregatedOutput = bincode::deserialize(&proof.public_values.to_vec()).unwrap();
+        let aggregated_output: AggregatedOutput =
+            bincode::deserialize(&proof.public_values.to_vec()).unwrap();
 
         assert_eq!(aggregated_output.nullifiers.len(), 5);
         assert_eq!(aggregated_output.conditions.len(), 5);
-        assert_eq!(aggregated_output.commitments.len(), 5, "should have 5 commitments");
+        assert_eq!(
+            aggregated_output.commitments.len(),
+            5,
+            "should have 5 commitments"
+        );
 
         println!("✓ aggregated 5 proofs successfully");
         println!("  - nullifiers: {}", aggregated_output.nullifiers.len());
         println!("  - conditions: {}", aggregated_output.conditions.len());
         println!("  - commitments: {}", aggregated_output.commitments.len());
     }
-
 }

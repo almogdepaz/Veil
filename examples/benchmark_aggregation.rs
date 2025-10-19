@@ -52,18 +52,33 @@ fn main() {
     let proof_dir = format!("test_proof_database_{}", backend_name);
 
     if !std::path::Path::new(&proof_dir).exists() {
-        eprintln!("error: proof database not found for {} backend", backend_name);
-        eprintln!("run: cargo run --example generate_proof_database --no-default-features --features {}", backend_name);
+        eprintln!(
+            "error: proof database not found for {} backend",
+            backend_name
+        );
+        eprintln!(
+            "run: cargo run --example generate_proof_database --no-default-features --features {}",
+            backend_name
+        );
         std::process::exit(1);
     }
 
-    println!("=== recursive aggregation benchmark ({} backend) ===\n", backend_name);
+    println!(
+        "=== recursive aggregation benchmark ({} backend) ===\n",
+        backend_name
+    );
 
     // count available proofs
     let available_proofs = fs::read_dir(&proof_dir)
         .expect("failed to read directory")
         .filter(|e| e.is_ok())
-        .filter(|e| e.as_ref().unwrap().path().extension().map_or(false, |ext| ext == "bin"))
+        .filter(|e| {
+            e.as_ref()
+                .unwrap()
+                .path()
+                .extension()
+                .map_or(false, |ext| ext == "bin")
+        })
         .count();
 
     if available_proofs == 0 {
@@ -81,7 +96,11 @@ fn main() {
         all_proofs.push(bytes);
     }
     let load_time = load_start.elapsed();
-    println!("✓ loaded {} proofs in {}ms\n", available_proofs, load_time.as_millis());
+    println!(
+        "✓ loaded {} proofs in {}ms\n",
+        available_proofs,
+        load_time.as_millis()
+    );
 
     // test batch sizes up to available proofs
     let batch_sizes: Vec<usize> = vec![2, 5, 10, 20, 50, 100]
@@ -89,10 +108,14 @@ fn main() {
         .filter(|&size| size <= available_proofs)
         .collect();
 
-    println!("{:>5} | {:>10} | {:>10} | {:>10} | {:>10}",
-        "batch", "time (s)", "proof KB", "compress", "throughput");
-    println!("{:-<5}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<10}",
-        "", "", "", "", "");
+    println!(
+        "{:>5} | {:>10} | {:>10} | {:>10} | {:>10}",
+        "batch", "time (s)", "proof KB", "compress", "throughput"
+    );
+    println!(
+        "{:-<5}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<10}",
+        "", "", "", "", ""
+    );
 
     for &batch_size in &batch_sizes {
         if batch_size > all_proofs.len() {

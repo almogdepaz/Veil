@@ -48,9 +48,7 @@ use std::time::Instant;
 fn main() {
     // parse command line arguments for proof count
     let args: Vec<String> = std::env::args().collect();
-    let proof_count: usize = args.get(1)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(3);  // default: 3 proofs
+    let proof_count: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(3); // default: 3 proofs
 
     // detect backend from cargo features
     let backend_name = if cfg!(feature = "risc0") {
@@ -63,7 +61,10 @@ fn main() {
         std::process::exit(1);
     };
 
-    println!("=== generating {} coin-spending proofs ({} backend) ===\n", proof_count, backend_name);
+    println!(
+        "=== generating {} coin-spending proofs ({} backend) ===\n",
+        proof_count, backend_name
+    );
 
     // backend-specific directory for proof database
     let output_dir = format!("test_proof_database_{}", backend_name);
@@ -114,8 +115,7 @@ fn main() {
 
         // save proof for aggregation benchmarking
         let proof_path = format!("{}/proof_{:03}.bin", output_dir, i);
-        fs::write(&proof_path, &result.proof_bytes)
-            .expect(&format!("failed to write proof {}", i));
+        fs::write(&proof_path, &result.proof_bytes).expect(&format!("failed to write proof {}", i));
 
         proofs_data.push((
             i,
@@ -142,9 +142,18 @@ fn main() {
 
     println!("\n=== proof generation complete ===");
     println!("total time: {:.2}s", total_time.as_secs_f64());
-    println!("average time per proof: {}ms", total_prove_time.as_millis() / proof_count as u128);
-    println!("average proof size: {}KB", total_proof_size / proof_count / 1024);
-    println!("total size: {:.2}MB", total_proof_size as f64 / 1024.0 / 1024.0);
+    println!(
+        "average time per proof: {}ms",
+        total_prove_time.as_millis() / proof_count as u128
+    );
+    println!(
+        "average proof size: {}KB",
+        total_proof_size / proof_count / 1024
+    );
+    println!(
+        "total size: {:.2}MB",
+        total_proof_size as f64 / 1024.0 / 1024.0
+    );
 
     // save metadata CSV
     let mut metadata = String::from("proof_id,amount,nullifier,prove_time_ms,size_bytes\n");
@@ -159,8 +168,7 @@ fn main() {
         ));
     }
 
-    fs::write(format!("{}/metadata.csv", output_dir), metadata)
-        .expect("failed to write metadata");
+    fs::write(format!("{}/metadata.csv", output_dir), metadata).expect("failed to write metadata");
 
     println!("\nproofs saved to: {}/", output_dir);
     println!("metadata saved to: {}/metadata.csv", output_dir);
@@ -183,8 +191,7 @@ fn main() {
         // aggregate: guest verifies N proofs via zkVM verify(), merges outputs
         println!("aggregating {} proofs...", agg_count);
         let agg_start = Instant::now();
-        let aggregated = ClvmZkProver::aggregate_proofs(&proof_refs)
-            .expect("aggregation failed");
+        let aggregated = ClvmZkProver::aggregate_proofs(&proof_refs).expect("aggregation failed");
         let agg_time = agg_start.elapsed();
 
         let total_size: usize = proof_bytes.iter().map(|p| p.len()).sum();
@@ -193,7 +200,8 @@ fn main() {
         println!("✓ aggregation successful");
         println!("  time: {:.2}s", agg_time.as_secs_f64());
         println!("  aggregated proof size: {}KB", aggregated.len() / 1024);
-        println!("  compression: {:.1}x ({} KB → {} KB)",
+        println!(
+            "  compression: {:.1}x ({} KB → {} KB)",
             compression,
             total_size / 1024,
             aggregated.len() / 1024

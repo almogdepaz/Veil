@@ -1,7 +1,7 @@
 #![cfg(feature = "risc0")]
 
-use clvm_zk_risc0::{Risc0Backend, RecursiveAggregator, AggregationStrategy};
 use clvm_zk_core::ProgramParameter;
+use clvm_zk_risc0::{AggregationStrategy, RecursiveAggregator, Risc0Backend};
 
 #[test]
 fn test_minimal_aggregation_2_to_1() {
@@ -18,7 +18,7 @@ fn test_minimal_aggregation_2_to_1() {
             .prove_chialisp_with_nullifier(
                 "(mod (x) (* x 2))",
                 &[ProgramParameter::Int(i as u64)],
-                spend_secret
+                spend_secret,
             )
             .expect("proof generation should succeed");
         proofs.push(proof);
@@ -35,7 +35,10 @@ fn test_minimal_aggregation_2_to_1() {
     let total_size: usize = proofs.iter().map(|p| p.proof_bytes.len()).sum();
     println!("  2 separate proofs: {} bytes", total_size);
     println!("  1 aggregated proof: {} bytes", aggregated.len());
-    assert!(aggregated.len() < total_size, "aggregated proof should be smaller");
+    assert!(
+        aggregated.len() < total_size,
+        "aggregated proof should be smaller"
+    );
 
     println!("✓ 2→1 aggregation works");
 }
@@ -55,7 +58,7 @@ fn test_aggregation_strategies_produce_same_size() {
             .prove_chialisp_with_nullifier(
                 "(mod (x) (+ x 1))",
                 &[ProgramParameter::Int(i as u64)],
-                spend_secret
+                spend_secret,
             )
             .expect("proof generation should succeed");
         proofs.push(proof);
@@ -71,7 +74,10 @@ fn test_aggregation_strategies_produce_same_size() {
 
     // test multi-level with batch_size=2 (6→3→2→1)
     let multilevel_size = aggregator
-        .aggregate_proofs_with_strategy(&proof_refs, AggregationStrategy::MultiLevel { batch_size: 2 })
+        .aggregate_proofs_with_strategy(
+            &proof_refs,
+            AggregationStrategy::MultiLevel { batch_size: 2 },
+        )
         .expect("multi-level aggregation should succeed")
         .len();
 
@@ -90,7 +96,11 @@ fn test_aggregation_strategies_produce_same_size() {
     let min_size = flat_size.min(multilevel_size).min(auto_size);
     let variance = (max_size - min_size) as f64 / min_size as f64;
 
-    assert!(variance < 0.1, "proof sizes should be within 10%, got variance: {:.1}%", variance * 100.0);
+    assert!(
+        variance < 0.1,
+        "proof sizes should be within 10%, got variance: {:.1}%",
+        variance * 100.0
+    );
 
     println!("✓ all strategies produce consistent proof sizes");
 }
@@ -111,7 +121,7 @@ fn test_nullifier_uniqueness_preserved() {
             .prove_chialisp_with_nullifier(
                 "(mod (x) x)",
                 &[ProgramParameter::Int(i as u64)],
-                *secret
+                *secret,
             )
             .expect("proof generation should succeed");
         proofs.push(proof);
@@ -121,7 +131,10 @@ fn test_nullifier_uniqueness_preserved() {
 
     // aggregate - should succeed because all nullifiers are unique
     let result = aggregator.aggregate_proofs_with_strategy(&proof_refs, AggregationStrategy::Flat);
-    assert!(result.is_ok(), "aggregation should succeed with unique nullifiers");
+    assert!(
+        result.is_ok(),
+        "aggregation should succeed with unique nullifiers"
+    );
 
     println!("✓ nullifier uniqueness preserved");
 }
@@ -135,11 +148,7 @@ fn test_single_proof_handling() {
 
     // generate 1 proof
     let proof = backend
-        .prove_chialisp_with_nullifier(
-            "(mod (x) (* x 3))",
-            &[ProgramParameter::Int(5)],
-            [42u8; 32]
-        )
+        .prove_chialisp_with_nullifier("(mod (x) (* x 3))", &[ProgramParameter::Int(5)], [42u8; 32])
         .expect("proof generation should succeed");
 
     let proof_refs = vec![proof.proof_bytes.as_slice()];
@@ -162,7 +171,8 @@ fn test_empty_batch_rejected() {
     let empty_proofs: Vec<&[u8]> = vec![];
 
     // should reject empty batch
-    let result = aggregator.aggregate_proofs_with_strategy(&empty_proofs, AggregationStrategy::Flat);
+    let result =
+        aggregator.aggregate_proofs_with_strategy(&empty_proofs, AggregationStrategy::Flat);
 
     assert!(result.is_err(), "empty batch should be rejected");
 
@@ -183,7 +193,7 @@ fn test_auto_strategy_chooses_correctly() {
             .prove_chialisp_with_nullifier(
                 "(mod (x) x)",
                 &[ProgramParameter::Int(i as u64)],
-                [i as u8; 32]
+                [i as u8; 32],
             )
             .expect("proof generation should succeed");
         proofs.push(proof);
@@ -207,7 +217,11 @@ fn test_auto_strategy_chooses_correctly() {
     println!("  flat: {:?}", flat_time);
 
     // for 5 proofs, auto should choose flat (times should be similar)
-    assert_eq!(auto_result.len(), flat_result.len(), "auto should choose flat for small batches");
+    assert_eq!(
+        auto_result.len(),
+        flat_result.len(),
+        "auto should choose flat for small batches"
+    );
 
     println!("✓ auto strategy working correctly");
 }
