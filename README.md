@@ -85,7 +85,37 @@ cargo run --release --example <name>
 
 BLS signature verification (`bls_verify`) works on SP1 and RISC0 backends.
 
-See `tests/` for examples of supported operations and `examples/` for working code.
+### Program structure
+
+```chialisp
+;; Simple expression
+(+ 1 2)
+
+;; Named parameters with mod wrapper
+(mod (amount fee)
+  (+ amount fee))
+
+;; Helper functions
+(mod (x)
+  (defun double (n) (* n 2))
+  (double x))
+
+;; Recursion
+(mod (n)
+  (defun factorial (x)
+    (if (= x 0)
+      1
+      (* x (factorial (- x 1)))))
+  (factorial n))
+
+;; Nested expressions
+(mod (threshold values)
+  (if (> (length values) threshold)
+    (sha256 (c threshold values))
+    0))
+```
+
+See `tests/` for examples of supported operations.
 
 
 
@@ -211,7 +241,7 @@ See **[SIMULATOR.md](SIMULATOR.md)** for detailed documentation.
 - 10→1 aggregation: ~22 seconds
 - proof size: ~252KB (constant)
 
-See `examples/recursive_aggregation.rs` and **[RECURSIVE_STATUS.md](RECURSIVE_STATUS.md)** for implementation details.
+See `examples/recursive_aggregation.rs` 
 
 
 ## Adding new zkvm backends
