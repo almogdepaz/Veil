@@ -80,42 +80,12 @@ cargo run --release --example <name>
 **Lists**: `c` (cons), `f` (first), `r` (rest), `l` (length)
 **Functions**: helper functions with recursion support
 **Cryptography**: `sha256`, `ecdsa_verify`, `bls_verify`
-**Blockchain**: `create_coin`, `agg_sig_unsafe`, `reserve_fee`, etc
+**Blockchain**: `CREATE_COIN`, `AGG_SIG_ME`, `RESERVE_FEE`, etc (14 chia consensus opcodes)
 **Modules**: `mod` wrapper syntax for named parameters
 
 BLS signature verification (`bls_verify`) works on SP1 and RISC0 backends.
 
-### Program structure
-
-```chialisp
-;; Simple expression
-(+ 1 2)
-
-;; Named parameters with mod wrapper
-(mod (amount fee)
-  (+ amount fee))
-
-;; Helper functions
-(mod (x)
-  (defun double (n) (* n 2))
-  (double x))
-
-;; Recursion
-(mod (n)
-  (defun factorial (x)
-    (if (= x 0)
-      1
-      (* x (factorial (- x 1)))))
-  (factorial n))
-
-;; Nested expressions
-(mod (threshold values)
-  (if (> (length values) threshold)
-    (sha256 (c threshold values))
-    0))
-```
-
-See `tests/` for examples of supported operations.
+See `tests/` for examples of supported operations and `examples/` for working code.
 
 
 
@@ -212,27 +182,11 @@ Each backend provides host integration and guest program:
 
 ### Basic usage
 
-`ClvmZkProver::prove(expression)` generates proofs. `ClvmZkProver::verify_proof()` verifies them. Expressions support named variables and `mod` wrapper syntax. Check `examples/` for working code.
-
-### Examples
-
-```rust
-use clvm_zk::{ClvmZkProver, ProgramParameter};
-
-// Basic proof generation
-let chialisp_source = "(mod (amount fee) (+ amount fee))";
-let parameters = &[
-    ProgramParameter::int(1000),
-    ProgramParameter::int(50),
-];
-
-let result = ClvmZkProver::prove(chialisp_source, parameters)?;
-```
-
-See `examples/` for complete working code including `alice_bob_lock.rs` for ECDSA signatures.
-
+`ClvmZkProver::prove(expression)` generates proofs. `ClvmZkProver::verify_proof()` verifies them. Expressions support named variables and `mod` wrapper syntax.
 
 **Flow**: Host sends chialisp source to guest → guest compiles and executes → returns proof with program hash.
+
+See `examples/` for complete working code including `alice_bob_lock.rs` for ECDSA signatures.
 
 
 
@@ -241,6 +195,23 @@ See `examples/` for complete working code including `alice_bob_lock.rs` for ECDS
 Privacy-preserving blockchain simulator for local testing. Create wallets, send private transactions, and generate real ZK proofs without setting up a real blockchain.
 
 See **[SIMULATOR.md](SIMULATOR.md)** for detailed documentation.
+
+## Recursive proof aggregation
+
+**Production-ready** recursive aggregation compresses N transaction proofs into 1 aggregated proof.
+
+**Features:**
+- N base proofs → 1 aggregated proof (flat aggregation)
+- duplicate nullifier detection (security)
+- merkle tree commitments for proof inclusion
+- constant proof size (~252KB regardless of child count)
+- works on both risc0 and sp1 backends
+
+**Performance (risc0):**
+- 10→1 aggregation: ~22 seconds
+- proof size: ~252KB (constant)
+
+See `examples/recursive_aggregation.rs` and **[RECURSIVE_STATUS.md](RECURSIVE_STATUS.md)** for implementation details.
 
 
 ## Adding new zkvm backends
