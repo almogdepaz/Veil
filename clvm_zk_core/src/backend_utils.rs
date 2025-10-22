@@ -1,10 +1,10 @@
 //! Common utilities shared between different zkVM backends
 
 use crate::{ClvmZkError, Input, ProgramParameter, ProofOutput};
-use alloc::{format, string::ToString};
+use alloc::{format, string::ToString, vec::Vec};
 use core::fmt::Display;
 
-/// Prepare inputs for guest-side compilation
+/// Prepare inputs for guest-side compilation (old protocol)
 pub fn prepare_guest_inputs(
     chialisp_source: &str,
     program_parameters: &[ProgramParameter],
@@ -14,6 +14,38 @@ pub fn prepare_guest_inputs(
         chialisp_source: chialisp_source.to_string(),
         program_parameters: program_parameters.to_vec(),
         spend_secret,
+        // Serial commitment protocol fields - default to None for non-spending use cases
+        serial_randomness: None,
+        merkle_path: None,
+        coin_commitment: None,
+        serial_commitment: None,
+        merkle_root: None,
+        puzzle_hash: None,
+    }
+}
+
+/// Prepare inputs with serial commitment protocol (v2.0)
+pub fn prepare_guest_inputs_with_serial(
+    chialisp_source: &str,
+    program_parameters: &[ProgramParameter],
+    serial_number: [u8; 32],
+    serial_randomness: [u8; 32],
+    merkle_path: Vec<[u8; 32]>,
+    coin_commitment: [u8; 32],
+    serial_commitment: [u8; 32],
+    merkle_root: [u8; 32],
+    puzzle_hash: [u8; 32],
+) -> Input {
+    Input {
+        chialisp_source: chialisp_source.to_string(),
+        program_parameters: program_parameters.to_vec(),
+        spend_secret: Some(serial_number), // serial_number is used as spend_secret in new protocol
+        serial_randomness: Some(serial_randomness),
+        merkle_path: Some(merkle_path),
+        coin_commitment: Some(coin_commitment),
+        serial_commitment: Some(serial_commitment),
+        merkle_root: Some(merkle_root),
+        puzzle_hash: Some(puzzle_hash),
     }
 }
 

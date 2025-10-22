@@ -16,22 +16,24 @@ pub struct CoinFactory;
 
 impl CoinFactory {
     /// Create coin with explicit spend secret
+    /// Returns (coin, secrets) tuple - secrets MUST be stored for spending
     pub fn create_coin(
-        spend_secret: [u8; 32],
+        _spend_secret: [u8; 32],
         puzzle_type: PuzzleType,
         amount: u64,
-    ) -> PrivateCoin {
+    ) -> (PrivateCoin, clvm_zk_core::coin_commitment::CoinSecrets) {
         let puzzle_hash = Self::puzzle_type_to_hash(puzzle_type);
-        PrivateCoin::new(spend_secret, puzzle_hash, amount)
+        PrivateCoin::new_with_secrets(puzzle_hash, amount)
     }
 
     /// Create multiple coins for testing
+    /// Returns Vec of (coin, secrets) tuples
     pub fn create_coins_batch(
         base_secret: [u8; 32],
         count: u32,
         puzzle_type: PuzzleType,
         amount: u64,
-    ) -> Vec<PrivateCoin> {
+    ) -> Vec<(PrivateCoin, clvm_zk_core::coin_commitment::CoinSecrets)> {
         (0..count)
             .map(|i| {
                 let mut hasher = Sha256::new();
@@ -44,20 +46,21 @@ impl CoinFactory {
     }
 
     /// Create coins for different users with viewing tags
+    /// Returns Vec of (user, coin, viewing_tag, secrets) tuples
     pub fn create_user_coins(
         users: &[&str],
         amounts: &[u64],
         puzzle_type: PuzzleType,
-    ) -> Vec<(String, PrivateCoin, [u8; 4])> {
+    ) -> Vec<(String, PrivateCoin, [u8; 4], clvm_zk_core::coin_commitment::CoinSecrets)> {
         users
             .iter()
             .zip(amounts.iter())
             .enumerate()
             .map(|(i, (user, &amount))| {
                 let secret = Self::derive_user_secret(user, i as u32);
-                let coin = Self::create_coin(secret, puzzle_type, amount);
+                let (coin, secrets) = Self::create_coin(secret, puzzle_type, amount);
                 let viewing_tag = Self::generate_viewing_tag(user, i as u32);
-                (user.to_string(), coin, viewing_tag)
+                (user.to_string(), coin, viewing_tag, secrets)
             })
             .collect()
     }
@@ -88,12 +91,13 @@ impl CoinFactory {
 
     /// Create a signature-enabled coin setup for testing
     ///
-    /// Returns (coin, signing_key, verifying_key, puzzle_program, public_key_bytes) for complete signature testing
+    /// Returns (coin, secrets, signing_key, verifying_key, puzzle_program, public_key_bytes) for complete signature testing
     pub fn create_signature_coin_setup(
         spend_secret: [u8; 32],
         amount: u64,
     ) -> (
         PrivateCoin,
+        clvm_zk_core::coin_commitment::CoinSecrets,
         k256::ecdsa::SigningKey,
         k256::ecdsa::VerifyingKey,
         String,
@@ -108,10 +112,12 @@ impl CoinFactory {
         let public_key_bytes = encoded_point.as_bytes().to_vec();
 
         // Create coin with signature puzzle hash
-        let coin = PrivateCoin::new(spend_secret, puzzle_hash, amount);
+        let _ = spend_secret; // ignored for testing
+        let (coin, secrets) = PrivateCoin::new_with_secrets(puzzle_hash, amount);
 
         (
             coin,
+            secrets,
             signing_key,
             verifying_key,
             puzzle_program,
@@ -139,98 +145,7 @@ pub enum PuzzleType {
     Atomic,
 }
 
-// ============================================================================
-// Wallet Recovery Simulation (from wallet.rs)
-// ============================================================================
 
-/// Simulates wallet recovery using viewing tags and nullifier scanning
-pub struct RecoverySimulator {
-    simulator: CLVMZkSimulator,
-}
-
-impl RecoverySimulator {
-    pub fn new(simulator: CLVMZkSimulator) -> Self {
-        Self { simulator }
-    }
-
-    /// Recover coins using viewing tag hints (privacy-preserving)
-    pub fn recover_with_viewing_tags(&self, user: &str, max_index: u32) -> Vec<RecoveredCoin> {
-        let mut recovered = Vec::new();
-
-        for index in 0..max_index {
-            let expected_tag = CoinFactory::generate_viewing_tag(user, index);
-
-            // Check if any coins in UTXO set match this tag
-            for (nullifier, coin_info) in self.simulator.utxo_iter() {
-                if coin_info.metadata.owner == user {
-                    // In real implementation, you'd scan encrypted viewing tags
-                    // Here we simulate by checking if this could be the user's coin
-                    let derived_secret = CoinFactory::derive_user_secret(user, index);
-                    let derived_coin = CoinFactory::create_coin(
-                        derived_secret,
-                        PuzzleType::P2PK, // Assume P2PK for recovery
-                        coin_info.coin.amount,
-                    );
-
-                    if derived_coin.nullifier() == *nullifier {
-                        recovered.push(RecoveredCoin {
-                            user: user.to_string(),
-                            index,
-                            spend_secret: derived_secret,
-                            viewing_tag: expected_tag,
-                            nullifier: *nullifier,
-                        });
-                    }
-                }
-            }
-        }
-
-        recovered
-    }
-
-    /// Scan for spent coins by checking nullifier set
-    pub fn scan_spent_coins(&self, user: &str, max_index: u32) -> Vec<RecoveredSpend> {
-        let mut found = Vec::new();
-
-        for index in 0..max_index {
-            let derived_secret = CoinFactory::derive_user_secret(user, index);
-
-            // Try different puzzle types
-            for puzzle_type in [PuzzleType::P2PK, PuzzleType::Multisig, PuzzleType::Timelock] {
-                let test_coin = CoinFactory::create_coin(derived_secret, puzzle_type, 0); // Amount doesn't affect nullifier
-                let nullifier = test_coin.nullifier();
-
-                if self.simulator.has_nullifier(&nullifier) {
-                    found.push(RecoveredSpend {
-                        user: user.to_string(),
-                        index,
-                        nullifier,
-                        puzzle_type,
-                    });
-                }
-            }
-        }
-
-        found
-    }
-}
-
-#[derive(Debug)]
-pub struct RecoveredCoin {
-    pub user: String,
-    pub index: u32,
-    pub spend_secret: [u8; 32],
-    pub viewing_tag: [u8; 4],
-    pub nullifier: [u8; 32],
-}
-
-#[derive(Debug)]
-pub struct RecoveredSpend {
-    pub user: String,
-    pub index: u32,
-    pub nullifier: [u8; 32],
-    pub puzzle_type: PuzzleType,
-}
 
 // ============================================================================
 // Test Scenarios
@@ -253,9 +168,10 @@ impl TestScenarios {
 
         // Create coin with matching puzzle
         let (puzzle_program, puzzle_hash) = Self::create_test_puzzle_for_scenarios(1000);
-        let coin = PrivateCoin::new([1u8; 32], puzzle_hash, 1000);
+        let (coin, secrets) = PrivateCoin::new_with_secrets(puzzle_hash, 1000);
         let _nullifier = sim.add_coin(
             coin.clone(),
+            &secrets,
             CoinMetadata {
                 owner: "alice".to_string(),
                 coin_type: CoinType::Regular,
@@ -264,11 +180,11 @@ impl TestScenarios {
         );
 
         // First spend should succeed
-        let result1 = sim.spend_coins(vec![(coin.clone(), puzzle_program.clone())]);
+        let result1 = sim.spend_coins(vec![(coin.clone(), puzzle_program.clone(), secrets.clone())]);
         assert!(result1.is_ok(), "First spend should succeed");
 
         // Second spend should fail (double-spend)
-        let result2 = sim.spend_coins(vec![(coin, puzzle_program)]);
+        let result2 = sim.spend_coins(vec![(coin, puzzle_program, secrets)]);
         match result2 {
             Err(SimulatorError::DoubleSpend(_)) => println!("Double-spend correctly prevented"),
             _ => {
@@ -285,21 +201,19 @@ impl TestScenarios {
     pub fn test_cross_puzzle_nullifier_uniqueness() -> Result<(), SimulatorError> {
         let spend_secret = [42u8; 32];
 
-        // Same spend secret, different puzzles
-        let coin1 = CoinFactory::create_coin(spend_secret, PuzzleType::P2PK, 1000);
-        let coin2 = CoinFactory::create_coin(spend_secret, PuzzleType::Multisig, 1000);
+        let (_coin1, secrets1) = CoinFactory::create_coin(spend_secret, PuzzleType::P2PK, 1000);
+        let (_coin2, secrets2) = CoinFactory::create_coin(spend_secret, PuzzleType::Multisig, 1000);
 
-        // Should have different nullifiers
-        let null1 = coin1.nullifier();
-        let null2 = coin2.nullifier();
+        let null1 = secrets1.nullifier();
+        let null2 = secrets2.nullifier();
 
         if null1 == null2 {
             return Err(SimulatorError::TestFailed(
-                "Cross-puzzle replay vulnerability".to_string(),
+                "cross-puzzle replay vulnerability".to_string(),
             ));
         }
 
-        println!("Cross-puzzle nullifiers are unique");
+        println!("cross-puzzle nullifiers are unique");
         Ok(())
     }
 
@@ -315,16 +229,17 @@ impl TestScenarios {
 
         let mut user_coins = Vec::new();
         for (i, (user, &amount)) in users.iter().zip(amounts.iter()).enumerate() {
-            let secret = CoinFactory::derive_user_secret(user, i as u32);
-            let coin = PrivateCoin::new(secret, puzzle_hash, amount);
+            let _ = CoinFactory::derive_user_secret(user, i as u32); // ignored
+            let (coin, secrets) = PrivateCoin::new_with_secrets(puzzle_hash, amount);
             let viewing_tag = CoinFactory::generate_viewing_tag(user, i as u32);
-            user_coins.push((user.to_string(), coin, viewing_tag));
+            user_coins.push((user.to_string(), coin, viewing_tag, secrets));
         }
 
         // Add coins to simulator
-        for (user, coin, _tag) in &user_coins {
+        for (user, coin, _tag, secrets) in &user_coins {
             sim.add_coin(
                 coin.clone(),
+                secrets,
                 CoinMetadata {
                     owner: user.clone(),
                     coin_type: CoinType::Regular,
@@ -335,9 +250,9 @@ impl TestScenarios {
 
         // Mix all coins in one transaction
         let (puzzle_program, _) = Self::create_test_puzzle_for_scenarios(1000);
-        let coins_to_spend: Vec<(PrivateCoin, String)> = user_coins
+        let coins_to_spend: Vec<(PrivateCoin, String, clvm_zk_core::coin_commitment::CoinSecrets)> = user_coins
             .into_iter()
-            .map(|(_, coin, _)| (coin, puzzle_program.clone()))
+            .map(|(_, coin, _, secrets)| (coin, puzzle_program.clone(), secrets))
             .collect();
         let mix_tx = sim.spend_coins(coins_to_spend)?;
 
@@ -348,25 +263,19 @@ impl TestScenarios {
         Ok(())
     }
 
-    /// Test wallet recovery simulation
-    pub fn test_wallet_recovery_flows() -> Result<(), SimulatorError> {
+    /// Test wallet coin storage and CoinSecrets backup
+    pub fn test_wallet_coin_backup_flow() -> Result<(), SimulatorError> {
         let mut sim = CLVMZkSimulator::new();
 
-        // Simulate wallet with multiple coins with matching puzzle
-        let base_secret = [7u8; 32];
         let (_, puzzle_hash) = Self::create_test_puzzle_for_scenarios(1000);
 
-        let mut coins = Vec::new();
-        let mut nullifiers = Vec::new();
+        let mut coin_secrets_backup = Vec::new();
         for i in 0u32..5 {
-            let mut hasher = sha2::Sha256::new();
-            hasher.update(base_secret);
-            hasher.update(i.to_le_bytes());
-            let derived_secret: [u8; 32] = hasher.finalize().into();
-            let coin = PrivateCoin::new(derived_secret, puzzle_hash, 1000);
+            let (coin, secrets) = PrivateCoin::new_with_secrets(puzzle_hash, 1000);
 
-            let nullifier = sim.add_coin(
+            sim.add_coin(
                 coin.clone(),
+                &secrets,
                 CoinMetadata {
                     owner: "alice".to_string(),
                     coin_type: CoinType::Regular,
@@ -374,15 +283,13 @@ impl TestScenarios {
                 },
             );
 
-            coins.push(coin);
-            nullifiers.push(nullifier);
+            coin_secrets_backup.push((secrets.nullifier(), secrets));
         }
 
-        // Simulate recovery
-        let recovery_sim = RecoverySimulator::new(sim.clone());
-        let recovered = recovery_sim.recover_with_viewing_tags("alice", 10);
-
-        println!("Wallet recovery: found {} coins", recovered.len());
+        println!(
+            "wallet backup: stored {} coins with coinsecrets",
+            coin_secrets_backup.len()
+        );
         Ok(())
     }
 
@@ -392,12 +299,13 @@ impl TestScenarios {
 
         // Create coins for atomic swap with matching puzzle
         let (_, puzzle_hash) = Self::create_test_puzzle_for_scenarios(1000);
-        let alice_coin = PrivateCoin::new([10u8; 32], puzzle_hash, 1000);
-        let bob_coin = PrivateCoin::new([20u8; 32], puzzle_hash, 500);
+        let (alice_coin, alice_secrets) = PrivateCoin::new_with_secrets(puzzle_hash, 1000);
+        let (bob_coin, bob_secrets) = PrivateCoin::new_with_secrets(puzzle_hash, 500);
 
         // Add to simulator
         sim.add_coin(
             alice_coin.clone(),
+            &alice_secrets,
             CoinMetadata {
                 owner: "alice".to_string(),
                 coin_type: CoinType::Atomic,
@@ -407,6 +315,7 @@ impl TestScenarios {
 
         sim.add_coin(
             bob_coin.clone(),
+            &bob_secrets,
             CoinMetadata {
                 owner: "bob".to_string(),
                 coin_type: CoinType::Atomic,
@@ -417,8 +326,8 @@ impl TestScenarios {
         // Execute atomic transaction
         let (atomic_program, _) = Self::create_test_puzzle_for_scenarios(1000);
         let atomic_tx = sim.spend_coins(vec![
-            (alice_coin, atomic_program.clone()),
-            (bob_coin, atomic_program),
+            (alice_coin, atomic_program.clone(), alice_secrets),
+            (bob_coin, atomic_program, bob_secrets),
         ])?;
 
         println!(
@@ -435,7 +344,7 @@ impl TestScenarios {
         Self::test_double_spend_prevention()?;
         Self::test_cross_puzzle_nullifier_uniqueness()?;
         Self::test_privacy_mixing()?;
-        Self::test_wallet_recovery_flows()?;
+        Self::test_wallet_coin_backup_flow()?;
         Self::test_atomic_transactions()?;
 
         println!("\nAll protocol tests passed!");

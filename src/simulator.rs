@@ -1,30 +1,21 @@
-// ============================================================================
-// CLVM-ZK Protocol Simulator
-// Simulates blockchain without needing actual infrastructure
-// ============================================================================
+// blockchain simulator for testing protocol
 
-use crate::protocol::{
-    create_signature_spend_params, PrivateCoin, PrivateSpendBundle, ProtocolError, Spender,
-};
+use crate::protocol::{PrivateCoin, PrivateSpendBundle, ProtocolError, Spender};
+use clvm_zk_core::coin_commitment::CoinCommitment;
+use rs_merkle::{algorithms::Sha256 as MerkleHasher, MerkleTree};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-// ============================================================================
-// Simulator Core
-// ============================================================================
-
-/// Simulated blockchain state for testing protocol scenarios
-#[derive(Debug, Clone)]
+/// simulated blockchain state for testing
+#[derive(Clone)]
 pub struct CLVMZkSimulator {
-    /// Global nullifier set (prevents double-spends)
     nullifier_set: HashSet<[u8; 32]>,
-    /// UTXO set: nullifier -> coin info
     utxo_set: HashMap<[u8; 32], CoinInfo>,
-    /// Transaction history
+    coin_tree: MerkleTree<MerkleHasher>,
+    commitment_to_index: HashMap<[u8; 32], usize>,
     transactions: Vec<SimulatedTransaction>,
-    /// Block height for testing
     block_height: u64,
 }
 
@@ -35,116 +26,97 @@ impl Default for CLVMZkSimulator {
 }
 
 impl CLVMZkSimulator {
-    /// Create new simulator
     pub fn new() -> Self {
         Self {
             nullifier_set: HashSet::new(),
             utxo_set: HashMap::new(),
+            coin_tree: MerkleTree::<MerkleHasher>::new(),
+            commitment_to_index: HashMap::new(),
             transactions: Vec::new(),
             block_height: 0,
         }
     }
 
-    /// Add a new coin to the UTXO set (simulates receiving)
-    pub fn add_coin(&mut self, coin: PrivateCoin, metadata: CoinMetadata) -> [u8; 32] {
-        let nullifier = coin.nullifier();
+    pub fn add_coin(
+        &mut self,
+        coin: PrivateCoin,
+        secrets: &clvm_zk_core::coin_commitment::CoinSecrets,
+        metadata: CoinMetadata,
+    ) -> [u8; 32] {
+        let nullifier = secrets.nullifier();
         let info = CoinInfo {
             coin: coin.clone(),
             metadata,
             created_at_height: self.block_height,
         };
 
+        let coin_commitment = CoinCommitment::compute(
+            coin.amount,
+            &coin.puzzle_hash,
+            &coin.serial_commitment,
+            crate::crypto_utils::hash_data_default,
+        );
+
+        let leaf_index = self.coin_tree.leaves_len();
+        self.coin_tree.insert(coin_commitment.0);
+        self.coin_tree.commit();
+        self.commitment_to_index
+            .insert(coin_commitment.0, leaf_index);
+
         self.utxo_set.insert(nullifier, info);
         nullifier
     }
 
-    /// Attempt to spend coins with explicit programs (simulates transaction submission)
     pub fn spend_coins(
         &mut self,
-        coin_programs: Vec<(PrivateCoin, String)>,
+        spends: Vec<(
+            PrivateCoin,
+            String,
+            clvm_zk_core::coin_commitment::CoinSecrets,
+        )>,
     ) -> Result<SimulatedTransaction, SimulatorError> {
-        // 1. Validate no double-spends
-        let mut new_nullifiers = Vec::new();
-        let mut coins = Vec::new();
-        for (coin, _program) in &coin_programs {
-            let nullifier = coin.nullifier();
-            if self.nullifier_set.contains(&nullifier) {
-                return Err(SimulatorError::DoubleSpend(hex::encode(nullifier)));
-            }
-            new_nullifiers.push(nullifier);
-            coins.push(coin.clone());
-        }
-
-        // 2. Generate spend bundles using test protocol with provided programs
-        let mut spend_bundles = Vec::new();
-        for (coin, program) in coin_programs {
-            // Let the Spender handle program validation - it has the proper hashing logic
-            match Spender::create_spend(&coin, &program, &[]) {
-                Ok(bundle) => spend_bundles.push(bundle),
-                Err(e) => return Err(SimulatorError::ProofGeneration(format!("{:?}", e))),
-            }
-        }
-
-        // 3. Create transaction
-        let tx = SimulatedTransaction {
-            id: self.generate_tx_id(),
-            spend_bundles,
-            nullifiers: new_nullifiers.clone(),
-            block_height: self.block_height,
-            timestamp: self.block_height * 10, // Mock timestamp
-        };
-
-        // 4. Update state
-        for nullifier in new_nullifiers {
-            self.nullifier_set.insert(nullifier);
-            self.utxo_set.remove(&nullifier);
-        }
-
-        self.transactions.push(tx.clone());
-        self.block_height += 1;
-
-        Ok(tx)
+        self.spend_coins_with_params(
+            spends
+                .into_iter()
+                .map(|(coin, program, secrets)| (coin, program, vec![], secrets))
+                .collect(),
+        )
     }
 
-    /// Spend coins with signature verification (enhanced security)
-    ///
-    /// This method requires valid ECDSA signatures for spending coins.
-    /// Each spend must provide a signature that verifies against the coin's puzzle program.
-    pub fn spend_coins_with_signatures(
+    pub fn spend_coins_with_params(
         &mut self,
-        spends: Vec<(PrivateCoin, String, Vec<u8>, Vec<u8>)>, // (coin, program, public_key, signature)
+        spends: Vec<(
+            PrivateCoin,
+            String,
+            Vec<crate::ProgramParameter>,
+            clvm_zk_core::coin_commitment::CoinSecrets,
+        )>,
     ) -> Result<SimulatedTransaction, SimulatorError> {
-        // 1. Validate no double-spends
         let mut new_nullifiers = Vec::new();
-        for (coin, _program, _public_key, _signature) in &spends {
-            let nullifier = coin.nullifier();
+        for (_, _, _, secrets) in &spends {
+            let nullifier = secrets.serial_number;
             if self.nullifier_set.contains(&nullifier) {
                 return Err(SimulatorError::DoubleSpend(hex::encode(nullifier)));
             }
             new_nullifiers.push(nullifier);
         }
 
-        // 2. Generate spend bundles with signature verification
+        let merkle_root = self.coin_tree.root().ok_or_else(|| {
+            SimulatorError::TestFailed("merkle tree has no root".to_string())
+        })?;
+        
         let mut spend_bundles = Vec::new();
-        for (coin, program, public_key_bytes, signature_bytes) in spends {
-            // Create spend message (standardized message for signature verification)
-            let spend_message = format!("authorize_spend_{}", hex::encode(coin.nullifier()));
+        for (coin, program, params, secrets) in spends {
+            let merkle_path = self.get_merkle_path(&coin).ok_or_else(|| {
+                SimulatorError::TestFailed("coin not found in merkle tree".to_string())
+            })?;
 
-            // Create program parameters including signature verification data
-            let params = create_signature_spend_params(
-                &public_key_bytes,
-                spend_message.as_bytes(),
-                &signature_bytes,
-            );
-
-            // Create spend bundle with signature verification
-            match Spender::create_spend(&coin, &program, &params) {
+            match Spender::create_spend_with_serial(&coin, &program, &params, &secrets, merkle_path, merkle_root) {
                 Ok(bundle) => spend_bundles.push(bundle),
                 Err(e) => return Err(SimulatorError::ProofGeneration(format!("{:?}", e))),
             }
         }
 
-        // 3. Create transaction
         let tx = SimulatedTransaction {
             id: self.generate_tx_id(),
             spend_bundles,
@@ -153,10 +125,9 @@ impl CLVMZkSimulator {
             timestamp: self.block_height * 10,
         };
 
-        // 4. Update state
-        for nullifier in new_nullifiers {
-            self.nullifier_set.insert(nullifier);
-            self.utxo_set.remove(&nullifier);
+        for nullifier in &new_nullifiers {
+            self.nullifier_set.insert(*nullifier);
+            self.utxo_set.remove(nullifier);
         }
 
         self.transactions.push(tx.clone());
@@ -165,22 +136,42 @@ impl CLVMZkSimulator {
         Ok(tx)
     }
 
-    /// Check if nullifier exists (double-spend check)
     pub fn has_nullifier(&self, nullifier: &[u8; 32]) -> bool {
         self.nullifier_set.contains(nullifier)
     }
 
-    /// Get coin info by nullifier
     pub fn get_coin_info(&self, nullifier: &[u8; 32]) -> Option<&CoinInfo> {
         self.utxo_set.get(nullifier)
     }
 
-    /// Get iterator over UTXO set for testing
+    pub fn get_merkle_path(&self, coin: &PrivateCoin) -> Option<Vec<[u8; 32]>> {
+        let coin_commitment = CoinCommitment::compute(
+            coin.amount,
+            &coin.puzzle_hash,
+            &coin.serial_commitment,
+            crate::crypto_utils::hash_data_default,
+        );
+
+        let leaf_index = *self.commitment_to_index.get(&coin_commitment.0)?;
+        let proof = self.coin_tree.proof(&[leaf_index]);
+        let proof_hashes = proof.proof_hashes();
+
+        Some(
+            proof_hashes
+                .iter()
+                .map(|hash| {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(hash);
+                    arr
+                })
+                .collect(),
+        )
+    }
+
     pub fn utxo_iter(&self) -> impl Iterator<Item = (&[u8; 32], &CoinInfo)> {
         self.utxo_set.iter()
     }
 
-    /// Generate transaction ID
     fn generate_tx_id(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(b"clvm_zk_tx_id");
@@ -189,7 +180,6 @@ impl CLVMZkSimulator {
         hasher.finalize().into()
     }
 
-    /// Get stats for analysis
     pub fn stats(&self) -> SimulatorStats {
         SimulatorStats {
             total_coins_created: self
@@ -204,20 +194,17 @@ impl CLVMZkSimulator {
         }
     }
 
-    /// Reset simulator state
     pub fn reset(&mut self) {
         self.nullifier_set.clear();
         self.utxo_set.clear();
+        self.coin_tree = MerkleTree::<MerkleHasher>::new();
+        self.commitment_to_index.clear();
         self.transactions.clear();
         self.block_height = 0;
     }
 }
 
-// ============================================================================
-// Data Structures
-// ============================================================================
-
-/// Information about a coin in the simulator
+/// coin info in simulator
 #[derive(Debug, Clone)]
 pub struct CoinInfo {
     pub coin: PrivateCoin,
@@ -225,7 +212,6 @@ pub struct CoinInfo {
     pub created_at_height: u64,
 }
 
-/// Metadata for testing scenarios
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoinMetadata {
     pub owner: String,
@@ -241,7 +227,6 @@ pub enum CoinType {
     Atomic,
 }
 
-/// Simulated transaction
 #[derive(Debug, Clone)]
 pub struct SimulatedTransaction {
     pub id: [u8; 32],
@@ -251,7 +236,6 @@ pub struct SimulatedTransaction {
     pub timestamp: u64,
 }
 
-/// Simulator statistics
 #[derive(Debug)]
 pub struct SimulatorStats {
     pub total_coins_created: usize,
@@ -260,10 +244,6 @@ pub struct SimulatorStats {
     pub current_utxo_count: usize,
     pub current_block_height: u64,
 }
-
-// ============================================================================
-// Error Types
-// ============================================================================
 
 #[derive(Debug, thiserror::Error)]
 pub enum SimulatorError {
@@ -278,10 +258,6 @@ pub enum SimulatorError {
     #[error("Protocol error: {0}")]
     Protocol(#[from] ProtocolError),
 }
-
-// ============================================================================
-// Display Implementations
-// ============================================================================
 
 impl fmt::Display for SimulatedTransaction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

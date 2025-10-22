@@ -156,4 +156,54 @@ impl ClvmZkProver {
         let backend = crate::backends::backend()?;
         backend.prove_with_nullifier(expression, parameters, spend_secret)
     }
+
+    /// prove spending with serial commitment verification and merkle membership
+    pub fn prove_with_serial_commitment(
+        expression: &str,
+        parameters: &[ProgramParameter],
+        coin_secrets: &clvm_zk_core::coin_commitment::CoinSecrets,
+        merkle_path: Vec<[u8; 32]>,
+        coin_commitment: [u8; 32],
+        serial_commitment: [u8; 32],
+        merkle_root: [u8; 32],
+        puzzle_hash: [u8; 32],
+    ) -> Result<ZKClvmResult, ClvmZkError> {
+        if parameters.len() > 10 {
+            return Err(ClvmZkError::InvalidProgram(
+                "Too many parameters (maximum 10: a-j)".to_string(),
+            ));
+        }
+
+        Self::validate_chialisp_syntax(expression)?;
+
+        let input = clvm_zk_core::backend_utils::prepare_guest_inputs_with_serial(
+            expression,
+            parameters,
+            coin_secrets.serial_number,
+            coin_secrets.serial_randomness,
+            merkle_path,
+            coin_commitment,
+            serial_commitment,
+            merkle_root,
+            puzzle_hash,
+        );
+
+        #[cfg(feature = "risc0")]
+        {
+            let backend = clvm_zk_risc0::Risc0Backend::new()?;
+            return backend.prove_with_input(input);
+        }
+
+        #[cfg(feature = "sp1")]
+        {
+            let backend = clvm_zk_sp1::Sp1Backend::new()?;
+            return backend.prove_with_input(input);
+        }
+
+        #[cfg(feature = "mock")]
+        {
+            let backend = clvm_zk_mock::MockBackend::new()?;
+            return backend.prove_with_input(input);
+        }
+    }
 }

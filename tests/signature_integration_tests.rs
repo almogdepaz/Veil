@@ -89,17 +89,18 @@ fn test_signature_enabled_spending() {
     let spend_secret = [0x42; 32];
     let amount = 1000;
 
-    let (coin, signing_key, _verifying_key, puzzle_program, public_key_bytes) =
+    let (coin, secrets, signing_key, _verifying_key, puzzle_program, public_key_bytes) =
         CoinFactory::create_signature_coin_setup(spend_secret, amount);
 
     println!("   Created signature-enabled coin:");
-    println!("      - Nullifier: {}", hex::encode(coin.nullifier()));
+    println!("      - Nullifier: {}", hex::encode(secrets.nullifier()));
     println!("      - Amount: {}", coin.amount);
     println!("      - Puzzle requires ECDSA signature");
 
     // Add coin to simulator
     sim.add_coin(
         coin.clone(),
+        &secrets,
         CoinMetadata {
             owner: "alice".to_string(),
             coin_type: CoinType::Regular,
@@ -108,17 +109,24 @@ fn test_signature_enabled_spending() {
     );
 
     // Create a valid signature for spending this coin
-    let signature = CoinFactory::create_signature_for_spend(&signing_key, coin.nullifier());
+    let spend_message = b"authorize_spend";
+    use clvm_zk::protocol::create_spend_signature;
+    let signature = create_spend_signature(&signing_key, spend_message);
 
     println!("   🔑 Generated valid signature: {} bytes", signature.len());
 
     // Attempt to spend with valid signature
     println!("   💸 Attempting spend with valid signature...");
-    let result = sim.spend_coins_with_signatures(vec![(
+    use clvm_zk::ProgramParameter;
+    let result = sim.spend_coins_with_params(vec![(
         coin.clone(),
         puzzle_program,
-        public_key_bytes,
-        signature,
+        vec![
+            ProgramParameter::Bytes(public_key_bytes),
+            ProgramParameter::Bytes(spend_message.to_vec()),
+            ProgramParameter::Bytes(signature),
+        ],
+        secrets.clone(),
     )]);
 
     match result {
@@ -128,14 +136,14 @@ fn test_signature_enabled_spending() {
             println!("      - Nullifiers: {}", tx.nullifiers.len());
 
             // SECURITY: Validate the proof is legitimate, not just that generation succeeded
-            let expected_nullifiers = [coin.nullifier()];
+            let expected_nullifiers = [secrets.nullifier()];
             match validate_transaction_proofs(&tx, &expected_nullifiers) {
                 Ok(()) => println!("   Proof validation passed - legitimate transaction"),
                 Err(validation_error) => panic!("Proof validation failed: {}", validation_error),
             }
 
             assert_eq!(tx.nullifiers.len(), 1);
-            assert_eq!(tx.nullifiers[0], coin.nullifier());
+            assert_eq!(tx.nullifiers[0], secrets.nullifier());
         }
         Err(e) => {
             println!("   Spend failed: {:?}", e);
@@ -156,12 +164,13 @@ fn test_signature_verification_prevents_unauthorized_spending() {
     let spend_secret = [0x33; 32];
     let amount = 2000;
 
-    let (coin, _signing_key, _verifying_key, puzzle_program, correct_public_key_bytes) =
+    let (coin, secrets, _signing_key, _verifying_key, puzzle_program, correct_public_key_bytes) =
         CoinFactory::create_signature_coin_setup(spend_secret, amount);
 
     // Add coin to simulator
     sim.add_coin(
         coin.clone(),
+        &secrets,
         CoinMetadata {
             owner: "bob".to_string(),
             coin_type: CoinType::Regular,
@@ -176,24 +185,31 @@ fn test_signature_verification_prevents_unauthorized_spending() {
         .to_encoded_point(true)
         .as_bytes()
         .to_vec();
-    let invalid_signature = CoinFactory::create_signature_for_spend(&wrong_key, coin.nullifier());
+    let spend_message = b"authorize_spend";
+    use clvm_zk::protocol::create_spend_signature;
+    let invalid_signature = create_spend_signature(&wrong_key, spend_message);
 
     println!("   🔑 Generated invalid signature (wrong key)");
 
     // Attempt to spend with invalid signature - this should fail
     println!("   💸 Attempting spend with invalid signature...");
-    let result = sim.spend_coins_with_signatures(vec![(
+    use clvm_zk::ProgramParameter;
+    let result = sim.spend_coins_with_params(vec![(
         coin.clone(),
         puzzle_program,
-        correct_public_key_bytes, // Use CORRECT public key with WRONG signature
-        invalid_signature,
+        vec![
+            ProgramParameter::Bytes(correct_public_key_bytes), // Use CORRECT public key with WRONG signature
+            ProgramParameter::Bytes(spend_message.to_vec()),
+            ProgramParameter::Bytes(invalid_signature),
+        ],
+        secrets.clone(),
     )]);
 
     match result {
         Ok(tx) => {
             // SECURITY: If transaction somehow succeeded, validate it's actually legitimate
             // This catches SP1-style vulnerabilities where garbage proofs are generated
-            let expected_nullifiers = [coin.nullifier()];
+            let expected_nullifiers = [secrets.nullifier()];
             match validate_transaction_proofs(&tx, &expected_nullifiers) {
                 Ok(()) => {
                     // If validation passes, this means signature verification was bypassed!
@@ -221,14 +237,15 @@ fn test_multiple_signature_coins_in_transaction() {
     let mut sim = CLVMZkSimulator::new();
 
     // Create two different signature-enabled coins
-    let (coin1, key1, _, program1, pubkey1) =
+    let (coin1, secrets1, key1, _, program1, pubkey1) =
         CoinFactory::create_signature_coin_setup([0x11; 32], 1000);
-    let (coin2, key2, _, program2, pubkey2) =
+    let (coin2, secrets2, key2, _, program2, pubkey2) =
         CoinFactory::create_signature_coin_setup([0x22; 32], 2000);
 
     // Add both coins to simulator
     sim.add_coin(
         coin1.clone(),
+        &secrets1,
         CoinMetadata {
             owner: "alice".to_string(),
             coin_type: CoinType::Regular,
@@ -238,6 +255,7 @@ fn test_multiple_signature_coins_in_transaction() {
 
     sim.add_coin(
         coin2.clone(),
+        &secrets2,
         CoinMetadata {
             owner: "alice".to_string(),
             coin_type: CoinType::Regular,
@@ -246,16 +264,19 @@ fn test_multiple_signature_coins_in_transaction() {
     );
 
     // Create valid signatures for both coins
-    let sig1 = CoinFactory::create_signature_for_spend(&key1, coin1.nullifier());
-    let sig2 = CoinFactory::create_signature_for_spend(&key2, coin2.nullifier());
+    let spend_message = b"authorize_spend";
+    use clvm_zk::protocol::create_spend_signature;
+    let sig1 = create_spend_signature(&key1, spend_message);
+    let sig2 = create_spend_signature(&key2, spend_message);
 
     println!("   🔑 Generated signatures for both coins");
 
     // Spend both coins in one transaction
     println!("   💸 Spending multiple signature coins...");
-    let result = sim.spend_coins_with_signatures(vec![
-        (coin1.clone(), program1, pubkey1, sig1),
-        (coin2.clone(), program2, pubkey2, sig2),
+    use clvm_zk::ProgramParameter;
+    let result = sim.spend_coins_with_params(vec![
+        (coin1.clone(), program1, vec![ProgramParameter::Bytes(pubkey1), ProgramParameter::Bytes(spend_message.to_vec()), ProgramParameter::Bytes(sig1)], secrets1.clone()),
+        (coin2.clone(), program2, vec![ProgramParameter::Bytes(pubkey2), ProgramParameter::Bytes(spend_message.to_vec()), ProgramParameter::Bytes(sig2)], secrets2.clone()),
     ]);
 
     match result {
@@ -264,7 +285,7 @@ fn test_multiple_signature_coins_in_transaction() {
             println!("      - Spent {} coins", tx.nullifiers.len());
 
             // SECURITY: Validate all proofs are legitimate
-            let expected_nullifiers = [coin1.nullifier(), coin2.nullifier()];
+            let expected_nullifiers = [secrets1.nullifier(), secrets2.nullifier()];
             match validate_transaction_proofs(&tx, &expected_nullifiers) {
                 Ok(()) => println!("   Multi-coin proof validation passed"),
                 Err(validation_error) => {
@@ -273,8 +294,8 @@ fn test_multiple_signature_coins_in_transaction() {
             }
 
             assert_eq!(tx.nullifiers.len(), 2);
-            assert!(tx.nullifiers.contains(&coin1.nullifier()));
-            assert!(tx.nullifiers.contains(&coin2.nullifier()));
+            assert!(tx.nullifiers.contains(&secrets1.nullifier()));
+            assert!(tx.nullifiers.contains(&secrets2.nullifier()));
         }
         Err(e) => {
             println!("   Multi-coin spend failed: {:?}", e);

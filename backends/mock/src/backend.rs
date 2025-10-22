@@ -1,7 +1,7 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmResult,
-    ClvmZkError, ProgramParameter, ProofOutput, ZKClvmResult, BLS_DST,
+    compile_chialisp_to_bytecode_with_table, ClvmEvaluator, ClvmResult, ClvmZkError,
+    ProgramParameter, ProofOutput, ZKClvmResult, BLS_DST,
 };
 use sha2::{Digest, Sha256};
 
@@ -104,14 +104,12 @@ impl MockBackend {
         Ok(result.proof_output.clvm_res.output == expected_result)
     }
 
-    pub fn prove_chialisp_with_nullifier(
+    pub fn prove_with_input(
         &self,
-        chialisp_source: &str,
-        program_parameters: &[ProgramParameter],
-        spend_secret: [u8; 32],
+        inputs: clvm_zk_core::Input,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         let (instance_bytecode, program_hash, function_table) =
-            compile_chialisp_to_bytecode_with_table(hash_data, chialisp_source, program_parameters)
+            compile_chialisp_to_bytecode_with_table(hash_data, &inputs.chialisp_source, &inputs.program_parameters)
                 .map_err(|e| {
                     ClvmZkError::ProofGenerationFailed(format!(
                         "chialisp compilation failed: {:?}",
@@ -128,16 +126,18 @@ impl MockBackend {
                 ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
             })?;
 
-        let computed_nullifier = generate_nullifier(hash_data, &spend_secret, &program_hash);
-
         let clvm_output = ClvmResult {
             output: output_bytes,
             cost: 0,
         };
 
+        // extract nullifier from input
+        // serial_number is passed via spend_secret field
+        let nullifier = inputs.spend_secret;
+
         let proof_output = ProofOutput {
             program_hash,
-            nullifier: Some(computed_nullifier),
+            nullifier,
             clvm_res: clvm_output.clone(),
         };
 

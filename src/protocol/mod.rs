@@ -22,18 +22,16 @@
 //! ## Usage Example
 //!
 //! ```rust
-//! use clvm_zk::protocol::{PrivateCoin, Spender};
-//! use clvm_zk::ProgramParameter;
+//! use clvm_zk::protocol::PrivateCoin;
+//! use sha2::{Digest, Sha256};
 //!
-//! // Create a private coin
-//! let coin = PrivateCoin::new_random_from_program("(mod (a b) (+ a b))", 1000);
-//! println!("Coin nullifier: {}", coin.nullifier_hex());
+//! // Create a private coin with random serial commitment
+//! let puzzle_hash = Sha256::digest(b"my_puzzle").into();
+//! let (coin, secrets) = PrivateCoin::new_with_secrets(puzzle_hash, 1000);
 //!
-//! // Spend the coin (will be available after Task 1.3)
-//! // let bundle = Spender::create_spend(&coin, &[
-//! //     ProgramParameter::int(5),
-//! //     ProgramParameter::int(3)
-//! // ])?;
+//! println!("Coin amount: {}", coin.amount);
+//! println!("Serial commitment: {}", hex::encode(coin.serial_commitment.0));
+//! println!("Nullifier (keep secret): {}", hex::encode(secrets.nullifier()));
 //! ```
 
 pub mod puzzles;

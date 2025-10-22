@@ -78,7 +78,18 @@ impl ZKCLVMBackend for Risc0Backend {
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        self.prove_chialisp_with_nullifier(chialisp_source, program_parameters, spend_secret)
+        let input = clvm_zk_core::Input {
+            chialisp_source: chialisp_source.to_string(),
+            program_parameters: program_parameters.to_vec(),
+            spend_secret: Some(spend_secret),
+            serial_randomness: None,
+            serial_commitment: None,
+            merkle_path: None,
+            coin_commitment: None,
+            merkle_root: None,
+            puzzle_hash: None,
+        };
+        self.prove_with_input(input)
     }
 
     fn verify_proof(&self, proof: &[u8]) -> Result<(bool, [u8; 32], Vec<u8>), ClvmZkError> {
@@ -110,7 +121,18 @@ impl ZKCLVMBackend for Sp1Backend {
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        self.prove_chialisp_with_nullifier(chialisp_source, program_parameters, spend_secret)
+        let input = clvm_zk_core::Input {
+            chialisp_source: chialisp_source.to_string(),
+            program_parameters: program_parameters.to_vec(),
+            spend_secret: Some(spend_secret),
+            serial_randomness: None,
+            serial_commitment: None,
+            merkle_path: None,
+            coin_commitment: None,
+            merkle_root: None,
+            puzzle_hash: None,
+        };
+        self.prove_with_input(input)
     }
 
     fn verify_proof(&self, proof: &[u8]) -> Result<(bool, [u8; 32], Vec<u8>), ClvmZkError> {
@@ -142,7 +164,18 @@ impl ZKCLVMBackend for MockBackend {
         program_parameters: &[ProgramParameter],
         spend_secret: [u8; 32],
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        self.prove_chialisp_with_nullifier(chialisp_source, program_parameters, spend_secret)
+        let input = clvm_zk_core::Input {
+            chialisp_source: chialisp_source.to_string(),
+            program_parameters: program_parameters.to_vec(),
+            spend_secret: Some(spend_secret),
+            serial_randomness: None,
+            serial_commitment: None,
+            merkle_path: None,
+            coin_commitment: None,
+            merkle_root: None,
+            puzzle_hash: None,
+        };
+        self.prove_with_input(input)
     }
 
     fn verify_proof(&self, proof: &[u8]) -> Result<(bool, [u8; 32], Vec<u8>), ClvmZkError> {

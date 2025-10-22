@@ -103,16 +103,11 @@ impl Sp1Backend {
         })
     }
 
-    pub fn prove_chialisp_with_nullifier(
+    pub fn prove_with_input(
         &self,
-        chialisp_source: &str,
-        program_parameters: &[ProgramParameter],
-        spend_secret: [u8; 32],
+        inputs: clvm_zk_core::Input,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use sp1_sdk::{ProverClient, SP1Stdin};
-
-        let inputs = prepare_guest_inputs(chialisp_source, program_parameters, Some(spend_secret));
-
         let mut stdin = SP1Stdin::new();
         stdin.write(&inputs);
 

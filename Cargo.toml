@@ -30,7 +30,7 @@ default = ["sp1", "testing"]
 # when switching backends, use: cargo <cmd> --no-default-features --features <backend>,testing
 risc0 = ["dep:clvm-zk-risc0", "clvm-zk-core/risc0"]  # risc0 zkvm backend with precompiles
 sp1 = ["dep:clvm-zk-sp1", "clvm-zk-core/sp1"]        # sp1 zkvm backend (default, faster proving)
-mock = ["dep:clvm-zk-mock"]                           # mock backend for testing
+mock = ["dep:clvm-zk-mock", "clvm-zk-core/sha2-hasher"]  # mock backend for testing
 
 # testing utilities (enabled by default for tests)
 testing = ["clvm-zk-core/sha2-hasher"]
@@ -48,6 +48,7 @@ rand = "0.8"
 bip32 = "0.5"
 hmac = "0.12"
 k256 = { version = "0.13", features = ["ecdsa", "sha256"] }  # For ECDSA signature verification
+rs_merkle = "1.5"  # For merkle tree proof generation on host
 
 # Backend implementations
 clvm-zk-risc0 = { path = "backends/risc0", optional = true }

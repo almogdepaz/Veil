@@ -109,8 +109,37 @@ pub struct Input {
     pub chialisp_source: String,
     /// Parameter values for the program - supports both integers and bytes
     pub program_parameters: Vec<ProgramParameter>,
-    /// Optional spend secret for nullifier generation
+    /// Optional spend secret for nullifier generation (OLD PROTOCOL)
     pub spend_secret: Option<[u8; 32]>,
+
+    // ============================================================================
+    // Serial Commitment Protocol (v2.0) Fields
+    // ============================================================================
+
+    /// Serial number randomness for commitment opening
+    /// Used to prove: serial_commitment = hash(serial_number || serial_randomness)
+    pub serial_randomness: Option<[u8; 32]>,
+
+    /// Merkle authentication path for coin membership proof
+    /// Each element is a sibling hash in the path from leaf to root
+    pub merkle_path: Option<Vec<[u8; 32]>>,
+
+    /// Coin commitment value (hash of coin data including serial_commitment)
+    /// This is the leaf value in the merkle tree
+    pub coin_commitment: Option<[u8; 32]>,
+
+    /// Expected serial commitment from the coin
+    /// Guest will verify: hash(nullifier || serial_randomness) == serial_commitment
+    pub serial_commitment: Option<[u8; 32]>,
+
+    /// Expected merkle root (current tree state)
+    /// Guest will verify: computed_root == merkle_root
+    /// This binds the proof to a specific ledger state, preventing replay attacks
+    pub merkle_root: Option<[u8; 32]>,
+
+    /// Puzzle hash for nullifier binding
+    /// Used in old protocol: hash(spend_secret || puzzle_hash)
+    pub puzzle_hash: Option<[u8; 32]>,
 }
 
 #[derive(

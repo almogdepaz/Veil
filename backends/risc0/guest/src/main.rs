@@ -4,8 +4,7 @@ use risc0_zkvm::guest::env;
 use risc0_zkvm::sha::{Impl, Sha256 as RiscSha256};
 
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmResult, Input,
-    ProofOutput, BLS_DST,
+    compile_chialisp_to_bytecode_with_table, ClvmEvaluator, ClvmResult, Input, ProofOutput, BLS_DST,
 };
 
 use bls12_381::hash_to_curve::{ExpandMsgXmd, HashToCurve};
@@ -99,9 +98,55 @@ fn main() {
         .evaluate_clvm_program(&instance_bytecode)
         .expect("CLVM execution failed");
 
-    let computed_nullifier = match private_inputs.spend_secret {
-        Some(spend_secret) => generate_nullifier(risc0_hasher, &spend_secret, &program_hash),
-        None => [0u8; 32],
+    // Serial commitment protocol for spending (optional)
+    let nullifier = if let Some(serial_randomness) = private_inputs.serial_randomness {
+        // Verify serial commitment and merkle membership
+        let serial_commitment_expected = private_inputs
+            .serial_commitment
+            .expect("serial_commitment required with serial_randomness");
+        let serial_number = private_inputs.spend_secret.expect("serial_number required with serial_randomness");
+
+        let domain = b"clvm_zk_serial_v1.0";
+        let mut commitment_data = [0u8; 83];
+        commitment_data[..19].copy_from_slice(domain);
+        commitment_data[19..51].copy_from_slice(&serial_number);
+        commitment_data[51..83].copy_from_slice(&serial_randomness);
+        let computed_serial_commitment = risc0_hasher(&commitment_data);
+
+        assert_eq!(
+            computed_serial_commitment, serial_commitment_expected,
+            "serial commitment verification failed"
+        );
+
+        let coin_commitment = private_inputs
+            .coin_commitment
+            .expect("coin_commitment required");
+        let merkle_path = private_inputs.merkle_path.expect("merkle_path required");
+        let expected_root = private_inputs.merkle_root.expect("merkle_root required");
+
+        let mut current_hash = coin_commitment;
+        for sibling in merkle_path.iter() {
+            let mut combined = [0u8; 64];
+            if current_hash < *sibling {
+                combined[..32].copy_from_slice(&current_hash);
+                combined[32..].copy_from_slice(sibling);
+            } else {
+                combined[..32].copy_from_slice(sibling);
+                combined[32..].copy_from_slice(&current_hash);
+            }
+            current_hash = risc0_hasher(&combined);
+        }
+
+        let computed_root = current_hash;
+        assert_eq!(
+            computed_root, expected_root,
+            "merkle root mismatch: coin not in current tree state"
+        );
+
+        Some(serial_number)
+    } else {
+        // No nullifier (e.g., BLS tests, signature verification tests)
+        private_inputs.spend_secret
     };
 
     let _validated_conditions = conditions;
@@ -116,11 +161,7 @@ fn main() {
 
     env::commit(&ProofOutput {
         program_hash,
-        nullifier: if private_inputs.spend_secret.is_some() {
-            Some(computed_nullifier)
-        } else {
-            None
-        },
+        nullifier,
         clvm_res: clvm_output,
     });
 }

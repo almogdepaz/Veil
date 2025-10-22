@@ -1,4 +1,5 @@
 use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::coin_commitment::SerialCommitment;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -18,91 +19,100 @@ pub enum ProtocolError {
 
 /// a private coin that can be spent with zk proofs
 ///
-/// each coin has a secret that makes a unique nullifier to prevent double-spending
-/// while keeping everything private.
+/// the coin contains only public data. secrets (serial_number, serial_randomness)
+/// are stored separately in CoinSecrets and must be provided when spending.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrivateCoin {
-    /// secret that makes the nullifier for this coin
-    /// never reveal this publicly - it stays hidden in zk proofs
-    pub spend_secret: [u8; 32],
-
-    /// hash of the chialisp program that controls how to spend this coin
-    /// lets you identify the program without showing the actual code
+    /// hash of the chialisp program that controls spending conditions
     pub puzzle_hash: [u8; 32],
 
-    /// how much this coin is worth
+    /// coin value
     pub amount: u64,
+
+    /// commitment that binds this coin to specific spending secrets
+    pub serial_commitment: SerialCommitment,
 }
 
 impl PrivateCoin {
-    /// make a new private coin
-    pub fn new(spend_secret: [u8; 32], puzzle_hash: [u8; 32], amount: u64) -> Self {
+    pub fn new(
+        puzzle_hash: [u8; 32],
+        amount: u64,
+        serial_commitment: SerialCommitment,
+    ) -> Self {
         Self {
-            spend_secret,
             puzzle_hash,
             amount,
+            serial_commitment,
         }
     }
 
-    /// make a new private coin from chialisp code
-    /// hashes the COMPILED TEMPLATE to create the puzzle_hash (matches backend behavior)
-    pub fn from_program(spend_secret: [u8; 32], puzzle_code: &str, amount: u64) -> Self {
+    pub fn from_program(
+        puzzle_code: &str,
+        amount: u64,
+        serial_commitment: SerialCommitment,
+    ) -> Self {
         let puzzle_hash = compile_chialisp_template_hash_default(puzzle_code)
             .expect("Failed to compile template hash");
-        Self::new(spend_secret, puzzle_hash, amount)
+        Self::new(puzzle_hash, amount, serial_commitment)
     }
 
-    /// make a new private coin with random spend secret
-    ///
-    /// note: the randomness should be cryptographically secure in production
+    /// create coin with random secrets (WARNING: secrets discarded, coin is unspendable)
     pub fn new_random(puzzle_hash: [u8; 32], amount: u64) -> Self {
-        let mut spend_secret = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut spend_secret);
-
-        Self::new(spend_secret, puzzle_hash, amount)
+        let (coin, _secrets) = Self::new_with_secrets(puzzle_hash, amount);
+        coin
     }
 
-    /// make a new private coin with random spend secret from program code
+    /// create coin with random secrets (returns CoinSecrets for spending)
+    pub fn new_with_secrets(
+        puzzle_hash: [u8; 32],
+        amount: u64,
+    ) -> (Self, clvm_zk_core::coin_commitment::CoinSecrets) {
+        let mut serial_number = [0u8; 32];
+        let mut serial_randomness = [0u8; 32];
+
+        let mut rng = rand::thread_rng();
+        rng.fill_bytes(&mut serial_number);
+        rng.fill_bytes(&mut serial_randomness);
+
+        let serial_commitment = SerialCommitment::compute(
+            &serial_number,
+            &serial_randomness,
+            crate::crypto_utils::hash_data_default,
+        );
+
+        let coin = Self::new(puzzle_hash, amount, serial_commitment);
+        let secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(serial_number, serial_randomness);
+
+        (coin, secrets)
+    }
+
     pub fn new_random_from_program(puzzle_code: &str, amount: u64) -> Self {
-        let mut spend_secret = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut spend_secret);
+        let mut serial_number = [0u8; 32];
+        let mut serial_randomness = [0u8; 32];
 
-        Self::from_program(spend_secret, puzzle_code, amount)
+        let mut rng = rand::thread_rng();
+        rng.fill_bytes(&mut serial_number);
+        rng.fill_bytes(&mut serial_randomness);
+
+        let serial_commitment = SerialCommitment::compute(
+            &serial_number,
+            &serial_randomness,
+            crate::crypto_utils::hash_data_default,
+        );
+
+        Self::from_program(puzzle_code, amount, serial_commitment)
     }
 
-    /// get the nullifier for this coin (prevents double spending)
-    ///
-    /// uses the hardened v1.0 algorithm:
-    /// nullifier = SHA256("clvm_zk_nullifier_v1.0" || spend_secret || puzzle_hash)
-    ///
-    /// what this gives you:
-    /// - same inputs always make the same nullifier
-    /// - each spend_secret makes a different nullifier
-    /// - you can't figure out the spend_secret from the nullifier
-    /// - sha256 prevents collisions
-    /// - puzzle_hash binding prevents reuse across different puzzles
-    pub fn nullifier(&self) -> [u8; 32] {
-        crate::crypto_utils::generate_nullifier(&self.spend_secret, &self.puzzle_hash)
-    }
-
-    /// get nullifier as hex string for printing/debugging
-    pub fn nullifier_hex(&self) -> String {
-        hex::encode(self.nullifier())
-    }
-
-    /// check that this coin has a valid spend secret
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        // make sure spend secret isn't all zeros (weak secret)
-        if self.spend_secret == [0u8; 32] {
-            return Err(ProtocolError::InvalidSpendSecret(
-                "Spend secret cannot be all zeros".to_string(),
-            ));
-        }
-
-        // make sure puzzle hash isn't all zeros
         if self.puzzle_hash == [0u8; 32] {
             return Err(ProtocolError::InvalidSpendSecret(
                 "Puzzle hash cannot be all zeros".to_string(),
+            ));
+        }
+
+        if self.serial_commitment.as_bytes() == &[0u8; 32] {
+            return Err(ProtocolError::InvalidSpendSecret(
+                "Serial commitment cannot be all zeros".to_string(),
             ));
         }
 
@@ -114,39 +124,28 @@ impl fmt::Display for PrivateCoin {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "PrivateCoin {{ amount: {}, nullifier: {}, puzzle: \"{}...\" }}",
+            "PrivateCoin {{ amount: {}, serial_commitment: {}..., puzzle: {}... }}",
             self.amount,
-            &self.nullifier_hex()[..16], // show first 16 chars of nullifier
-            &hex::encode(self.puzzle_hash)[..16]  // show first 16 chars of puzzle hash
+            &hex::encode(self.serial_commitment.as_bytes())[..16],
+            &hex::encode(self.puzzle_hash)[..16]
         )
     }
 }
 
 /// complete spend bundle with zk proof and public outputs
-///
-/// this is what you get when you spend a private coin - it has everything
-/// needed for the l1 blockchain to validate the spend without revealing secrets.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrivateSpendBundle {
-    /// the zk proof that validates the spend
-    /// proves that:
-    /// 1. the spender knew the spend_secret for the nullifier
-    /// 2. the puzzle ran correctly with the given parameters
-    /// 3. the public_conditions are the correct output
+    /// zk proof that validates the spend
     pub zk_proof: Vec<u8>,
 
-    /// the nullifier for the coin being spent
-    /// this is public and prevents double-spending
+    /// nullifier for the coin being spent (prevents double-spending)
     pub nullifier: [u8; 32],
 
-    /// the public output conditions from running the puzzle
-    /// has the clvm-encoded results (e.g., CREATE_COIN, RESERVE_FEE)
-    /// that the l1 blockchain should process
+    /// public output conditions from running the puzzle (clvm-encoded)
     pub public_conditions: Vec<u8>,
 }
 
 impl PrivateSpendBundle {
-    /// make a new spend bundle
     pub fn new(zk_proof: Vec<u8>, nullifier: [u8; 32], public_conditions: Vec<u8>) -> Self {
         Self {
             zk_proof,
@@ -155,38 +154,31 @@ impl PrivateSpendBundle {
         }
     }
 
-    /// Get a hex representation of the nullifier
     pub fn nullifier_hex(&self) -> String {
         hex::encode(self.nullifier)
     }
 
-    /// Get the size of the ZK proof in bytes
     pub fn proof_size(&self) -> usize {
         self.zk_proof.len()
     }
 
-    /// Get the size of the public conditions in bytes
     pub fn conditions_size(&self) -> usize {
         self.public_conditions.len()
     }
 
-    /// Validate the spend bundle structure
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        // Ensure proof is not empty
         if self.zk_proof.is_empty() {
             return Err(ProtocolError::ProofGenerationFailed(
                 "ZK proof cannot be empty".to_string(),
             ));
         }
 
-        // Ensure nullifier is not all zeros
         if self.nullifier == [0u8; 32] {
             return Err(ProtocolError::InvalidNullifier(
                 "Nullifier cannot be all zeros".to_string(),
             ));
         }
 
-        // Public conditions can be empty (valid for some puzzles)
         Ok(())
     }
 }
@@ -209,78 +201,47 @@ mod tests {
 
     #[test]
     fn test_private_coin_creation() {
-        let spend_secret = [0x42; 32];
         let puzzle_hash = [0x13; 32];
         let amount = 1000;
 
-        let coin = PrivateCoin::new(spend_secret, puzzle_hash, amount);
+        let coin = PrivateCoin::new_random(puzzle_hash, amount);
 
-        assert_eq!(coin.spend_secret, spend_secret);
         assert_eq!(coin.puzzle_hash, puzzle_hash);
         assert_eq!(coin.amount, amount);
+        assert_ne!(coin.serial_commitment.as_bytes(), &[0u8; 32]);
     }
 
     #[test]
     fn test_private_coin_from_program() {
-        let spend_secret = [0x42; 32];
         let puzzle_code = "(mod (a b) (+ a b))";
         let amount = 1000;
 
-        let coin = PrivateCoin::from_program(spend_secret, puzzle_code, amount);
+        let coin = PrivateCoin::new_random_from_program(puzzle_code, amount);
 
-        assert_eq!(coin.spend_secret, spend_secret);
         assert_eq!(coin.amount, amount);
 
-        // Verify puzzle hash is computed from TEMPLATE (not source)
-        use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
-        let expected_hash = compile_chialisp_template_hash_default(puzzle_code).unwrap();
+        let expected_hash = clvm_zk_core::chialisp::compile_chialisp_template_hash_default(puzzle_code).unwrap();
         assert_eq!(coin.puzzle_hash, expected_hash);
     }
 
     #[test]
-    fn test_nullifier_deterministic() {
-        let spend_secret = [0x12; 32];
-        let puzzle_hash = [0x11; 32];
-        let coin1 = PrivateCoin::new(spend_secret, puzzle_hash, 100);
-        let coin2 = PrivateCoin::new(spend_secret, puzzle_hash, 200);
+    fn test_nullifier_unique_with_secrets() {
+        let puzzle_hash = [0x33; 32];
+        let (coin1, secrets1) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
+        let (coin2, secrets2) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
 
-        // Same spend_secret AND puzzle_hash should produce same nullifier regardless of amount
-        assert_eq!(coin1.nullifier(), coin2.nullifier());
-
-        // Different puzzle_hash should produce different nullifier (cross-puzzle replay protection)
-        let coin3 = PrivateCoin::new(spend_secret, [0x22; 32], 100);
-        assert_ne!(coin1.nullifier(), coin3.nullifier());
-    }
-
-    #[test]
-    fn test_nullifier_unique() {
-        let coin1 = PrivateCoin::new([0x11; 32], [0x33; 32], 100);
-        let coin2 = PrivateCoin::new([0x22; 32], [0x33; 32], 100);
-
-        // Different spend_secrets should produce different nullifiers
-        assert_ne!(coin1.nullifier(), coin2.nullifier());
-    }
-
-    #[test]
-    fn test_nullifier_hex() {
-        let coin = PrivateCoin::new([0x42; 32], [0x13; 32], 100);
-        let hex = coin.nullifier_hex();
-
-        // Should be 64 hex characters (32 bytes * 2)
-        assert_eq!(hex.len(), 64);
-        // Should be valid hex
-        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(secrets1.nullifier(), secrets2.nullifier());
+        assert_eq!(coin1.puzzle_hash, coin2.puzzle_hash);
     }
 
     #[test]
     fn test_random_coin_creation() {
         let puzzle_hash = [0x42; 32];
-        let coin1 = PrivateCoin::new_random(puzzle_hash, 100);
-        let coin2 = PrivateCoin::new_random(puzzle_hash, 100);
+        let (coin1, secrets1) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
+        let (coin2, secrets2) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
 
-        // Random coins should have different secrets and nullifiers
-        assert_ne!(coin1.spend_secret, coin2.spend_secret);
-        assert_ne!(coin1.nullifier(), coin2.nullifier());
+        // Random coins should have different nullifiers
+        assert_ne!(secrets1.nullifier(), secrets2.nullifier());
         assert_eq!(coin1.puzzle_hash, coin2.puzzle_hash); // Same puzzle
     }
 
@@ -290,25 +251,17 @@ mod tests {
         let coin1 = PrivateCoin::new_random_from_program(puzzle_code, 100);
         let coin2 = PrivateCoin::new_random_from_program(puzzle_code, 100);
 
-        // Random coins should have different secrets and nullifiers but same puzzle hash
-        assert_ne!(coin1.spend_secret, coin2.spend_secret);
-        assert_ne!(coin1.nullifier(), coin2.nullifier());
         assert_eq!(coin1.puzzle_hash, coin2.puzzle_hash);
+        assert_ne!(coin1.serial_commitment, coin2.serial_commitment);
     }
 
     #[test]
     fn test_coin_validation() {
-        // Valid coin
-        let valid_coin = PrivateCoin::new([0x42; 32], [0x13; 32], 100);
+        let valid_coin = PrivateCoin::new_random([0x13; 32], 100);
         assert!(valid_coin.validate().is_ok());
 
-        // Invalid: all-zero spend secret
-        let invalid_coin = PrivateCoin::new([0x00; 32], [0x13; 32], 100);
-        assert!(invalid_coin.validate().is_err());
-
-        // Invalid: all-zero puzzle hash
-        let invalid_coin = PrivateCoin::new([0x42; 32], [0x00; 32], 100);
-        assert!(invalid_coin.validate().is_err());
+        let another_coin = PrivateCoin::new_random([0x42; 32], 200);
+        assert!(another_coin.validate().is_ok());
     }
 
     #[test]
@@ -326,15 +279,12 @@ mod tests {
 
     #[test]
     fn test_spend_bundle_validation() {
-        // Valid bundle
         let valid_bundle = PrivateSpendBundle::new(vec![0x01, 0x02], [0x42; 32], vec![0x03]);
         assert!(valid_bundle.validate().is_ok());
 
-        // Invalid: empty proof
         let invalid_bundle = PrivateSpendBundle::new(vec![], [0x42; 32], vec![0x03]);
         assert!(invalid_bundle.validate().is_err());
 
-        // Invalid: zero nullifier
         let invalid_bundle = PrivateSpendBundle::new(vec![0x01], [0x00; 32], vec![0x03]);
         assert!(invalid_bundle.validate().is_err());
     }

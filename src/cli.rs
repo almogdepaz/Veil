@@ -712,18 +712,46 @@ struct WalletData {
     network: Network,
     account_index: u32,
     next_coin_index: u32, // Track next coin index for HD derivation
-    coins: Vec<WalletCoin>,
+    coins: Vec<WalletCoinWrapper>,
 }
 
+/// wrapper around WalletPrivateCoin with additional CLI-specific state
 #[derive(Serialize, Deserialize, Clone)]
-struct WalletCoin {
-    spend_secret: [u8; 32],
-    puzzle_hash: [u8; 32],
-    amount: u64,
-    nullifier: [u8; 32],
+struct WalletCoinWrapper {
+    /// the actual wallet coin with secrets
+    wallet_coin: crate::wallet::WalletPrivateCoin,
+    /// the chialisp program for this coin
     program: String,
-    coin_index: u32, // HD derivation index
+    /// whether this coin has been spent
     spent: bool,
+}
+
+impl WalletCoinWrapper {
+    /// get coin amount
+    fn amount(&self) -> u64 {
+        self.wallet_coin.amount()
+    }
+
+    /// get coin nullifier
+    fn nullifier(&self) -> [u8; 32] {
+        self.wallet_coin.nullifier()
+    }
+
+    /// get coin puzzle hash
+    #[allow(dead_code)]
+    fn puzzle_hash(&self) -> [u8; 32] {
+        self.wallet_coin.puzzle_hash()
+    }
+
+    /// convert to PrivateCoin for spending
+    fn to_private_coin(&self) -> PrivateCoin {
+        self.wallet_coin.to_protocol_coin()
+    }
+
+    /// get coin secrets (needed for spending with serial commitment)
+    fn secrets(&self) -> &clvm_zk_core::coin_commitment::CoinSecrets {
+        &self.wallet_coin.secrets
+    }
 }
 
 impl WalletData {
@@ -745,23 +773,19 @@ impl WalletData {
         puzzle_hash: [u8; 32],
         amount: u64,
         program: String,
-    ) -> Result<WalletCoin, WalletError> {
-        let hd_wallet = self.get_hd_wallet()?;
+    ) -> Result<WalletCoinWrapper, WalletError> {
         let coin_index = self.next_coin_index();
 
-        // Derive spend secret using HD wallet
-        let spend_secret_data = hd_wallet.derive_spend_secret(self.account_index, coin_index)?;
-
-        // Create nullifier using HD wallet (need puzzle hash)
-        let nullifier = hd_wallet.create_nullifier(self.account_index, coin_index, puzzle_hash)?;
-
-        Ok(WalletCoin {
-            spend_secret: spend_secret_data.secret,
+        let wallet_coin = crate::wallet::WalletPrivateCoin::new(
             puzzle_hash,
             amount,
-            nullifier: nullifier.bytes,
-            program,
+            self.account_index,
             coin_index,
+        );
+
+        Ok(WalletCoinWrapper {
+            wallet_coin,
+            program,
             spent: false,
         })
     }
@@ -769,11 +793,10 @@ impl WalletData {
 
 #[derive(Serialize, Deserialize, Clone)]
 struct PuzzleCoin {
-    spend_secret: [u8; 32],
     puzzle_hash: [u8; 32],
     amount: u64,
     program: String,
-    nullifier: [u8; 32],
+    secrets: clvm_zk_core::coin_commitment::CoinSecrets,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -796,8 +819,8 @@ struct DiscoveredCoin {
 fn parse_coin_indices(
     coin_indices: &str,
     wallet: &WalletData,
-) -> Result<Vec<WalletCoin>, ClvmZkError> {
-    let unspent_coins: Vec<&WalletCoin> = wallet.coins.iter().filter(|c| !c.spent).collect();
+) -> Result<Vec<WalletCoinWrapper>, ClvmZkError> {
+    let unspent_coins: Vec<&WalletCoinWrapper> = wallet.coins.iter().filter(|c| !c.spent).collect();
 
     if coin_indices == "all" {
         return Ok(unspent_coins.into_iter().cloned().collect());
@@ -1021,7 +1044,7 @@ fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Resul
                 .coins
                 .iter()
                 .filter(|c| !c.spent)
-                .map(|c| c.amount)
+                .map(|c| c.amount())
                 .sum();
 
             let unspent_count = wallet.coins.iter().filter(|c| !c.spent).count();
@@ -1044,12 +1067,13 @@ fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Resul
             println!("coins in wallet '{}':", name);
             for (i, coin) in wallet.coins.iter().enumerate() {
                 let status = if coin.spent { "spent" } else { "unspent" };
+                let nullifier = coin.nullifier();
                 println!(
                     "  {}. {} {} (nullifier: {}...)",
                     i,
-                    coin.amount,
+                    coin.amount(),
                     status,
-                    hex::encode(&coin.nullifier[0..8])
+                    hex::encode(&nullifier[0..8])
                 );
             }
         }
@@ -1059,7 +1083,7 @@ fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Resul
                 ClvmZkError::InvalidProgram(format!("wallet '{}' not found", name))
             })?;
 
-            let unspent_coins: Vec<(usize, &WalletCoin)> = wallet
+            let unspent_coins: Vec<(usize, &WalletCoinWrapper)> = wallet
                 .coins
                 .iter()
                 .enumerate()
@@ -1077,13 +1101,14 @@ fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Resul
             );
             let mut total = 0u64;
             for (i, coin) in &unspent_coins {
+                let nullifier = coin.nullifier();
                 println!(
                     "  [{}] {} (nullifier: {}...)",
                     i,
-                    coin.amount,
-                    hex::encode(&coin.nullifier[0..8])
+                    coin.amount(),
+                    hex::encode(&nullifier[0..8])
                 );
-                total += coin.amount;
+                total += coin.amount();
             }
 
             println!("total unspent: {}", total);
@@ -1098,7 +1123,7 @@ fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Resul
                 .coins
                 .iter()
                 .filter(|c| !c.spent)
-                .map(|c| c.amount)
+                .map(|c| c.amount())
                 .sum();
 
             let unspent_count = wallet.coins.iter().filter(|c| !c.spent).count();
@@ -1183,7 +1208,7 @@ fn wallets_command(data_dir: &Path) -> Result<(), ClvmZkError> {
             .coins
             .iter()
             .filter(|c| !c.spent)
-            .map(|c| c.amount)
+            .map(|c| c.amount())
             .sum();
 
         let unspent = wallet.coins.iter().filter(|c| !c.spent).count();
@@ -1249,13 +1274,13 @@ fn send_command(
         let mut selected_amount = 0u64;
 
         // sort coins by amount (descending) for better selection
-        let mut coin_choices: Vec<(usize, &WalletCoin)> = from_wallet
+        let mut coin_choices: Vec<(usize, &WalletCoinWrapper)> = from_wallet
             .coins
             .iter()
             .enumerate()
             .filter(|(_, coin)| !coin.spent)
             .collect();
-        coin_choices.sort_by(|a, b| b.1.amount.cmp(&a.1.amount));
+        coin_choices.sort_by(|a, b| b.1.amount().cmp(&a.1.amount()));
 
         // greedily select coins until we have enough
         for (index, coin) in coin_choices {
@@ -1263,7 +1288,7 @@ fn send_command(
                 break;
             }
             selected_indices.push(index);
-            selected_amount += coin.amount;
+            selected_amount += coin.amount();
         }
 
         if selected_amount < amount {
@@ -1309,9 +1334,11 @@ fn send_command(
             )));
         }
 
-        let private_coin = PrivateCoin::new(coin.spend_secret, coin.puzzle_hash, coin.amount);
-        coins_to_spend.push((private_coin, coin.program.clone()));
-        total_input += coin.amount;
+        // convert wallet coin to protocol coin for spending, keeping secrets
+        let private_coin = coin.to_private_coin();
+        let secrets = coin.secrets().clone();
+        coins_to_spend.push((private_coin, coin.program.clone(), secrets));
+        total_input += coin.amount();
     }
 
     // validate sufficient balance
@@ -1333,9 +1360,10 @@ fn send_command(
     let mut sim = CLVMZkSimulator::new();
 
     // add coins to simulator UTXO set
-    for (coin, _program) in &coins_to_spend {
+    for (coin, _program, secrets) in &coins_to_spend {
         sim.add_coin(
             coin.clone(),
+            secrets,
             CoinMetadata {
                 owner: from.to_string(),
                 coin_type: CoinType::Regular,
@@ -1344,7 +1372,7 @@ fn send_command(
         );
     }
 
-    // attempt to spend coins using simulator
+    // spend coins using serial commitment protocol (v2.0)
     let tx_result = sim.spend_coins(coins_to_spend);
 
     match tx_result {
@@ -1408,13 +1436,6 @@ fn send_command(
     Ok(())
 }
 
-// Simple spend secret derivation for non-wallet puzzle coins
-fn derive_puzzle_spend_secret(index: u64) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"puzzle_spend_secret_derivation_v1");
-    hasher.update(index.to_le_bytes());
-    hasher.finalize().into()
-}
 
 // ============================================================================
 // General Purpose Puzzle Commands
@@ -1443,7 +1464,7 @@ fn spend_to_puzzle_command(
     // get spendable coins from source wallet
     let spend_coins = parse_coin_indices(coins, &state.wallets[from])?;
 
-    let total_input: u64 = spend_coins.iter().map(|c| c.amount).sum();
+    let total_input: u64 = spend_coins.iter().map(|c| c.amount()).sum();
     if total_input < amount {
         return Err(ClvmZkError::ProofGenerationFailed(format!(
             "insufficient funds: need {}, have {}",
@@ -1457,8 +1478,10 @@ fn spend_to_puzzle_command(
         spend_coins
             .iter()
             .map(|wc| {
-                let coin = PrivateCoin::new(wc.spend_secret, wc.puzzle_hash, wc.amount);
-                (coin, wc.program.clone())
+                // convert wallet coin to protocol coin for spending
+                let coin = wc.to_private_coin();
+                let secrets = wc.secrets().clone();
+                (coin, wc.program.clone(), secrets)
             })
             .collect(),
     ) {
@@ -1466,25 +1489,24 @@ fn spend_to_puzzle_command(
             // mark coins as spent
             let from_wallet = state.wallets.get_mut(from).unwrap();
             for coin in &spend_coins {
+                let coin_nullifier = coin.nullifier();
                 if let Some(wallet_coin) = from_wallet
                     .coins
                     .iter_mut()
-                    .find(|c| c.nullifier == coin.nullifier)
+                    .find(|c| c.nullifier() == coin_nullifier)
                 {
                     wallet_coin.spent = true;
                 }
             }
 
-            // create new puzzle coin
-            let spend_secret = derive_puzzle_spend_secret(state.faucet_nonce);
-            state.faucet_nonce += 1;
+            // create new puzzle coin with proper CoinSecrets
+            let (_coin, secrets) = PrivateCoin::new_with_secrets(puzzle_hash, amount);
 
             let puzzle_coin = PuzzleCoin {
-                spend_secret,
                 puzzle_hash,
                 amount,
                 program: program.to_string(),
-                nullifier: PrivateCoin::new(spend_secret, puzzle_hash, amount).nullifier(),
+                secrets,
             };
 
             // store puzzle coin in simulator state
@@ -1516,7 +1538,7 @@ fn spend_to_puzzle_command(
             println!(
                 "locked {} in puzzle coin (nullifier: {}..., program: {})",
                 amount,
-                hex::encode(&puzzle_coin.nullifier[0..8]),
+                hex::encode(&puzzle_coin.secrets.nullifier()[0..8]),
                 program
             );
         }
@@ -1576,17 +1598,19 @@ fn spend_to_wallet_command(
 
     // create simulator and spend the puzzle coin
     let mut sim = CLVMZkSimulator::new();
+    // reconstruct PrivateCoin from puzzle_coin data
     let coin = PrivateCoin::new(
-        puzzle_coin.spend_secret,
         puzzle_coin.puzzle_hash,
         puzzle_coin.amount,
+        puzzle_coin.secrets.serial_commitment(crate::crypto_utils::hash_data_default),
     );
 
-    match sim.spend_coins(vec![(coin, puzzle_coin.program.clone())]) {
+    match sim.spend_coins(vec![(coin, puzzle_coin.program.clone(), puzzle_coin.secrets.clone())]) {
         Ok(_tx) => {
             // remove the spent puzzle coin
             let puzzle_coins = state.puzzle_coins.as_mut().unwrap();
-            puzzle_coins.retain(|c| c.nullifier != puzzle_coin.nullifier);
+            let spent_nullifier = puzzle_coin.secrets.nullifier();
+            puzzle_coins.retain(|c| c.secrets.nullifier() != spent_nullifier);
 
             // create new coin for destination wallet
             let to_wallet = state.wallets.get_mut(to).unwrap();
@@ -1602,16 +1626,13 @@ fn spend_to_wallet_command(
             let change = puzzle_coin.amount - amount;
             if change > 0 {
                 let change_puzzle_hash = Sha256::digest(puzzle_coin.program.as_bytes()).into();
-                let spend_secret = derive_puzzle_spend_secret(state.faucet_nonce);
-                state.faucet_nonce += 1;
+                let (_coin, secrets) = PrivateCoin::new_with_secrets(change_puzzle_hash, change);
 
                 let change_puzzle_coin = PuzzleCoin {
-                    spend_secret,
                     puzzle_hash: change_puzzle_hash,
                     amount: change,
                     program: puzzle_coin.program.clone(),
-                    nullifier: PrivateCoin::new(spend_secret, change_puzzle_hash, change)
-                        .nullifier(),
+                    secrets,
                 };
 
                 puzzle_coins.push(change_puzzle_coin);
@@ -1637,8 +1658,7 @@ fn spend_to_wallet_command(
 }
 
 fn observer_command(data_dir: &PathBuf, action: ObserverAction) -> Result<(), ClvmZkError> {
-    use crate::wallet::hd_wallet::ViewOnlyWallet;
-    use crate::wallet::{Network, ViewingKey};
+    use crate::wallet::Network;
 
     let mut state = SimulatorState::load(data_dir)?;
 
@@ -1721,51 +1741,11 @@ fn observer_command(data_dir: &PathBuf, action: ObserverAction) -> Result<(), Cl
         }
 
         ObserverAction::Scan { name, max_index } => {
-            let observer = state.observer_wallets.get_mut(&name).ok_or_else(|| {
-                ClvmZkError::InvalidProgram(format!("observer wallet \"{}\" not found", name))
-            })?;
+            let _ = (name, max_index);
 
-            let viewing_key = ViewingKey {
-                key: observer.viewing_key,
-                account_index: observer.account_index,
-                network: observer.network,
-            };
-
-            let view_wallet = ViewOnlyWallet::from_viewing_key(viewing_key);
-            let mut discovered = 0;
-
-            // Simple scanning implementation
-            for coin_index in 0..max_index {
-                let viewing_tag = view_wallet.derive_viewing_tag(coin_index);
-
-                // Check if this viewing tag matches any existing coins
-                for wallet in state.wallets.values() {
-                    for coin in &wallet.coins {
-                        if let Ok(wallet_hd) = wallet.get_hd_wallet() {
-                            if let Ok(account) = wallet_hd.derive_account(wallet.account_index) {
-                                let coin_keys =
-                                    account.derive_coin_keys(coin_index, coin.puzzle_hash);
-                                if coin_keys.viewing_tag == viewing_tag {
-                                    let discovered_coin = DiscoveredCoin {
-                                        coin_index,
-                                        viewing_tag,
-                                        nullifier: Some(coin.nullifier),
-                                    };
-                                    observer.discovered_coins.push(discovered_coin);
-                                    discovered += 1;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            state.save(data_dir)?;
-            println!(
-                "scanned {} coin indices, discovered {} new coins",
-                max_index, discovered
-            );
+            return Err(ClvmZkError::InvalidProgram(
+                "observer scanning not supported - requires coinsecrets backup".to_string()
+            ));
         }
     }
 
