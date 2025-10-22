@@ -128,6 +128,20 @@ cargo run --release -- sim wallet alice unspent       # Show unspent coins
 cargo run --release -- sim wallet alice balance       # Show balance only
 ```
 
+## encrypted payment notes
+
+- alice sends to bob → creates encrypted note (bob doesn't receive coin yet)
+- bob runs `sim scan bob` → decrypts notes, discovers payments
+- uses x25519 ecdh + chacha20-poly1305 authenticated encryption
+- supports memos (e.g., "payment from alice")
+
+see [ENCRYPTED_NOTES.md](ENCRYPTED_NOTES.md) for full documentation.
+
+**quick test:**
+```bash
+./TEST_ENCRYPTED_NOTES.sh
+```
+
 ## Features
 
 - Real ZK proof generation using RISC0/SP1 backends

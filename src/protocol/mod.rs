@@ -34,11 +34,13 @@
 //! println!("Nullifier (keep secret): {}", hex::encode(secrets.nullifier()));
 //! ```
 
+pub mod encrypted_notes;
 pub mod puzzles;
 pub mod spender;
 pub mod structures;
 
 // Re-export main types for convenient access
+pub use encrypted_notes::{EncryptedNote, PaymentNote};
 pub use puzzles::{
     create_password_puzzle, create_password_puzzle_program, create_password_spend_parameters,
     create_password_spend_params, create_signature_puzzle, create_signature_spend_params,

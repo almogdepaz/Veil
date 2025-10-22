@@ -72,6 +72,21 @@ impl CLVMHDWallet {
             hasher.update(spending_key);
             hasher.finalize().into()
         };
+        
+        // Derive x25519 key for encrypted note decryption
+        let note_encryption_private = {
+            let mut hasher = Sha256::new();
+            hasher.update(b"clvm_zk_note_encryption_v1");
+            hasher.update(account_bytes);
+            hasher.finalize().into()
+        };
+        
+        // Compute x25519 public key
+        let note_encryption_public = {
+            use x25519_dalek::{PublicKey, StaticSecret};
+            let secret = StaticSecret::from(note_encryption_private);
+            PublicKey::from(&secret).to_bytes()
+        };
 
         let nullifier_key = {
             let mut hasher = Sha256::new();
@@ -84,6 +99,8 @@ impl CLVMHDWallet {
             spending_key,
             viewing_key,
             nullifier_key,
+            note_encryption_private,
+            note_encryption_public,
             account_index,
             network: self.network,
             _account_xprv: account_xprv,
@@ -100,6 +117,8 @@ pub struct AccountKeys {
     pub spending_key: [u8; 32],
     pub viewing_key: [u8; 32],
     pub nullifier_key: [u8; 32],
+    pub note_encryption_private: [u8; 32],  // x25519 private key for decrypting notes
+    pub note_encryption_public: [u8; 32],   // x25519 public key for receiving notes
     pub account_index: u32,
     pub network: crate::wallet::Network,
     _account_xprv: XPrv, // Keep for potential child derivation
