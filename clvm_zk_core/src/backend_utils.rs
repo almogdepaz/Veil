@@ -25,6 +25,7 @@ pub fn prepare_guest_inputs(
 }
 
 /// Prepare inputs with serial commitment protocol (v2.0)
+#[allow(clippy::too_many_arguments)]
 pub fn prepare_guest_inputs_with_serial(
     chialisp_source: &str,
     program_parameters: &[ProgramParameter],

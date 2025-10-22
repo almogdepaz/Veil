@@ -158,6 +158,7 @@ impl ClvmZkProver {
     }
 
     /// prove spending with serial commitment verification and merkle membership
+    #[allow(clippy::too_many_arguments)]
     pub fn prove_with_serial_commitment(
         expression: &str,
         parameters: &[ProgramParameter],
@@ -203,7 +204,7 @@ impl ClvmZkProver {
         #[cfg(feature = "mock")]
         {
             let backend = clvm_zk_mock::MockBackend::new()?;
-            return backend.prove_with_input(input);
+            backend.prove_with_input(input)
         }
     }
 }
