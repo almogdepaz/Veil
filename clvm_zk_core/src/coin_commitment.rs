@@ -55,7 +55,6 @@ impl SerialCommitment {
     }
 }
 
-
 /// commitment to full coin data
 ///
 /// used as a leaf in the global merkle tree to prove coin existence
@@ -92,7 +91,6 @@ impl CoinCommitment {
     }
 }
 
-
 /// wallet storage for coin secrets
 ///
 /// stores the private information needed to spend a coin.
@@ -101,7 +99,7 @@ impl CoinCommitment {
 pub struct CoinSecrets {
     /// the serial number - becomes the nullifier when spending
     pub serial_number: [u8; 32],
-    
+
     /// randomness used to blind the serial commitment
     pub serial_randomness: [u8; 32],
 }
@@ -156,7 +154,8 @@ mod tests {
         let commitment = SerialCommitment::compute(&serial_number, &serial_randomness, test_hasher);
 
         // verify it produces consistent output
-        let commitment2 = SerialCommitment::compute(&serial_number, &serial_randomness, test_hasher);
+        let commitment2 =
+            SerialCommitment::compute(&serial_number, &serial_randomness, test_hasher);
         assert_eq!(commitment, commitment2);
     }
 
@@ -182,7 +181,7 @@ mod tests {
     #[test]
     fn test_different_serials_different_commitments() {
         let serial_randomness = [2u8; 32];
-        
+
         let serial1 = [1u8; 32];
         let serial2 = [3u8; 32];
 
@@ -195,7 +194,7 @@ mod tests {
     #[test]
     fn test_different_randomness_different_commitments() {
         let serial_number = [1u8; 32];
-        
+
         let randomness1 = [2u8; 32];
         let randomness2 = [3u8; 32];
 
@@ -211,20 +210,12 @@ mod tests {
         let puzzle_hash = [5u8; 32];
         let serial_commitment = SerialCommitment([6u8; 32]);
 
-        let commitment = CoinCommitment::compute(
-            amount,
-            &puzzle_hash,
-            &serial_commitment,
-            test_hasher,
-        );
+        let commitment =
+            CoinCommitment::compute(amount, &puzzle_hash, &serial_commitment, test_hasher);
 
         // verify consistent
-        let commitment2 = CoinCommitment::compute(
-            amount,
-            &puzzle_hash,
-            &serial_commitment,
-            test_hasher,
-        );
+        let commitment2 =
+            CoinCommitment::compute(amount, &puzzle_hash, &serial_commitment, test_hasher);
         assert_eq!(commitment, commitment2);
     }
 
@@ -233,8 +224,10 @@ mod tests {
         let puzzle_hash = [5u8; 32];
         let serial_commitment = SerialCommitment([6u8; 32]);
 
-        let commitment1 = CoinCommitment::compute(1000, &puzzle_hash, &serial_commitment, test_hasher);
-        let commitment2 = CoinCommitment::compute(2000, &puzzle_hash, &serial_commitment, test_hasher);
+        let commitment1 =
+            CoinCommitment::compute(1000, &puzzle_hash, &serial_commitment, test_hasher);
+        let commitment2 =
+            CoinCommitment::compute(2000, &puzzle_hash, &serial_commitment, test_hasher);
 
         assert_ne!(commitment1, commitment2);
     }
@@ -246,7 +239,8 @@ mod tests {
         let secrets = CoinSecrets::new(serial_number, serial_randomness);
 
         let commitment1 = secrets.serial_commitment(test_hasher);
-        let commitment2 = SerialCommitment::compute(&serial_number, &serial_randomness, test_hasher);
+        let commitment2 =
+            SerialCommitment::compute(&serial_number, &serial_randomness, test_hasher);
 
         assert_eq!(commitment1, commitment2);
     }

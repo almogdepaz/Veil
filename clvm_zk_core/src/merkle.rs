@@ -82,7 +82,11 @@ impl SparseMerkleTree {
     }
 
     /// generate authentication path (merkle proof) for a leaf
-    pub fn generate_proof(&self, leaf_index: usize, hasher: fn(&[u8]) -> [u8; 32]) -> Result<MerkleProof, &'static str> {
+    pub fn generate_proof(
+        &self,
+        leaf_index: usize,
+        hasher: fn(&[u8]) -> [u8; 32],
+    ) -> Result<MerkleProof, &'static str> {
         if leaf_index >= self.leaves.len() {
             return Err("leaf index out of bounds");
         }
@@ -120,7 +124,12 @@ impl SparseMerkleTree {
     }
 
     /// compute hash of a node at given index and level
-    fn compute_node_hash(&self, index: usize, level: usize, hasher: fn(&[u8]) -> [u8; 32]) -> [u8; 32] {
+    fn compute_node_hash(
+        &self,
+        index: usize,
+        level: usize,
+        hasher: fn(&[u8]) -> [u8; 32],
+    ) -> [u8; 32] {
         if level == 0 {
             // base case: leaf level
             if index < self.leaves.len() {

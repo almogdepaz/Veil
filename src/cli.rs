@@ -1040,9 +1040,10 @@ fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Resul
             // Derive encryption keys from seed
             let hd_wallet = CLVMHDWallet::from_seed(&seed, Network::Testnet)
                 .map_err(|e| ClvmZkError::InvalidProgram(format!("HD wallet error: {}", e)))?;
-            
-            let account_keys = hd_wallet.derive_account(0)
-                .map_err(|e| ClvmZkError::InvalidProgram(format!("Account derivation error: {}", e)))?;
+
+            let account_keys = hd_wallet.derive_account(0).map_err(|e| {
+                ClvmZkError::InvalidProgram(format!("Account derivation error: {}", e))
+            })?;
 
             let wallet = WalletData {
                 name: name.to_string(),
@@ -1059,7 +1060,10 @@ fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Resul
             state.save(data_dir)?;
 
             println!("created wallet '{}'", name);
-            println!("payment address (viewing public key): {}", hex::encode(account_keys.note_encryption_public));
+            println!(
+                "payment address (viewing public key): {}",
+                hex::encode(account_keys.note_encryption_public)
+            );
         }
 
         WalletAction::Show => {
@@ -1434,7 +1438,7 @@ fn send_command(
 
                 // Extract coin secrets for encryption
                 let secrets = wallet_coin.secrets();
-                
+
                 // Create encrypted payment note
                 let payment_note = crate::protocol::PaymentNote {
                     serial_number: secrets.serial_number,
@@ -1443,10 +1447,13 @@ fn send_command(
                     puzzle_hash,
                     memo: format!("payment from {}", from).into_bytes(),
                 };
-                
-                let encrypted_note = crate::protocol::EncryptedNote::encrypt(&recipient_public_key, &payment_note)
-                    .map_err(|e| ClvmZkError::InvalidProgram(format!("failed to encrypt note: {}", e)))?;
-                
+
+                let encrypted_note =
+                    crate::protocol::EncryptedNote::encrypt(&recipient_public_key, &payment_note)
+                        .map_err(|e| {
+                        ClvmZkError::InvalidProgram(format!("failed to encrypt note: {}", e))
+                    })?;
+
                 // Add note to global pool
                 state.encrypted_notes.push(encrypted_note);
 
@@ -1490,7 +1497,6 @@ fn send_command(
     Ok(())
 }
 
-
 fn scan_command(data_dir: &PathBuf, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
@@ -1507,7 +1513,11 @@ fn scan_command(data_dir: &PathBuf, wallet_name: &str) -> Result<(), ClvmZkError
         ))
     })?;
 
-    println!("scanning {} encrypted notes for wallet '{}'...", state.encrypted_notes.len(), wallet_name);
+    println!(
+        "scanning {} encrypted notes for wallet '{}'...",
+        state.encrypted_notes.len(),
+        wallet_name
+    );
 
     let mut found_count = 0;
     let mut total_amount = 0u64;
@@ -1517,11 +1527,11 @@ fn scan_command(data_dir: &PathBuf, wallet_name: &str) -> Result<(), ClvmZkError
         if let Ok(payment_note) = note.decrypt(&decryption_key) {
             // This note is for us!
             println!("  found payment note #{}: {} mojos", i, payment_note.amount);
-            
+
             // Check if we already have this coin
             let nullifier = payment_note.serial_number;
             let already_have = wallet.coins.iter().any(|c| c.nullifier() == nullifier);
-            
+
             if already_have {
                 println!("    (already in wallet, skipping)");
                 continue;
@@ -1550,7 +1560,7 @@ fn scan_command(data_dir: &PathBuf, wallet_name: &str) -> Result<(), ClvmZkError
             let wallet_coin = crate::wallet::WalletPrivateCoin {
                 coin,
                 secrets,
-                account_index: 0,  // scanned coins don't have HD derivation path
+                account_index: 0, // scanned coins don't have HD derivation path
                 coin_index: 0,
             };
 
@@ -1747,10 +1757,16 @@ fn spend_to_wallet_command(
     let coin = PrivateCoin::new(
         puzzle_coin.puzzle_hash,
         puzzle_coin.amount,
-        puzzle_coin.secrets.serial_commitment(crate::crypto_utils::hash_data_default),
+        puzzle_coin
+            .secrets
+            .serial_commitment(crate::crypto_utils::hash_data_default),
     );
 
-    match sim.spend_coins(vec![(coin, puzzle_coin.program.clone(), puzzle_coin.secrets.clone())]) {
+    match sim.spend_coins(vec![(
+        coin,
+        puzzle_coin.program.clone(),
+        puzzle_coin.secrets.clone(),
+    )]) {
         Ok(_tx) => {
             // remove the spent puzzle coin
             let puzzle_coins = state.puzzle_coins.as_mut().unwrap();
@@ -1889,7 +1905,7 @@ fn observer_command(data_dir: &PathBuf, action: ObserverAction) -> Result<(), Cl
             let _ = (name, max_index);
 
             return Err(ClvmZkError::InvalidProgram(
-                "observer scanning not supported - requires coinsecrets backup".to_string()
+                "observer scanning not supported - requires coinsecrets backup".to_string(),
             ));
         }
     }

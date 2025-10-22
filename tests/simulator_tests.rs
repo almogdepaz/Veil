@@ -53,7 +53,10 @@ fn test_basic_coin_creation_and_nullifiers() {
         "alice coin nullifier: {}",
         hex::encode(alice_secrets.nullifier())
     );
-    println!("bob coin nullifier: {}", hex::encode(bob_secrets.nullifier()));
+    println!(
+        "bob coin nullifier: {}",
+        hex::encode(bob_secrets.nullifier())
+    );
 
     assert_ne!(alice_secrets.nullifier(), bob_secrets.nullifier());
 
@@ -104,7 +107,11 @@ fn test_double_spend_prevention() {
     );
 
     println!("attempting first spend...");
-    let result1 = sim.spend_coins(vec![(coin.clone(), puzzle_program.clone(), secrets.clone())]);
+    let result1 = sim.spend_coins(vec![(
+        coin.clone(),
+        puzzle_program.clone(),
+        secrets.clone(),
+    )]);
 
     match result1 {
         Ok(tx) => {
@@ -166,7 +173,11 @@ fn test_multi_user_privacy_mixing() {
             },
         );
 
-        println!("{} coin nullifier: {}", user, hex::encode(secrets.nullifier()));
+        println!(
+            "{} coin nullifier: {}",
+            user,
+            hex::encode(secrets.nullifier())
+        );
         coin_programs.push((coin, puzzle_program.clone(), secrets));
     }
 
@@ -244,8 +255,16 @@ fn test_simulator_state_tracking() {
     assert_eq!(stats.total_transactions, 0);
 
     let spend_result = sim.spend_coins(vec![
-        (created_coins[0].clone(), puzzle_program.clone(), created_secrets[0].clone()),
-        (created_coins[1].clone(), puzzle_program.clone(), created_secrets[1].clone()),
+        (
+            created_coins[0].clone(),
+            puzzle_program.clone(),
+            created_secrets[0].clone(),
+        ),
+        (
+            created_coins[1].clone(),
+            puzzle_program.clone(),
+            created_secrets[1].clone(),
+        ),
     ]);
 
     match spend_result {

@@ -51,7 +51,12 @@ impl CoinFactory {
         users: &[&str],
         amounts: &[u64],
         puzzle_type: PuzzleType,
-    ) -> Vec<(String, PrivateCoin, [u8; 4], clvm_zk_core::coin_commitment::CoinSecrets)> {
+    ) -> Vec<(
+        String,
+        PrivateCoin,
+        [u8; 4],
+        clvm_zk_core::coin_commitment::CoinSecrets,
+    )> {
         users
             .iter()
             .zip(amounts.iter())
@@ -145,8 +150,6 @@ pub enum PuzzleType {
     Atomic,
 }
 
-
-
 // ============================================================================
 // Test Scenarios
 // ============================================================================
@@ -180,7 +183,11 @@ impl TestScenarios {
         );
 
         // First spend should succeed
-        let result1 = sim.spend_coins(vec![(coin.clone(), puzzle_program.clone(), secrets.clone())]);
+        let result1 = sim.spend_coins(vec![(
+            coin.clone(),
+            puzzle_program.clone(),
+            secrets.clone(),
+        )]);
         assert!(result1.is_ok(), "First spend should succeed");
 
         // Second spend should fail (double-spend)
@@ -250,7 +257,11 @@ impl TestScenarios {
 
         // Mix all coins in one transaction
         let (puzzle_program, _) = Self::create_test_puzzle_for_scenarios(1000);
-        let coins_to_spend: Vec<(PrivateCoin, String, clvm_zk_core::coin_commitment::CoinSecrets)> = user_coins
+        let coins_to_spend: Vec<(
+            PrivateCoin,
+            String,
+            clvm_zk_core::coin_commitment::CoinSecrets,
+        )> = user_coins
             .into_iter()
             .map(|(_, coin, _, secrets)| (coin, puzzle_program.clone(), secrets))
             .collect();

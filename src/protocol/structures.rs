@@ -34,11 +34,7 @@ pub struct PrivateCoin {
 }
 
 impl PrivateCoin {
-    pub fn new(
-        puzzle_hash: [u8; 32],
-        amount: u64,
-        serial_commitment: SerialCommitment,
-    ) -> Self {
+    pub fn new(puzzle_hash: [u8; 32], amount: u64, serial_commitment: SerialCommitment) -> Self {
         Self {
             puzzle_hash,
             amount,
@@ -81,7 +77,8 @@ impl PrivateCoin {
         );
 
         let coin = Self::new(puzzle_hash, amount, serial_commitment);
-        let secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(serial_number, serial_randomness);
+        let secrets =
+            clvm_zk_core::coin_commitment::CoinSecrets::new(serial_number, serial_randomness);
 
         (coin, secrets)
     }
@@ -220,7 +217,8 @@ mod tests {
 
         assert_eq!(coin.amount, amount);
 
-        let expected_hash = clvm_zk_core::chialisp::compile_chialisp_template_hash_default(puzzle_code).unwrap();
+        let expected_hash =
+            clvm_zk_core::chialisp::compile_chialisp_template_hash_default(puzzle_code).unwrap();
         assert_eq!(coin.puzzle_hash, expected_hash);
     }
 

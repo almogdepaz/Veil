@@ -101,17 +101,25 @@ impl CLVMZkSimulator {
             new_nullifiers.push(nullifier);
         }
 
-        let merkle_root = self.coin_tree.root().ok_or_else(|| {
-            SimulatorError::TestFailed("merkle tree has no root".to_string())
-        })?;
-        
+        let merkle_root = self
+            .coin_tree
+            .root()
+            .ok_or_else(|| SimulatorError::TestFailed("merkle tree has no root".to_string()))?;
+
         let mut spend_bundles = Vec::new();
         for (coin, program, params, secrets) in spends {
             let merkle_path = self.get_merkle_path(&coin).ok_or_else(|| {
                 SimulatorError::TestFailed("coin not found in merkle tree".to_string())
             })?;
 
-            match Spender::create_spend_with_serial(&coin, &program, &params, &secrets, merkle_path, merkle_root) {
+            match Spender::create_spend_with_serial(
+                &coin,
+                &program,
+                &params,
+                &secrets,
+                merkle_path,
+                merkle_root,
+            ) {
                 Ok(bundle) => spend_bundles.push(bundle),
                 Err(e) => return Err(SimulatorError::ProofGeneration(format!("{:?}", e))),
             }

@@ -72,7 +72,7 @@ impl CLVMHDWallet {
             hasher.update(spending_key);
             hasher.finalize().into()
         };
-        
+
         // Derive x25519 key for encrypted note decryption
         let note_encryption_private = {
             let mut hasher = Sha256::new();
@@ -80,7 +80,7 @@ impl CLVMHDWallet {
             hasher.update(account_bytes);
             hasher.finalize().into()
         };
-        
+
         // Compute x25519 public key
         let note_encryption_public = {
             use x25519_dalek::{PublicKey, StaticSecret};
@@ -117,8 +117,8 @@ pub struct AccountKeys {
     pub spending_key: [u8; 32],
     pub viewing_key: [u8; 32],
     pub nullifier_key: [u8; 32],
-    pub note_encryption_private: [u8; 32],  // x25519 private key for decrypting notes
-    pub note_encryption_public: [u8; 32],   // x25519 public key for receiving notes
+    pub note_encryption_private: [u8; 32], // x25519 private key for decrypting notes
+    pub note_encryption_public: [u8; 32],  // x25519 public key for receiving notes
     pub account_index: u32,
     pub network: crate::wallet::Network,
     _account_xprv: XPrv, // Keep for potential child derivation
@@ -168,12 +168,7 @@ pub struct WalletPrivateCoin {
 }
 
 impl WalletPrivateCoin {
-    pub fn new(
-        puzzle_hash: [u8; 32],
-        amount: u64,
-        account_index: u32,
-        coin_index: u32,
-    ) -> Self {
+    pub fn new(puzzle_hash: [u8; 32], amount: u64, account_index: u32, coin_index: u32) -> Self {
         let (coin, secrets) = crate::protocol::PrivateCoin::new_with_secrets(puzzle_hash, amount);
 
         Self {

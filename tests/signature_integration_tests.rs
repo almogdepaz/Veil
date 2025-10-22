@@ -275,8 +275,26 @@ fn test_multiple_signature_coins_in_transaction() {
     println!("   💸 Spending multiple signature coins...");
     use clvm_zk::ProgramParameter;
     let result = sim.spend_coins_with_params(vec![
-        (coin1.clone(), program1, vec![ProgramParameter::Bytes(pubkey1), ProgramParameter::Bytes(spend_message.to_vec()), ProgramParameter::Bytes(sig1)], secrets1.clone()),
-        (coin2.clone(), program2, vec![ProgramParameter::Bytes(pubkey2), ProgramParameter::Bytes(spend_message.to_vec()), ProgramParameter::Bytes(sig2)], secrets2.clone()),
+        (
+            coin1.clone(),
+            program1,
+            vec![
+                ProgramParameter::Bytes(pubkey1),
+                ProgramParameter::Bytes(spend_message.to_vec()),
+                ProgramParameter::Bytes(sig1),
+            ],
+            secrets1.clone(),
+        ),
+        (
+            coin2.clone(),
+            program2,
+            vec![
+                ProgramParameter::Bytes(pubkey2),
+                ProgramParameter::Bytes(spend_message.to_vec()),
+                ProgramParameter::Bytes(sig2),
+            ],
+            secrets2.clone(),
+        ),
     ]);
 
     match result {

@@ -104,7 +104,9 @@ fn main() {
         let serial_commitment_expected = private_inputs
             .serial_commitment
             .expect("serial_commitment required with serial_randomness");
-        let serial_number = private_inputs.spend_secret.expect("serial_number required with serial_randomness");
+        let serial_number = private_inputs
+            .spend_secret
+            .expect("serial_number required with serial_randomness");
 
         let domain = b"clvm_zk_serial_v1.0";
         let mut commitment_data = [0u8; 83];

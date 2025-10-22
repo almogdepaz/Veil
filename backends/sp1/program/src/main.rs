@@ -5,8 +5,7 @@ use sp1_zkvm::io;
 extern crate alloc;
 
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode_with_table, ClvmEvaluator, ClvmResult, Input, ProofOutput,
-    BLS_DST,
+    compile_chialisp_to_bytecode_with_table, ClvmEvaluator, ClvmResult, Input, ProofOutput, BLS_DST,
 };
 
 use bls12_381::hash_to_curve::{ExpandMsgXmd, HashToCurve};
@@ -102,7 +101,9 @@ fn main() {
         let serial_commitment_expected = private_inputs
             .serial_commitment
             .expect("serial_commitment required with serial_randomness");
-        let serial_number = private_inputs.spend_secret.expect("serial_number required with serial_randomness");
+        let serial_number = private_inputs
+            .spend_secret
+            .expect("serial_number required with serial_randomness");
 
         let domain = b"clvm_zk_serial_v1.0";
         let mut commitment_data = [0u8; 83];
@@ -116,7 +117,9 @@ fn main() {
             "serial commitment verification failed"
         );
 
-        let coin_commitment = private_inputs.coin_commitment.expect("coin_commitment required");
+        let coin_commitment = private_inputs
+            .coin_commitment
+            .expect("coin_commitment required");
         let merkle_path = private_inputs.merkle_path.expect("merkle_path required");
         let expected_root = private_inputs.merkle_root.expect("merkle_root required");
 

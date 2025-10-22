@@ -115,7 +115,6 @@ pub struct Input {
     // ============================================================================
     // Serial Commitment Protocol (v2.0) Fields
     // ============================================================================
-
     /// Serial number randomness for commitment opening
     /// Used to prove: serial_commitment = hash(serial_number || serial_randomness)
     pub serial_randomness: Option<[u8; 32]>,
