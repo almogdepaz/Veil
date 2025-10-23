@@ -28,16 +28,30 @@ cargo run -- sim spend-to-puzzle alice 1000 "(> secret_amount 500)"
 - the secret parameters used
 - how the computation worked
 
-**nullifier protocol**: prevents double-spending and replay attacks
+**nullifier protocol**: prevents double-spending using serial number commitments
+
+when creating a coin:
 ```
-nullifier = hash(spend_secret + program_hash + coin_data)
+serial_number = random(32 bytes)
+serial_randomness = random(32 bytes)
+serial_commitment = hash("clvm_zk_serial_v1.0" || serial_number || serial_randomness)
+coin_commitment = hash(puzzle_hash || amount || serial_commitment)
 ```
 
-this means same secret produces DIFFERENT nullifiers for different programs:
-- password puzzle (hash ABC) → nullifier X
-- signature puzzle (hash DEF) → nullifier Y
+when spending a coin:
+```
+nullifier = serial_number  // revealed in proof
+verify: hash(serial_number || serial_randomness) == serial_commitment
+verify: coin_commitment exists in merkle tree
+```
 
-so you can't replay proofs across different puzzle types - the program hash BINDS the nullifier to specific spending conditions.
+**security properties:**
+- each coin has exactly one valid nullifier (the serial_number)
+- revealing serial_number doesn't break privacy (unlinkable to coin_commitment)
+- double-spend impossible: same serial_number can only be used once
+- merkle membership proves coin exists without revealing which coin
+
+**critical:** losing serial_number or serial_randomness = permanent coin loss. see [ENCRYPTED_NOTES.md](ENCRYPTED_NOTES.md) for backup procedures.
 
 ## Quick start
 

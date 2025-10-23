@@ -109,12 +109,14 @@ pub struct Input {
     pub chialisp_source: String,
     /// Parameter values for the program - supports both integers and bytes
     pub program_parameters: Vec<ProgramParameter>,
-    /// Optional spend secret for nullifier generation (OLD PROTOCOL)
-    pub spend_secret: Option<[u8; 32]>,
 
     // ============================================================================
     // Serial Commitment Protocol (v2.0) Fields
     // ============================================================================
+    /// Serial number (becomes the nullifier when revealed)
+    /// This is the unique identifier for the coin being spent
+    pub serial_number: Option<[u8; 32]>,
+
     /// Serial number randomness for commitment opening
     /// Used to prove: serial_commitment = hash(serial_number || serial_randomness)
     pub serial_randomness: Option<[u8; 32]>,
@@ -139,8 +141,7 @@ pub struct Input {
     /// Leaf index in the merkle tree (for position-based hashing)
     pub leaf_index: Option<usize>,
 
-    /// Puzzle hash for nullifier binding
-    /// Used in old protocol: hash(spend_secret || puzzle_hash)
+    /// Puzzle hash that locks the coin (must match program_hash)
     pub puzzle_hash: Option<[u8; 32]>,
 }
 

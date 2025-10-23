@@ -141,22 +141,6 @@ impl ClvmZkProver {
         backend.prove_program(expression, parameters)
     }
 
-    pub fn prove_with_nullifier(
-        expression: &str,
-        parameters: &[ProgramParameter],
-        spend_secret: [u8; 32],
-    ) -> Result<ZKClvmResult, ClvmZkError> {
-        if parameters.len() > 10 {
-            return Err(ClvmZkError::InvalidProgram(
-                "Too many parameters (maximum 10: a-j)".to_string(),
-            ));
-        }
-
-        Self::validate_chialisp_syntax(expression)?;
-        let backend = crate::backends::backend()?;
-        backend.prove_with_nullifier(expression, parameters, spend_secret)
-    }
-
     /// prove spending with serial commitment verification and merkle membership
     #[allow(clippy::too_many_arguments)]
     pub fn prove_with_serial_commitment(

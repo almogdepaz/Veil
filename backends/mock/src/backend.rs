@@ -133,8 +133,8 @@ impl MockBackend {
         };
 
         // extract nullifier from input
-        // serial_number is passed via spend_secret field
-        let nullifier = inputs.spend_secret;
+        // serial_number is the nullifier
+        let nullifier = inputs.serial_number;
 
         let proof_output = ProofOutput {
             program_hash,

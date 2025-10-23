@@ -4,27 +4,6 @@ use crate::{ClvmZkError, Input, ProgramParameter, ProofOutput};
 use alloc::{format, string::ToString, vec::Vec};
 use core::fmt::Display;
 
-/// Prepare inputs for guest-side compilation (old protocol)
-pub fn prepare_guest_inputs(
-    chialisp_source: &str,
-    program_parameters: &[ProgramParameter],
-    spend_secret: Option<[u8; 32]>,
-) -> Input {
-    Input {
-        chialisp_source: chialisp_source.to_string(),
-        program_parameters: program_parameters.to_vec(),
-        spend_secret,
-        // Serial commitment protocol fields - default to None for non-spending use cases
-        serial_randomness: None,
-        merkle_path: None,
-        coin_commitment: None,
-        serial_commitment: None,
-        merkle_root: None,
-        leaf_index: None,
-        puzzle_hash: None,
-    }
-}
-
 /// Prepare inputs with serial commitment protocol (v2.0)
 #[allow(clippy::too_many_arguments)]
 pub fn prepare_guest_inputs_with_serial(
@@ -42,7 +21,7 @@ pub fn prepare_guest_inputs_with_serial(
     Input {
         chialisp_source: chialisp_source.to_string(),
         program_parameters: program_parameters.to_vec(),
-        spend_secret: Some(serial_number), // serial_number is used as spend_secret in new protocol
+        serial_number: Some(serial_number),
         serial_randomness: Some(serial_randomness),
         merkle_path: Some(merkle_path),
         coin_commitment: Some(coin_commitment),

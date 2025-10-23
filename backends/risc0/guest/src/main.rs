@@ -98,14 +98,22 @@ fn main() {
         .evaluate_clvm_program(&instance_bytecode)
         .expect("CLVM execution failed");
 
-    // Serial commitment protocol for spending (optional)
+    // Serial commitment protocol for spending
     let nullifier = if let Some(serial_randomness) = private_inputs.serial_randomness {
+        // CRITICAL: Verify the program being executed matches the coin's puzzle_hash
+        let expected_puzzle_hash = private_inputs
+            .puzzle_hash
+            .expect("puzzle_hash required with serial_randomness");
+        assert_eq!(
+            program_hash, expected_puzzle_hash,
+            "program_hash mismatch: cannot spend coin with different puzzle"
+        );
         // Verify serial commitment and merkle membership
         let serial_commitment_expected = private_inputs
             .serial_commitment
             .expect("serial_commitment required with serial_randomness");
         let serial_number = private_inputs
-            .spend_secret
+            .serial_number
             .expect("serial_number required with serial_randomness");
 
         let domain = b"clvm_zk_serial_v1.0";
@@ -151,8 +159,8 @@ fn main() {
 
         Some(serial_number)
     } else {
-        // No nullifier (e.g., BLS tests, signature verification tests)
-        private_inputs.spend_secret
+        // No serial commitment fields provided - no nullifier generation
+        None
     };
 
     let _validated_conditions = conditions;
