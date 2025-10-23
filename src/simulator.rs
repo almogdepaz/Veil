@@ -9,14 +9,81 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 /// simulated blockchain state for testing
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CLVMZkSimulator {
+    #[serde(with = "hex_hashset")]
     nullifier_set: HashSet<[u8; 32]>,
+    #[serde(with = "hex_hashmap")]
     utxo_set: HashMap<[u8; 32], CoinInfo>,
+    #[serde(skip)]
+    #[serde(default = "MerkleTree::new")]
     coin_tree: MerkleTree<MerkleHasher>,
+    #[serde(with = "hex_hashmap")]
     commitment_to_index: HashMap<[u8; 32], usize>,
+    merkle_leaves: Vec<[u8; 32]>,  // persisted leaves to rebuild tree
     transactions: Vec<SimulatedTransaction>,
     block_height: u64,
+}
+
+// custom serialization for HashSet<[u8; 32]>
+mod hex_hashset {
+    use super::*;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(set: &HashSet<[u8; 32]>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let vec: Vec<String> = set.iter().map(hex::encode).collect();
+        vec.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashSet<[u8; 32]>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let vec: Vec<String> = Vec::deserialize(deserializer)?;
+        vec.iter()
+            .map(|s| {
+                hex::decode(s)
+                    .map_err(serde::de::Error::custom)?
+                    .try_into()
+                    .map_err(|_| serde::de::Error::custom("invalid hex length"))
+            })
+            .collect()
+    }
+}
+
+// custom serialization for HashMap<[u8; 32], T>
+mod hex_hashmap {
+    use super::*;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S, T>(map: &HashMap<[u8; 32], T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: Serialize,
+    {
+        let vec: Vec<(String, &T)> = map.iter().map(|(k, v)| (hex::encode(k), v)).collect();
+        vec.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<HashMap<[u8; 32], T>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de>,
+    {
+        let vec: Vec<(String, T)> = Vec::deserialize(deserializer)?;
+        vec.into_iter()
+            .map(|(k, v)| {
+                let key: [u8; 32] = hex::decode(&k)
+                    .map_err(serde::de::Error::custom)?
+                    .try_into()
+                    .map_err(|_| serde::de::Error::custom("invalid hex length"))?;
+                Ok((key, v))
+            })
+            .collect()
+    }
 }
 
 impl Default for CLVMZkSimulator {
@@ -32,9 +99,19 @@ impl CLVMZkSimulator {
             utxo_set: HashMap::new(),
             coin_tree: MerkleTree::<MerkleHasher>::new(),
             commitment_to_index: HashMap::new(),
+            merkle_leaves: Vec::new(),
             transactions: Vec::new(),
             block_height: 0,
         }
+    }
+
+    /// rebuild merkle tree from persisted leaves (call after deserialization)
+    pub fn rebuild_tree(&mut self) {
+        self.coin_tree = MerkleTree::<MerkleHasher>::new();
+        for leaf in &self.merkle_leaves {
+            self.coin_tree.insert(*leaf);
+        }
+        self.coin_tree.commit();
     }
 
     pub fn add_coin(
@@ -60,6 +137,7 @@ impl CLVMZkSimulator {
         let leaf_index = self.coin_tree.leaves_len();
         self.coin_tree.insert(coin_commitment.0);
         self.coin_tree.commit();
+        self.merkle_leaves.push(coin_commitment.0);  // track leaf for persistence
         self.commitment_to_index
             .insert(coin_commitment.0, leaf_index);
 
@@ -108,10 +186,10 @@ impl CLVMZkSimulator {
 
         let mut spend_bundles = Vec::new();
         for (coin, program, params, secrets) in spends {
-            let merkle_path = self.get_merkle_path(&coin).ok_or_else(|| {
+            let (merkle_path, leaf_index) = self.get_merkle_path_and_index(&coin).ok_or_else(|| {
                 SimulatorError::TestFailed("coin not found in merkle tree".to_string())
             })?;
-
+            
             match Spender::create_spend_with_serial(
                 &coin,
                 &program,
@@ -119,6 +197,7 @@ impl CLVMZkSimulator {
                 &secrets,
                 merkle_path,
                 merkle_root,
+                leaf_index,
             ) {
                 Ok(bundle) => spend_bundles.push(bundle),
                 Err(e) => return Err(SimulatorError::ProofGeneration(format!("{:?}", e))),
@@ -152,7 +231,7 @@ impl CLVMZkSimulator {
         self.utxo_set.get(nullifier)
     }
 
-    pub fn get_merkle_path(&self, coin: &PrivateCoin) -> Option<Vec<[u8; 32]>> {
+    pub fn get_merkle_path_and_index(&self, coin: &PrivateCoin) -> Option<(Vec<[u8; 32]>, usize)> {
         let coin_commitment = CoinCommitment::compute(
             coin.amount,
             &coin.puzzle_hash,
@@ -164,16 +243,16 @@ impl CLVMZkSimulator {
         let proof = self.coin_tree.proof(&[leaf_index]);
         let proof_hashes = proof.proof_hashes();
 
-        Some(
-            proof_hashes
-                .iter()
-                .map(|hash| {
-                    let mut arr = [0u8; 32];
-                    arr.copy_from_slice(hash);
-                    arr
-                })
-                .collect(),
-        )
+        let path = proof_hashes
+            .iter()
+            .map(|hash| {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(hash);
+                arr
+            })
+            .collect();
+
+        Some((path, leaf_index))
     }
 
     pub fn utxo_iter(&self) -> impl Iterator<Item = (&[u8; 32], &CoinInfo)> {
@@ -207,13 +286,14 @@ impl CLVMZkSimulator {
         self.utxo_set.clear();
         self.coin_tree = MerkleTree::<MerkleHasher>::new();
         self.commitment_to_index.clear();
+        self.merkle_leaves.clear();
         self.transactions.clear();
         self.block_height = 0;
     }
 }
 
 /// coin info in simulator
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoinInfo {
     pub coin: PrivateCoin,
     pub metadata: CoinMetadata,
@@ -235,7 +315,7 @@ pub enum CoinType {
     Atomic,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulatedTransaction {
     pub id: [u8; 32],
     pub spend_bundles: Vec<PrivateSpendBundle>,

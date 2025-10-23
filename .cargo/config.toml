@@ -1,13 +1,28 @@
-# Cargo configuration for clvm-zk project
+# Cargo configuration for separate backend builds
 
-[build]
-# Enable some optimizations for faster test compilation
-incremental = true
+[alias]
+# Build commands
+build-risc0 = "build --target-dir target/risc0 --no-default-features --features risc0,testing"
+build-sp1 = "build --target-dir target/sp1 --no-default-features --features sp1,testing"
+build-mock = "build --target-dir target/mock --no-default-features --features mock,testing"
 
-[env]
-# Test configuration environment variables
-RUST_TEST_THREADS = "4"  # Limit concurrent tests to avoid resource contention
-ZK_TEST_TIMEOUT_SECONDS = "180"  # 3 minutes timeout for individual ZK proof tests
+# Release builds
+release-risc0 = "build --release --target-dir target/risc0 --no-default-features --features risc0,testing"
+release-sp1 = "build --release --target-dir target/sp1 --no-default-features --features sp1,testing"
 
-# For better test output
-RUST_BACKTRACE = "1"
+# Test commands
+test-risc0 = "test --target-dir target/risc0 --no-default-features --features risc0,testing"
+test-sp1 = "test --target-dir target/sp1 --no-default-features --features sp1,testing"
+test-mock = "test --target-dir target/mock --no-default-features --features mock,testing"
+
+# Run commands (use with -- <args>)
+run-risc0 = "run --target-dir target/risc0 --no-default-features --features risc0,testing"
+run-sp1 = "run --target-dir target/sp1 --no-default-features --features sp1,testing"
+
+# Check commands (fast compile check without building)
+check-risc0 = "check --target-dir target/risc0 --no-default-features --features risc0,testing"
+check-sp1 = "check --target-dir target/sp1 --no-default-features --features sp1,testing"
+
+# Clippy lints
+clippy-risc0 = "clippy --target-dir target/risc0 --no-default-features --features risc0,testing"
+clippy-sp1 = "clippy --target-dir target/sp1 --no-default-features --features sp1,testing"

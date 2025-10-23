@@ -87,6 +87,7 @@ impl ZKCLVMBackend for Risc0Backend {
             merkle_path: None,
             coin_commitment: None,
             merkle_root: None,
+            leaf_index: None,
             puzzle_hash: None,
         };
         self.prove_with_input(input)
@@ -130,6 +131,7 @@ impl ZKCLVMBackend for Sp1Backend {
             merkle_path: None,
             coin_commitment: None,
             merkle_root: None,
+            leaf_index: None,
             puzzle_hash: None,
         };
         self.prove_with_input(input)
@@ -173,6 +175,7 @@ impl ZKCLVMBackend for MockBackend {
             merkle_path: None,
             coin_commitment: None,
             merkle_root: None,
+            leaf_index: None,
             puzzle_hash: None,
         };
         self.prove_with_input(input)

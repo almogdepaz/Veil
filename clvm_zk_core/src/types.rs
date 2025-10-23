@@ -136,6 +136,9 @@ pub struct Input {
     /// This binds the proof to a specific ledger state, preventing replay attacks
     pub merkle_root: Option<[u8; 32]>,
 
+    /// Leaf index in the merkle tree (for position-based hashing)
+    pub leaf_index: Option<usize>,
+
     /// Puzzle hash for nullifier binding
     /// Used in old protocol: hash(spend_secret || puzzle_hash)
     pub puzzle_hash: Option<[u8; 32]>,

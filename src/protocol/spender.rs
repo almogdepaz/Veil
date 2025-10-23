@@ -13,6 +13,7 @@ impl Spender {
         secrets: &CoinSecrets,
         merkle_path: Vec<[u8; 32]>,
         merkle_root: [u8; 32],
+        leaf_index: usize,
     ) -> Result<PrivateSpendBundle, ProtocolError> {
         coin.validate()
             .map_err(|e| ProtocolError::ProofGenerationFailed(format!("invalid coin: {e}")))?;
@@ -34,6 +35,7 @@ impl Spender {
             coin_commitment.0,
             coin.serial_commitment.0,
             merkle_root,
+            leaf_index,
             coin.puzzle_hash,
         )
         .map_err(|e| ProtocolError::ProofGenerationFailed(format!("zk proof failed: {e}")))?;

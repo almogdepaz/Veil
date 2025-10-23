@@ -156,6 +156,8 @@ pub enum SimAction {
         /// Wallet name to scan for
         wallet: String,
     },
+    /// View saved proofs from transactions
+    Proofs,
     /// Observer wallet operations (view-only, no spending)
     Observer {
         #[command(subcommand)]
@@ -710,6 +712,10 @@ struct SimulatorState {
     observer_wallets: HashMap<String, ObserverWalletData>,
     #[serde(default)]
     encrypted_notes: Vec<crate::protocol::EncryptedNote>,
+    #[serde(default)]
+    spend_bundles: Vec<crate::protocol::PrivateSpendBundle>,
+    #[serde(default)]
+    simulator: CLVMZkSimulator,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -869,6 +875,8 @@ impl SimulatorState {
             puzzle_coins: None,
             observer_wallets: HashMap::new(),
             encrypted_notes: Vec::new(),
+            spend_bundles: Vec::new(),
+            simulator: CLVMZkSimulator::new(),
         }
     }
 
@@ -878,9 +886,11 @@ impl SimulatorState {
             let data = fs::read_to_string(&state_file).map_err(|e| {
                 ClvmZkError::SerializationError(format!("failed to read state file: {e}"))
             })?;
-            let state: SimulatorState = serde_json::from_str(&data).map_err(|e| {
+            let mut state: SimulatorState = serde_json::from_str(&data).map_err(|e| {
                 ClvmZkError::SerializationError(format!("failed to parse state file: {e}"))
             })?;
+            // rebuild merkle tree from persisted leaves
+            state.simulator.rebuild_tree();
             Ok(state)
         } else {
             Ok(Self::new())
@@ -969,6 +979,10 @@ fn run_simulator_command(data_dir: &PathBuf, action: SimAction) -> Result<(), Cl
             scan_command(data_dir, &wallet)?;
         }
 
+        SimAction::Proofs => {
+            proofs_command(data_dir)?;
+        }
+
         SimAction::Observer { action } => {
             observer_command(data_dir, action)?;
         }
@@ -1005,6 +1019,19 @@ fn faucet_command(
         let wallet_coin = wallet
             .create_coin(puzzle_hash, amount, program.clone())
             .map_err(|e| ClvmZkError::InvalidProgram(format!("HD wallet error: {}", e)))?;
+
+        // add coin to global simulator state
+        let coin = wallet_coin.to_private_coin();
+        let secrets = wallet_coin.secrets();
+        state.simulator.add_coin(
+            coin,
+            secrets,
+            CoinMetadata {
+                owner: wallet_name.to_string(),
+                coin_type: CoinType::Regular,
+                notes: "faucet".to_string(),
+            },
+        );
 
         wallet.coins.push(wallet_coin);
         total_funded += amount;
@@ -1221,6 +1248,8 @@ fn status_command(data_dir: &Path) -> Result<(), ClvmZkError> {
         .count();
 
     println!("total coins: {} ({} unspent)", total_coins, total_unspent);
+    println!("encrypted notes: {}", state.encrypted_notes.len());
+    println!("saved proofs: {}", state.spend_bundles.len());
 
     Ok(())
 }
@@ -1387,28 +1416,22 @@ fn send_command(
         amount
     );
 
-    // create simulator and execute transaction
-    let mut sim = CLVMZkSimulator::new();
-
-    // add coins to simulator UTXO set
-    for (coin, _program, secrets) in &coins_to_spend {
-        sim.add_coin(
-            coin.clone(),
-            secrets,
-            CoinMetadata {
-                owner: from.to_string(),
-                coin_type: CoinType::Regular,
-                notes: "cli transfer".to_string(),
-            },
-        );
-    }
-
-    // spend coins using serial commitment protocol (v2.0)
-    let tx_result = sim.spend_coins(coins_to_spend);
+    // spend coins using persistent simulator (v2.0)
+    let tx_result = state.simulator.spend_coins(coins_to_spend);
 
     match tx_result {
         Ok(tx) => {
             println!("transaction successful: {}", tx);
+
+            // save spend bundles (proofs) to state
+            for bundle in &tx.spend_bundles {
+                state.spend_bundles.push(bundle.clone());
+                println!(
+                    "saved proof: {} bytes (nullifier: {})",
+                    bundle.proof_size(),
+                    &bundle.nullifier_hex()[..16]
+                );
+            }
 
             // update wallet states
             let from_wallet_mut = state.wallets.get_mut(from).unwrap();
@@ -1438,6 +1461,18 @@ fn send_command(
 
                 // Extract coin secrets for encryption
                 let secrets = wallet_coin.secrets();
+
+                // add coin to global simulator state
+                let coin = wallet_coin.to_private_coin();
+                state.simulator.add_coin(
+                    coin,
+                    secrets,
+                    CoinMetadata {
+                        owner: to.to_string(),
+                        coin_type: CoinType::Regular,
+                        notes: format!("payment from {}", from),
+                    },
+                );
 
                 // Create encrypted payment note
                 let payment_note = crate::protocol::PaymentNote {
@@ -1472,6 +1507,19 @@ fn send_command(
                 let wallet_coin = from_wallet_mut
                     .create_coin(puzzle_hash, change, program)
                     .map_err(|e| ClvmZkError::InvalidProgram(format!("HD wallet error: {}", e)))?;
+
+                // add change coin to global simulator state
+                let coin = wallet_coin.to_private_coin();
+                let secrets = wallet_coin.secrets();
+                state.simulator.add_coin(
+                    coin,
+                    secrets,
+                    CoinMetadata {
+                        owner: from.to_string(),
+                        coin_type: CoinType::Regular,
+                        notes: "change".to_string(),
+                    },
+                );
 
                 from_wallet_mut.coins.push(wallet_coin);
                 println!("created change coin for '{}' with amount {}", from, change);
@@ -1592,6 +1640,31 @@ fn scan_command(data_dir: &PathBuf, wallet_name: &str) -> Result<(), ClvmZkError
     Ok(())
 }
 
+fn proofs_command(data_dir: &PathBuf) -> Result<(), ClvmZkError> {
+    let state = SimulatorState::load(data_dir)?;
+
+    if state.spend_bundles.is_empty() {
+        println!("no proofs saved yet");
+        return Ok(());
+    }
+
+    println!("saved proofs: {}", state.spend_bundles.len());
+    println!();
+
+    for (i, bundle) in state.spend_bundles.iter().enumerate() {
+        println!("proof #{}", i);
+        println!("  nullifier: {}", bundle.nullifier_hex());
+        println!("  proof size: {} bytes", bundle.proof_size());
+        println!("  conditions size: {} bytes", bundle.conditions_size());
+        println!();
+    }
+
+    let total_proof_bytes: usize = state.spend_bundles.iter().map(|b| b.proof_size()).sum();
+    println!("total proof data: {} bytes", total_proof_bytes);
+
+    Ok(())
+}
+
 // ============================================================================
 // General Purpose Puzzle Commands
 // ============================================================================
@@ -1627,9 +1700,8 @@ fn spend_to_puzzle_command(
         )));
     }
 
-    // create simulator and spend coins from wallet to puzzle coin
-    let mut sim = CLVMZkSimulator::new();
-    match sim.spend_coins(
+    // spend coins using persistent simulator
+    match state.simulator.spend_coins(
         spend_coins
             .iter()
             .map(|wc| {
@@ -1640,7 +1712,17 @@ fn spend_to_puzzle_command(
             })
             .collect(),
     ) {
-        Ok(_tx) => {
+        Ok(tx) => {
+            // save spend bundles (proofs) to state
+            for bundle in &tx.spend_bundles {
+                state.spend_bundles.push(bundle.clone());
+                println!(
+                    "saved proof: {} bytes (nullifier: {})",
+                    bundle.proof_size(),
+                    &bundle.nullifier_hex()[..16]
+                );
+            }
+
             // mark coins as spent
             let from_wallet = state.wallets.get_mut(from).unwrap();
             for coin in &spend_coins {
@@ -1655,14 +1737,25 @@ fn spend_to_puzzle_command(
             }
 
             // create new puzzle coin with proper CoinSecrets
-            let (_coin, secrets) = PrivateCoin::new_with_secrets(puzzle_hash, amount);
+            let (coin, secrets) = PrivateCoin::new_with_secrets(puzzle_hash, amount);
 
             let puzzle_coin = PuzzleCoin {
                 puzzle_hash,
                 amount,
                 program: program.to_string(),
-                secrets,
+                secrets: secrets.clone(),
             };
+
+            // add puzzle coin to global simulator state
+            state.simulator.add_coin(
+                coin,
+                &secrets,
+                CoinMetadata {
+                    owner: "puzzle".to_string(),
+                    coin_type: CoinType::Regular,
+                    notes: format!("puzzle: {}", program),
+                },
+            );
 
             // store puzzle coin in simulator state
             if state.puzzle_coins.is_none() {
@@ -1684,6 +1777,19 @@ fn spend_to_puzzle_command(
                 let wallet_coin = from_wallet_mut
                     .create_coin(change_puzzle_hash, change, change_program)
                     .map_err(|e| ClvmZkError::InvalidProgram(format!("HD wallet error: {}", e)))?;
+
+                // add change coin to global simulator state
+                let coin = wallet_coin.to_private_coin();
+                let secrets = wallet_coin.secrets();
+                state.simulator.add_coin(
+                    coin,
+                    secrets,
+                    CoinMetadata {
+                        owner: from.to_string(),
+                        coin_type: CoinType::Regular,
+                        notes: "change".to_string(),
+                    },
+                );
 
                 from_wallet_mut.coins.push(wallet_coin);
                 println!("created change coin for '{}' with amount {}", from, change);
@@ -1751,8 +1857,6 @@ fn spend_to_wallet_command(
         .map(|v| ProgramParameter::from_bytes(v.as_bytes()))
         .collect();
 
-    // create simulator and spend the puzzle coin
-    let mut sim = CLVMZkSimulator::new();
     // reconstruct PrivateCoin from puzzle_coin data
     let coin = PrivateCoin::new(
         puzzle_coin.puzzle_hash,
@@ -1762,12 +1866,23 @@ fn spend_to_wallet_command(
             .serial_commitment(crate::crypto_utils::hash_data_default),
     );
 
-    match sim.spend_coins(vec![(
+    // spend using persistent simulator
+    match state.simulator.spend_coins(vec![(
         coin,
         puzzle_coin.program.clone(),
         puzzle_coin.secrets.clone(),
     )]) {
-        Ok(_tx) => {
+        Ok(tx) => {
+            // save spend bundles (proofs) to state
+            for bundle in &tx.spend_bundles {
+                state.spend_bundles.push(bundle.clone());
+                println!(
+                    "saved proof: {} bytes (nullifier: {})",
+                    bundle.proof_size(),
+                    &bundle.nullifier_hex()[..16]
+                );
+            }
+
             // remove the spent puzzle coin
             let puzzle_coins = state.puzzle_coins.as_mut().unwrap();
             let spent_nullifier = puzzle_coin.secrets.nullifier();
@@ -1781,20 +1896,44 @@ fn spend_to_wallet_command(
                 .create_coin(wallet_puzzle_hash, amount, wallet_program)
                 .map_err(|e| ClvmZkError::InvalidProgram(format!("HD wallet error: {}", e)))?;
 
+            // add coin to global simulator state
+            let coin = wallet_coin.to_private_coin();
+            let secrets = wallet_coin.secrets();
+            state.simulator.add_coin(
+                coin,
+                secrets,
+                CoinMetadata {
+                    owner: to.to_string(),
+                    coin_type: CoinType::Regular,
+                    notes: "unlocked from puzzle".to_string(),
+                },
+            );
+
             to_wallet.coins.push(wallet_coin);
 
             // handle change if puzzle coin had more than requested amount
             let change = puzzle_coin.amount - amount;
             if change > 0 {
                 let change_puzzle_hash = Sha256::digest(puzzle_coin.program.as_bytes()).into();
-                let (_coin, secrets) = PrivateCoin::new_with_secrets(change_puzzle_hash, change);
+                let (coin, secrets) = PrivateCoin::new_with_secrets(change_puzzle_hash, change);
 
                 let change_puzzle_coin = PuzzleCoin {
                     puzzle_hash: change_puzzle_hash,
                     amount: change,
                     program: puzzle_coin.program.clone(),
-                    secrets,
+                    secrets: secrets.clone(),
                 };
+
+                // add change puzzle coin to global simulator state
+                state.simulator.add_coin(
+                    coin,
+                    &secrets,
+                    CoinMetadata {
+                        owner: "puzzle".to_string(),
+                        coin_type: CoinType::Regular,
+                        notes: format!("puzzle change: {}", puzzle_coin.program),
+                    },
+                );
 
                 puzzle_coins.push(change_puzzle_coin);
                 println!("created change puzzle coin with amount {}", change);

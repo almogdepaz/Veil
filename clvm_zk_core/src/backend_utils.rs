@@ -20,6 +20,7 @@ pub fn prepare_guest_inputs(
         coin_commitment: None,
         serial_commitment: None,
         merkle_root: None,
+        leaf_index: None,
         puzzle_hash: None,
     }
 }
@@ -35,6 +36,7 @@ pub fn prepare_guest_inputs_with_serial(
     coin_commitment: [u8; 32],
     serial_commitment: [u8; 32],
     merkle_root: [u8; 32],
+    leaf_index: usize,
     puzzle_hash: [u8; 32],
 ) -> Input {
     Input {
@@ -46,6 +48,7 @@ pub fn prepare_guest_inputs_with_serial(
         coin_commitment: Some(coin_commitment),
         serial_commitment: Some(serial_commitment),
         merkle_root: Some(merkle_root),
+        leaf_index: Some(leaf_index),
         puzzle_hash: Some(puzzle_hash),
     }
 }

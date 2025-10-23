@@ -125,11 +125,14 @@ fn main() {
             .expect("coin_commitment required");
         let merkle_path = private_inputs.merkle_path.expect("merkle_path required");
         let expected_root = private_inputs.merkle_root.expect("merkle_root required");
+        let leaf_index = private_inputs.leaf_index.expect("leaf_index required");
 
         let mut current_hash = coin_commitment;
+        let mut current_index = leaf_index;
         for sibling in merkle_path.iter() {
             let mut combined = [0u8; 64];
-            if current_hash < *sibling {
+            // position-based hashing: if index is even (left child), sibling goes right
+            if current_index % 2 == 0 {
                 combined[..32].copy_from_slice(&current_hash);
                 combined[32..].copy_from_slice(sibling);
             } else {
@@ -137,6 +140,7 @@ fn main() {
                 combined[32..].copy_from_slice(&current_hash);
             }
             current_hash = risc0_hasher(&combined);
+            current_index /= 2; // move to parent level
         }
 
         let computed_root = current_hash;

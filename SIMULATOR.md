@@ -41,23 +41,55 @@ so you can't replay proofs across different puzzle types - the program hash BIND
 
 ## Quick start
 
+### automated demo script
+
+fastest way to see the full simulator in action:
+
+```bash
+# run encrypted payment notes demo with risc0 backend (default)
+./sim_demo.sh
+
+# or use sp1 backend
+./sim_demo.sh sp1
+```
+
+the script:
+- auto-builds the backend if needed (builds to `target/risc0/` or `target/sp1/`)
+- resets simulator state
+- creates alice and bob wallets
+- funds alice with coins
+- alice sends to bob (bob offline)
+- bob scans and discovers payments
+- bob sends back to alice
+- shows timing metrics for all operations
+- displays final balances and proof count
+
+expected timing:
+- risc0: ~11s per send transaction
+- sp1: ~15s per send transaction
+- scan operations: instant (no zkvm execution)
+
+output saved to `simulator_data/state.json` with all zk proofs (~245kb each).
+
+### manual commands
+
 ```bash
 # Initialize the simulator (use --release for actual proof generation)
-cargo run --release -- sim init
+cargo run-sp1 --release -- sim init
 
 # Create wallet
-cargo run --release -- sim wallet alice create
+cargo run-sp1 --release -- sim wallet alice create
 
 # Fund it from the faucet
-cargo run --release -- sim faucet alice --amount 5000
+cargo run-sp1 --release -- sim faucet alice --amount 5000
 
 # Check your balance
-cargo run --release -- sim wallet alice show
+cargo run-sp1 --release -- sim wallet alice show
 ```
 
 Run tests with:
 ```bash
-cargo test --release --test simulator_tests
+cargo test-sp1 --release --test simulator_tests
 ```
 
 ## How it works
@@ -77,33 +109,33 @@ Everything gets saved to `./simulator_data/state.json`:
 ### Basic setup
 ```bash
 # Initialize simulator (use --release for actual proof generation)
-cargo run --release -- sim init
+cargo run-sp1 --release -- sim init
 
 # Create wallets
-cargo run --release -- sim wallet alice create
-cargo run --release -- sim wallet bob create
+cargo run-sp1 --release -- sim wallet alice create
+cargo run-sp1 --release -- sim wallet bob create
 
 # Fund wallet from faucet
-cargo run --release -- sim faucet alice --amount 5000 --count 3
+cargo run-sp1 --release -- sim faucet alice --amount 5000 --count 3
 
 # Check wallet status
-cargo run --release -- sim wallet alice show
-cargo run --release -- sim status
+cargo run-sp1 --release -- sim wallet alice show
+cargo run-sp1 --release -- sim status
 ```
 
 ### Private transactions
 ```bash
 # Generate password puzzle program
-cargo run --release -- hash-password mysecret
+cargo run-sp1 --release -- hash-password mysecret
 # Output: (= (sha256 password) 0x652c7dc687d98c9889304ed2e408c74b611e86a40caa51c4b43f1dd5913c5cd0)
 
 # Alice locks coins with password
-cargo run --release -- sim spend-to-puzzle alice 3000 \
+cargo run-sp1 --release -- sim spend-to-puzzle alice 3000 \
   "(= (sha256 password) 0x652c7dc687d98c9889304ed2e408c74b611e86a40caa51c4b43f1dd5913c5cd0)" \
   --coins "0"
 
 # Bob unlocks with password
-cargo run --release -- sim spend-to-wallet \
+cargo run-sp1 --release -- sim spend-to-wallet \
   "(= (sha256 password) 0x652c7dc687d98c9889304ed2e408c74b611e86a40caa51c4b43f1dd5913c5cd0)" \
   bob 3000 --params "mysecret"
 ```
@@ -111,21 +143,21 @@ cargo run --release -- sim spend-to-wallet \
 ### More examples
 ```bash
 # Send between wallets
-cargo run --release -- sim send alice bob 2000 --coins "0,1"
+cargo run-sp1 --release -- sim send alice bob 2000 --coins "0,1"
 
 # Custom puzzle programs
-cargo run --release -- sim spend-to-puzzle alice 1000 "(> minimum_amount 100)" --coins "auto"
-cargo run --release -- sim spend-to-wallet "(> minimum_amount 100)" bob 1000 --params "150"
+cargo run-sp1 --release -- sim spend-to-puzzle alice 1000 "(> minimum_amount 100)" --coins "auto"
+cargo run-sp1 --release -- sim spend-to-wallet "(> minimum_amount 100)" bob 1000 --params "150"
 
 # Using mod wrapper syntax for named parameters
-cargo run --release -- sim spend-to-puzzle alice 1000 "(mod (threshold) (> threshold 100))" --coins "auto"
-cargo run --release -- sim spend-to-wallet "(mod (threshold) (> threshold 100))" bob 1000 --params "150"
+cargo run-sp1 --release -- sim spend-to-puzzle alice 1000 "(mod (threshold) (> threshold 100))" --coins "auto"
+cargo run-sp1 --release -- sim spend-to-wallet "(mod (threshold) (> threshold 100))" bob 1000 --params "150"
 
 # Wallet management
-cargo run --release -- sim wallets                    # List all wallets
-cargo run --release -- sim wallet alice coins         # Show all coins
-cargo run --release -- sim wallet alice unspent       # Show unspent coins
-cargo run --release -- sim wallet alice balance       # Show balance only
+cargo run-sp1 --release -- sim wallets                    # List all wallets
+cargo run-sp1 --release -- sim wallet alice coins         # Show all coins
+cargo run-sp1 --release -- sim wallet alice unspent       # Show unspent coins
+cargo run-sp1 --release -- sim wallet alice balance       # Show balance only
 ```
 
 ## encrypted payment notes
@@ -154,21 +186,21 @@ see [ENCRYPTED_NOTES.md](ENCRYPTED_NOTES.md) for full documentation.
 ### Choose zk backend
 ```bash
 # Default: SP1 backend (requires --release)
-cargo run --release -- sim init
+cargo run-sp1 --release -- sim init
 
 # Use RISC0 backend (requires --release)
-cargo run --release --no-default-features --features risc0,testing -- sim init
+cargo run-risc0 --release -- sim init
 
 # Use mock backend for fast testing (no real proofs, no --release needed)
-cargo run --no-default-features --features mock,testing -- sim init
+cargo run-mock -- sim init
 ```
 
 ## Troubleshooting
 
 **Always use `--release` for SP1 and RISC0 backends** - they require release mode for proof generation.
-Use mock backend for fast testing without real proofs: `cargo run --no-default-features --features mock,testing -- sim init`
-Reset corrupted state with `cargo run --release -- sim init --reset`
-Switch backends with feature flags: `--no-default-features --features risc0,testing` or `--features mock,testing`
+Use mock backend for fast testing without real proofs: `cargo run-mock -- sim init`
+Reset corrupted state with `cargo run-sp1 --release -- sim init --reset`
+Switch backends using cargo aliases: `cargo run-risc0`, `cargo run-sp1`, or `cargo run-mock` (see [CARGO_ALIASES.md](CARGO_ALIASES.md))
 
 ## Use cases
 

@@ -16,59 +16,93 @@ General purpose zkvm approach - supports arbitrary chialisp programs instead of 
 
 ## Getting started
 
+### Quick start: simulator demo
+
+fastest way to see veil in action:
+
+```bash
+# install dependencies
+./install-deps.sh
+
+# run encrypted payment notes demo
+./sim_demo.sh         # risc0 backend (default)
+./sim_demo.sh sp1     # sp1 backend
+```
+
+see **[SIMULATOR.md](SIMULATOR.md)** for details.
+
 ### Install dependencies
 
 ```bash
-# Install dependencies
+# install dependencies
 ./install-deps.sh
 
-# Manual
+# manual installation
 rustup target add riscv32im-unknown-none-elf
 curl -L https://risczero.com/install | bash && rzup
 ```
 
-### Choose backend
+### Backend-specific builds (recommended)
+
+to prevent backends from overwriting each other's builds, use cargo aliases:
 
 ```bash
-# Default: SP1 backend (requires --release for proof generation)
-cargo build --release
-cargo test --release
-cargo test --release --test <test file name>
+# build commands
+cargo build-risc0        # debug build to target/risc0/
+cargo release-risc0      # release build to target/risc0/
+cargo build-sp1          # debug build to target/sp1/
+cargo release-sp1        # release build to target/sp1/
 
-# Use RISC0 backend (requires --release for proof generation)
-cargo build --release --no-default-features --features risc0,testing
-cargo test --release --no-default-features --features "risc0,testing"
+# run tests
+cargo test-risc0
+cargo test-sp1
 
-# Use mock backend (for testing without zkvm overhead, no --release needed)
-cargo test --no-default-features --features "mock,testing"
+# development
+cargo check-risc0        # fast compile check
+cargo clippy-risc0       # lints
 ```
 
-### Build and run
+see **[CARGO_ALIASES.md](CARGO_ALIASES.md)** for complete documentation.
+
+**benefits:**
+- ✅ building sp1 won't delete risc0 binaries
+- ✅ switch between backends without rebuilding
+- ✅ parallel builds in different terminals
+- ⚠️  uses ~1GB per backend
+
+### Standard build (single backend at a time)
 
 ```bash
-# Build the binary
+# default: sp1 backend (requires --release for proof generation)
 cargo build --release
+cargo test --release
 
-# Run with cargo (use --release for actual proof generation)
+# risc0 backend
+cargo release-risc0
+cargo test-risc0 --release
+
+# mock backend (for testing without zkvm overhead)
+cargo test-mock
+```
+
+### Run examples
+
+```bash
+# run with cargo (use --release for actual proof generation)
 cargo run --release -- demo
 cargo run --release -- prove --expression "(mod (a b) (+ a b))" --variables "5,3"
 
-# Or run the binary directly (faster, no rebuild)
+# or run binary directly (faster, no rebuild)
 ./target/release/clvm-zk demo
 ./target/release/clvm-zk prove --expression "(mod (a b) (+ a b))" --variables "5,3"
 ./target/release/clvm-zk verify --proof-file proof.bin --template "(mod (a b) (+ a b))"
 
-# Interactive demo
-./target/release/clvm-zk demo
-
-# Start simulator
-./target/release/clvm-zk sim init
-./target/release/clvm-zk sim wallet alice create
-./target/release/clvm-zk sim faucet alice --amount 1000 --count 5
-
-# Run examples
-cargo run --release --example <name>
+# run code examples
+cargo run --release --example alice_bob_lock
+cargo run --release --example backend_benchmark
 ```
+
+for simulator usage, see **[SIMULATOR.md](SIMULATOR.md)**.
 
 
 
@@ -238,9 +272,15 @@ See `examples/` for complete working code including `alice_bob_lock.rs` for ECDS
 
 ## Blockchain simulator
 
-Privacy-preserving blockchain simulator for local testing. Create wallets, send private transactions, and generate real ZK proofs without setting up a real blockchain.
+local privacy-preserving blockchain simulator with encrypted payment notes, hd wallets, persistent state, and real zk proofs.
 
-See **[SIMULATOR.md](SIMULATOR.md)** for detailed documentation.
+```bash
+# run the full demo
+./sim_demo.sh         # risc0 backend (default)
+./sim_demo.sh sp1     # sp1 backend
+```
+
+see **[SIMULATOR.md](SIMULATOR.md)** for complete documentation and usage examples.
 
 
 ## Adding new zkvm backends

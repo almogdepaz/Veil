@@ -167,6 +167,7 @@ impl ClvmZkProver {
         coin_commitment: [u8; 32],
         serial_commitment: [u8; 32],
         merkle_root: [u8; 32],
+        leaf_index: usize,
         puzzle_hash: [u8; 32],
     ) -> Result<ZKClvmResult, ClvmZkError> {
         if parameters.len() > 10 {
@@ -186,6 +187,7 @@ impl ClvmZkProver {
             coin_commitment,
             serial_commitment,
             merkle_root,
+            leaf_index,
             puzzle_hash,
         );
 
