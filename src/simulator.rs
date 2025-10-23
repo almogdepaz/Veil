@@ -20,7 +20,7 @@ pub struct CLVMZkSimulator {
     coin_tree: MerkleTree<MerkleHasher>,
     #[serde(with = "hex_hashmap")]
     commitment_to_index: HashMap<[u8; 32], usize>,
-    merkle_leaves: Vec<[u8; 32]>,  // persisted leaves to rebuild tree
+    merkle_leaves: Vec<[u8; 32]>, // persisted leaves to rebuild tree
     transactions: Vec<SimulatedTransaction>,
     block_height: u64,
 }
@@ -137,7 +137,7 @@ impl CLVMZkSimulator {
         let leaf_index = self.coin_tree.leaves_len();
         self.coin_tree.insert(coin_commitment.0);
         self.coin_tree.commit();
-        self.merkle_leaves.push(coin_commitment.0);  // track leaf for persistence
+        self.merkle_leaves.push(coin_commitment.0); // track leaf for persistence
         self.commitment_to_index
             .insert(coin_commitment.0, leaf_index);
 
@@ -186,10 +186,11 @@ impl CLVMZkSimulator {
 
         let mut spend_bundles = Vec::new();
         for (coin, program, params, secrets) in spends {
-            let (merkle_path, leaf_index) = self.get_merkle_path_and_index(&coin).ok_or_else(|| {
-                SimulatorError::TestFailed("coin not found in merkle tree".to_string())
-            })?;
-            
+            let (merkle_path, leaf_index) =
+                self.get_merkle_path_and_index(&coin).ok_or_else(|| {
+                    SimulatorError::TestFailed("coin not found in merkle tree".to_string())
+                })?;
+
             match Spender::create_spend_with_serial(
                 &coin,
                 &program,
