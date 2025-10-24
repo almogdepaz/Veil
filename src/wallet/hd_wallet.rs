@@ -179,14 +179,14 @@ impl WalletPrivateCoin {
         }
     }
 
-    pub fn nullifier(&self) -> [u8; 32] {
-        self.secrets.nullifier()
+    pub fn serial_number(&self) -> [u8; 32] {
+        self.secrets.serial_number()
     }
 
     pub fn with_hint(&self) -> ([u8; 4], [u8; 32]) {
-        let nullifier = self.nullifier();
-        let hint = [nullifier[0], nullifier[1], nullifier[2], nullifier[3]];
-        (hint, nullifier)
+        let serial_number = self.serial_number();
+        let hint = [serial_number[0], serial_number[1], serial_number[2], serial_number[3]];
+        (hint, serial_number)
     }
 
     pub fn validate(&self) -> Result<(), ValidationError> {

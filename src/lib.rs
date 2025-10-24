@@ -22,7 +22,9 @@ pub mod simulator;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing_helpers;
 pub mod wallet;
-pub use clvm_zk_core::{ClvmResult, ClvmZkError, Input, ProgramParameter, ZKClvmResult};
+pub use clvm_zk_core::{
+    ClvmResult, ClvmZkError, Input, InputWithSerial, ProgramParameter, ZKClvmResult,
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct OperandInput {
@@ -152,7 +154,8 @@ impl ClvmZkProver {
         serial_commitment: [u8; 32],
         merkle_root: [u8; 32],
         leaf_index: usize,
-        puzzle_hash: [u8; 32],
+        program_hash: [u8; 32],
+        amount: u64,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         if parameters.len() > 10 {
             return Err(ClvmZkError::InvalidProgram(
@@ -162,18 +165,19 @@ impl ClvmZkProver {
 
         Self::validate_chialisp_syntax(expression)?;
 
-        let input = clvm_zk_core::backend_utils::prepare_guest_inputs_with_serial(
-            expression,
-            parameters,
-            coin_secrets.serial_number,
-            coin_secrets.serial_randomness,
+        let input = InputWithSerial {
+            chialisp_source: expression.to_string(),
+            program_parameters: parameters.to_vec(),
+            serial_number: coin_secrets.serial_number,
+            serial_randomness: coin_secrets.serial_randomness,
             merkle_path,
             coin_commitment,
             serial_commitment,
             merkle_root,
             leaf_index,
-            puzzle_hash,
-        );
+            program_hash,
+            amount,
+        };
 
         #[cfg(feature = "risc0")]
         {

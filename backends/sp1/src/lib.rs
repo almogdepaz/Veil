@@ -6,8 +6,7 @@ pub use clvm_zk_core::{
 };
 
 use clvm_zk_core::backend_utils::{
-    convert_proving_error, prepare_guest_inputs, validate_nullifier_proof_output,
-    validate_proof_output,
+    convert_proving_error, validate_nullifier_proof_output, validate_proof_output,
 };
 
 use sp1_sdk::SP1ProofMode;
@@ -60,7 +59,10 @@ impl Sp1Backend {
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use sp1_sdk::{ProverClient, SP1Stdin};
 
-        let inputs = prepare_guest_inputs(chialisp_source, program_parameters, None);
+        let inputs = Input {
+            chialisp_source: chialisp_source.to_string(),
+            program_parameters: program_parameters.to_vec(),
+        };
 
         let mut stdin = SP1Stdin::new();
         stdin.write(&inputs);
@@ -105,7 +107,7 @@ impl Sp1Backend {
 
     pub fn prove_with_input(
         &self,
-        inputs: clvm_zk_core::Input,
+        inputs: clvm_zk_core::InputWithSerial,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use sp1_sdk::{ProverClient, SP1Stdin};
         let mut stdin = SP1Stdin::new();

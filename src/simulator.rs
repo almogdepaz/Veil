@@ -11,8 +11,12 @@ use std::fmt;
 /// simulated blockchain state for testing
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CLVMZkSimulator {
+    /// Set of revealed nullifiers (hash of serial_number || program_hash || amount)
+    /// Used to prevent double-spending
     #[serde(with = "hex_hashset")]
     nullifier_set: HashSet<[u8; 32]>,
+    /// Map of unspent coins, keyed by serial_number (not the computed nullifier)
+    /// In a real system, each wallet tracks only its own UTXOs
     #[serde(with = "hex_hashmap")]
     utxo_set: HashMap<[u8; 32], CoinInfo>,
     #[serde(skip)]
@@ -120,7 +124,7 @@ impl CLVMZkSimulator {
         secrets: &clvm_zk_core::coin_commitment::CoinSecrets,
         metadata: CoinMetadata,
     ) -> [u8; 32] {
-        let nullifier = secrets.nullifier();
+        let serial_number = secrets.serial_number();
         let info = CoinInfo {
             coin: coin.clone(),
             metadata,
@@ -141,8 +145,8 @@ impl CLVMZkSimulator {
         self.commitment_to_index
             .insert(coin_commitment.0, leaf_index);
 
-        self.utxo_set.insert(nullifier, info);
-        nullifier
+        self.utxo_set.insert(serial_number, info);
+        serial_number
     }
 
     pub fn spend_coins(
@@ -170,21 +174,14 @@ impl CLVMZkSimulator {
             clvm_zk_core::coin_commitment::CoinSecrets,
         )>,
     ) -> Result<SimulatedTransaction, SimulatorError> {
-        let mut new_nullifiers = Vec::new();
-        for (_, _, _, secrets) in &spends {
-            let nullifier = secrets.serial_number;
-            if self.nullifier_set.contains(&nullifier) {
-                return Err(SimulatorError::DoubleSpend(hex::encode(nullifier)));
-            }
-            new_nullifiers.push(nullifier);
-        }
-
         let merkle_root = self
             .coin_tree
             .root()
             .ok_or_else(|| SimulatorError::TestFailed("merkle tree has no root".to_string()))?;
 
         let mut spend_bundles = Vec::new();
+        let mut spent_serial_numbers = Vec::new();
+
         for (coin, program, params, secrets) in spends {
             let (merkle_path, leaf_index) =
                 self.get_merkle_path_and_index(&coin).ok_or_else(|| {
@@ -200,9 +197,22 @@ impl CLVMZkSimulator {
                 merkle_root,
                 leaf_index,
             ) {
-                Ok(bundle) => spend_bundles.push(bundle),
+                Ok(bundle) => {
+                    spend_bundles.push(bundle);
+                    spent_serial_numbers.push(secrets.serial_number);
+                }
                 Err(e) => return Err(SimulatorError::ProofGeneration(format!("{:?}", e))),
             }
+        }
+
+        // Extract nullifiers from proof outputs (not pre-computed)
+        let mut new_nullifiers = Vec::new();
+        for bundle in &spend_bundles {
+            let nullifier = bundle.nullifier;
+            if self.nullifier_set.contains(&nullifier) {
+                return Err(SimulatorError::DoubleSpend(hex::encode(nullifier)));
+            }
+            new_nullifiers.push(nullifier);
         }
 
         let tx = SimulatedTransaction {
@@ -213,9 +223,14 @@ impl CLVMZkSimulator {
             timestamp: self.block_height * 10,
         };
 
+        // Add nullifiers to nullifier set (prevents double-spend)
         for nullifier in &new_nullifiers {
             self.nullifier_set.insert(*nullifier);
-            self.utxo_set.remove(nullifier);
+        }
+
+        // Remove spent coins from utxo_set (keyed by serial_number)
+        for serial_number in &spent_serial_numbers {
+            self.utxo_set.remove(serial_number);
         }
 
         self.transactions.push(tx.clone());
@@ -228,8 +243,8 @@ impl CLVMZkSimulator {
         self.nullifier_set.contains(nullifier)
     }
 
-    pub fn get_coin_info(&self, nullifier: &[u8; 32]) -> Option<&CoinInfo> {
-        self.utxo_set.get(nullifier)
+    pub fn get_coin_info(&self, serial_number: &[u8; 32]) -> Option<&CoinInfo> {
+        self.utxo_set.get(serial_number)
     }
 
     pub fn get_merkle_path_and_index(&self, coin: &PrivateCoin) -> Option<(Vec<[u8; 32]>, usize)> {

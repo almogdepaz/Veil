@@ -35,20 +35,24 @@ when creating a coin:
 serial_number = random(32 bytes)
 serial_randomness = random(32 bytes)
 serial_commitment = hash("clvm_zk_serial_v1.0" || serial_number || serial_randomness)
-coin_commitment = hash(puzzle_hash || amount || serial_commitment)
+coin_commitment = hash("clvm_zk_coin_v1.0" || puzzle_hash || serial_commitment)
 ```
 
 when spending a coin:
 ```
-nullifier = serial_number  // revealed in proof
+// Guest verifies:
 verify: hash(serial_number || serial_randomness) == serial_commitment
 verify: coin_commitment exists in merkle tree
+
+// Guest computes and reveals:
+nullifier = hash(serial_number || program_hash)
 ```
 
 **security properties:**
-- each coin has exactly one valid nullifier (the serial_number)
-- revealing serial_number doesn't break privacy (unlinkable to coin_commitment)
-- double-spend impossible: same serial_number can only be used once
+- each coin has exactly one valid nullifier for its (serial_number, program_hash) pair
+- nullifier = hash(serial_number || program_hash) - uniquely identifies spent coin
+- serial_randomness excluded from nullifier to prevent linkability with coin_commitment
+- double-spend impossible: same nullifier can only be revealed once
 - merkle membership proves coin exists without revealing which coin
 
 **critical:** losing serial_number or serial_randomness = permanent coin loss. see [ENCRYPTED_NOTES.md](ENCRYPTED_NOTES.md) for backup procedures.

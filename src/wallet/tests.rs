@@ -70,7 +70,7 @@ mod tests {
         coin1.validate().unwrap();
         coin2.validate().unwrap();
 
-        assert_ne!(coin1.nullifier(), coin2.nullifier());
+        assert_ne!(coin1.serial_number(), coin2.serial_number());
 
         assert_eq!(coin1.account_index, 0);
         assert_eq!(coin1.coin_index, 0);
@@ -85,7 +85,7 @@ mod tests {
 
         assert_eq!(wallet_coin.puzzle_hash(), protocol_coin.puzzle_hash);
         assert_eq!(wallet_coin.amount(), protocol_coin.amount);
-        assert_eq!(wallet_coin.nullifier(), wallet_coin.secrets.nullifier());
+        assert_eq!(wallet_coin.serial_number(), wallet_coin.secrets.serial_number());
     }
 
     #[test]
@@ -112,7 +112,7 @@ mod tests {
         let serialized = serde_json::to_string(&coin).unwrap();
         let deserialized: WalletPrivateCoin = serde_json::from_str(&serialized).unwrap();
 
-        assert_eq!(coin.nullifier(), deserialized.nullifier());
+        assert_eq!(coin.serial_number(), deserialized.serial_number());
         assert_eq!(coin.amount(), deserialized.amount());
         assert_eq!(coin.account_index, deserialized.account_index);
         assert_eq!(coin.coin_index, deserialized.coin_index);

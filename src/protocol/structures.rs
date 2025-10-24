@@ -228,7 +228,7 @@ mod tests {
         let (coin1, secrets1) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
         let (coin2, secrets2) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
 
-        assert_ne!(secrets1.nullifier(), secrets2.nullifier());
+        assert_ne!(secrets1.serial_number(), secrets2.serial_number());
         assert_eq!(coin1.puzzle_hash, coin2.puzzle_hash);
     }
 
@@ -238,8 +238,8 @@ mod tests {
         let (coin1, secrets1) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
         let (coin2, secrets2) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
 
-        // Random coins should have different nullifiers
-        assert_ne!(secrets1.nullifier(), secrets2.nullifier());
+        // Random coins should have different serial_numbers
+        assert_ne!(secrets1.serial_number(), secrets2.serial_number());
         assert_eq!(coin1.puzzle_hash, coin2.puzzle_hash); // Same puzzle
     }
 

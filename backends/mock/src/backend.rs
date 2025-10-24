@@ -106,7 +106,7 @@ impl MockBackend {
 
     pub fn prove_with_input(
         &self,
-        inputs: clvm_zk_core::Input,
+        inputs: clvm_zk_core::InputWithSerial,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         let (instance_bytecode, program_hash, function_table) =
             compile_chialisp_to_bytecode_with_table(
@@ -132,13 +132,80 @@ impl MockBackend {
             cost: 0,
         };
 
-        // extract nullifier from input
-        // serial_number is the nullifier
-        let nullifier = inputs.serial_number;
+        // Serial commitment protocol for spending
+        let serial_randomness = inputs.serial_randomness;
+        let serial_number = inputs.serial_number;
+        let puzzle_hash = inputs.program_hash;
+        // 1. Verify program_hash matches puzzle_hash
+        if program_hash != puzzle_hash {
+            return Err(ClvmZkError::ProofGenerationFailed(
+                "program_hash mismatch: cannot spend coin with different puzzle".to_string(),
+            ));
+        }
+
+        // 2. Verify serial commitment
+        let domain = b"clvm_zk_serial_v1.0";
+        let mut commitment_data = Vec::with_capacity(19 + 64);
+        commitment_data.extend_from_slice(domain);
+        commitment_data.extend_from_slice(&serial_number);
+        commitment_data.extend_from_slice(&serial_randomness);
+        let computed_serial_commitment = hash_data(&commitment_data);
+
+        let serial_commitment_expected = inputs.serial_commitment;
+        if computed_serial_commitment != serial_commitment_expected {
+            return Err(ClvmZkError::ProofGenerationFailed(
+                "serial commitment verification failed".to_string(),
+            ));
+        }
+
+        // 3. Reconstruct and verify coin_commitment = hash(domain || puzzle_hash || serial_commitment)
+        let coin_domain = b"clvm_zk_coin_v1.0";
+        let mut coin_data = Vec::with_capacity(17 + 64);
+        coin_data.extend_from_slice(coin_domain);
+        coin_data.extend_from_slice(&puzzle_hash);
+        coin_data.extend_from_slice(&computed_serial_commitment);
+        let computed_coin_commitment = hash_data(&coin_data);
+        let coin_commitment_provided = inputs.coin_commitment;
+        if computed_coin_commitment != coin_commitment_provided {
+            return Err(ClvmZkError::ProofGenerationFailed(
+                "coin commitment verification failed".to_string(),
+            ));
+        }
+        // 4. Verify merkle membership
+        let merkle_path = inputs.merkle_path;
+        let expected_root = inputs.merkle_root;
+        let leaf_index = inputs.leaf_index;
+        let mut current_hash = computed_coin_commitment;
+        let mut current_index = leaf_index;
+        for sibling in merkle_path.iter() {
+            let mut combined = [0u8; 64];
+            if current_index % 2 == 0 {
+                combined[..32].copy_from_slice(&current_hash);
+                combined[32..].copy_from_slice(sibling);
+            } else {
+                combined[..32].copy_from_slice(sibling);
+                combined[32..].copy_from_slice(&current_hash);
+            }
+            current_hash = hash_data(&combined);
+            current_index /= 2;
+        }
+
+        let computed_root = current_hash;
+        if computed_root != expected_root {
+            return Err(ClvmZkError::ProofGenerationFailed(
+                "merkle root mismatch: coin not in current tree state".to_string(),
+            ));
+        }
+
+        // 5. Compute nullifier = hash(serial_number || program_hash)
+        let mut nullifier_data = Vec::with_capacity(64);
+        nullifier_data.extend_from_slice(&serial_number);
+        nullifier_data.extend_from_slice(&program_hash);
+        let nullifier = hash_data(&nullifier_data);
 
         let proof_output = ProofOutput {
             program_hash,
-            nullifier,
+            nullifier: Some(nullifier),
             clvm_res: clvm_output.clone(),
         };
 

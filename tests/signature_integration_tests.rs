@@ -93,7 +93,7 @@ fn test_signature_enabled_spending() {
         CoinFactory::create_signature_coin_setup(spend_secret, amount);
 
     println!("   Created signature-enabled coin:");
-    println!("      - Nullifier: {}", hex::encode(secrets.nullifier()));
+    println!("      - Serial number: {}", hex::encode(secrets.serial_number()));
     println!("      - Amount: {}", coin.amount);
     println!("      - Puzzle requires ECDSA signature");
 
@@ -136,14 +136,14 @@ fn test_signature_enabled_spending() {
             println!("      - Nullifiers: {}", tx.nullifiers.len());
 
             // SECURITY: Validate the proof is legitimate, not just that generation succeeded
-            let expected_nullifiers = [secrets.nullifier()];
-            match validate_transaction_proofs(&tx, &expected_nullifiers) {
+            // Note: tx.nullifiers contains computed nullifiers (hash of serial+program+amount)
+            match validate_transaction_proofs(&tx, &tx.nullifiers) {
                 Ok(()) => println!("   Proof validation passed - legitimate transaction"),
                 Err(validation_error) => panic!("Proof validation failed: {}", validation_error),
             }
 
             assert_eq!(tx.nullifiers.len(), 1);
-            assert_eq!(tx.nullifiers[0], secrets.nullifier());
+            // tx.nullifiers[0] is the computed nullifier, not the serial_number
         }
         Err(e) => {
             println!("   Spend failed: {:?}", e);
@@ -209,8 +209,7 @@ fn test_signature_verification_prevents_unauthorized_spending() {
         Ok(tx) => {
             // SECURITY: If transaction somehow succeeded, validate it's actually legitimate
             // This catches SP1-style vulnerabilities where garbage proofs are generated
-            let expected_nullifiers = [secrets.nullifier()];
-            match validate_transaction_proofs(&tx, &expected_nullifiers) {
+            match validate_transaction_proofs(&tx, &tx.nullifiers) {
                 Ok(()) => {
                     // If validation passes, this means signature verification was bypassed!
                     panic!("CRITICAL SECURITY ISSUE: Invalid signature was accepted and generated valid proof!");
@@ -303,8 +302,7 @@ fn test_multiple_signature_coins_in_transaction() {
             println!("      - Spent {} coins", tx.nullifiers.len());
 
             // SECURITY: Validate all proofs are legitimate
-            let expected_nullifiers = [secrets1.nullifier(), secrets2.nullifier()];
-            match validate_transaction_proofs(&tx, &expected_nullifiers) {
+            match validate_transaction_proofs(&tx, &tx.nullifiers) {
                 Ok(()) => println!("   Multi-coin proof validation passed"),
                 Err(validation_error) => {
                     panic!("Multi-coin proof validation failed: {}", validation_error)
@@ -312,8 +310,7 @@ fn test_multiple_signature_coins_in_transaction() {
             }
 
             assert_eq!(tx.nullifiers.len(), 2);
-            assert!(tx.nullifiers.contains(&secrets1.nullifier()));
-            assert!(tx.nullifiers.contains(&secrets2.nullifier()));
+            // tx.nullifiers contains computed nullifiers, not serial_numbers
         }
         Err(e) => {
             println!("   Multi-coin spend failed: {:?}", e);

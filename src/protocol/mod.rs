@@ -31,7 +31,7 @@
 //!
 //! println!("Coin amount: {}", coin.amount);
 //! println!("Serial commitment: {}", hex::encode(coin.serial_commitment.0));
-//! println!("Nullifier (keep secret): {}", hex::encode(secrets.nullifier()));
+//! println!("Serial number (keep secret): {}", hex::encode(secrets.serial_number()));
 //! ```
 
 pub mod encrypted_notes;

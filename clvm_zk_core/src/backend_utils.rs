@@ -1,36 +1,8 @@
 //! Common utilities shared between different zkVM backends
 
-use crate::{ClvmZkError, Input, ProgramParameter, ProofOutput};
-use alloc::{format, string::ToString, vec::Vec};
+use crate::{ClvmZkError, ProofOutput};
+use alloc::{format, string::ToString};
 use core::fmt::Display;
-
-/// Prepare inputs with serial commitment protocol (v2.0)
-#[allow(clippy::too_many_arguments)]
-pub fn prepare_guest_inputs_with_serial(
-    chialisp_source: &str,
-    program_parameters: &[ProgramParameter],
-    serial_number: [u8; 32],
-    serial_randomness: [u8; 32],
-    merkle_path: Vec<[u8; 32]>,
-    coin_commitment: [u8; 32],
-    serial_commitment: [u8; 32],
-    merkle_root: [u8; 32],
-    leaf_index: usize,
-    puzzle_hash: [u8; 32],
-) -> Input {
-    Input {
-        chialisp_source: chialisp_source.to_string(),
-        program_parameters: program_parameters.to_vec(),
-        serial_number: Some(serial_number),
-        serial_randomness: Some(serial_randomness),
-        merkle_path: Some(merkle_path),
-        coin_commitment: Some(coin_commitment),
-        serial_commitment: Some(serial_commitment),
-        merkle_root: Some(merkle_root),
-        leaf_index: Some(leaf_index),
-        puzzle_hash: Some(puzzle_hash),
-    }
-}
 
 /// Convert proving errors from zkVM into clean user-facing error messages
 pub fn convert_proving_error(error: impl Display, backend_name: &str) -> ClvmZkError {

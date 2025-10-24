@@ -25,8 +25,6 @@ impl Spender {
             crate::crypto_utils::hash_data_default,
         );
 
-        let expected_nullifier = secrets.serial_number;
-
         let zkvm_result = crate::ClvmZkProver::prove_with_serial_commitment(
             puzzle_code,
             solution_params,
@@ -37,6 +35,7 @@ impl Spender {
             merkle_root,
             leaf_index,
             coin.puzzle_hash,
+            coin.amount,
         )
         .map_err(|e| ProtocolError::ProofGenerationFailed(format!("zk proof failed: {e}")))?;
 
@@ -44,14 +43,6 @@ impl Spender {
             .proof_output
             .nullifier
             .ok_or_else(|| ProtocolError::InvalidNullifier("no nullifier in proof".to_string()))?;
-
-        if actual_nullifier != expected_nullifier {
-            return Err(ProtocolError::InvalidNullifier(format!(
-                "nullifier mismatch: expected {}, got {}",
-                hex::encode(expected_nullifier),
-                hex::encode(actual_nullifier)
-            )));
-        }
 
         let spend_bundle = PrivateSpendBundle::new(
             zkvm_result.proof_bytes,

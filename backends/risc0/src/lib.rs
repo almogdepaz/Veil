@@ -3,8 +3,7 @@ pub use methods::*;
 
 use borsh;
 use clvm_zk_core::backend_utils::{
-    convert_proving_error, prepare_guest_inputs, validate_nullifier_proof_output,
-    validate_proof_output,
+    convert_proving_error, validate_nullifier_proof_output, validate_proof_output,
 };
 pub use clvm_zk_core::{
     ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
@@ -34,7 +33,10 @@ impl Risc0Backend {
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use risc0_zkvm::{default_prover, ExecutorEnv};
 
-        let inputs = prepare_guest_inputs(chialisp_source, program_parameters, None);
+        let inputs = Input {
+            chialisp_source: chialisp_source.to_string(),
+            program_parameters: program_parameters.to_vec(),
+        };
         let env = ExecutorEnv::builder()
             .write(&inputs)
             .map_err(|e| {
@@ -71,10 +73,9 @@ impl Risc0Backend {
         })
     }
 
-    /// prove with custom input (allows serial commitment protocol)
     pub fn prove_with_input(
         &self,
-        inputs: clvm_zk_core::Input,
+        inputs: clvm_zk_core::InputWithSerial,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use risc0_zkvm::{default_prover, ExecutorEnv};
 

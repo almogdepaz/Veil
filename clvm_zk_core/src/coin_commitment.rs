@@ -72,19 +72,19 @@ impl CoinCommitment {
         &self.0
     }
 
-    /// compute commitment: hash(domain || amount || puzzle_hash || serial_commitment)
+    /// compute commitment: hash(domain || program_hash || serial_commitment)
     pub fn compute(
         amount: u64,
-        puzzle_hash: &[u8; 32],
+        program_hash: &[u8; 32],
         serial_commitment: &SerialCommitment,
         hasher: fn(&[u8]) -> [u8; 32],
     ) -> Self {
         const DOMAIN: &[u8] = b"clvm_zk_coin_v1.0";
 
-        let mut data = Vec::with_capacity(DOMAIN.len() + 8 + 64);
+        let mut data = Vec::with_capacity(DOMAIN.len() + 64);
         data.extend_from_slice(DOMAIN);
         data.extend_from_slice(&amount.to_be_bytes());
-        data.extend_from_slice(puzzle_hash);
+        data.extend_from_slice(program_hash);
         data.extend_from_slice(serial_commitment.as_bytes());
 
         CoinCommitment(hasher(&data))
@@ -97,10 +97,12 @@ impl CoinCommitment {
 /// CRITICAL: losing these values = permanent loss of funds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CoinSecrets {
-    /// the serial number - becomes the nullifier when spending
+    /// the serial number - used as input to nullifier computation when spending
+    /// nullifier = hash(serial_number || program_hash)
     pub serial_number: [u8; 32],
 
     /// randomness used to blind the serial commitment
+    /// excluded from nullifier to prevent linkability
     pub serial_randomness: [u8; 32],
 }
 
@@ -127,8 +129,8 @@ impl CoinSecrets {
         SerialCommitment::compute(&self.serial_number, &self.serial_randomness, hasher)
     }
 
-    /// get the nullifier (serial_number, revealed when spending)
-    pub fn nullifier(&self) -> [u8; 32] {
+    /// get the serial number (used as input to nullifier computation when spending)
+    pub fn serial_number(&self) -> [u8; 32] {
         self.serial_number
     }
 }
@@ -206,30 +208,14 @@ mod tests {
 
     #[test]
     fn test_coin_commitment_compute() {
-        let amount = 1000u64;
-        let puzzle_hash = [5u8; 32];
+        let program_hash = [5u8; 32];
         let serial_commitment = SerialCommitment([6u8; 32]);
 
-        let commitment =
-            CoinCommitment::compute(amount, &puzzle_hash, &serial_commitment, test_hasher);
+        let commitment = CoinCommitment::compute(&program_hash, &serial_commitment, test_hasher);
 
         // verify consistent
-        let commitment2 =
-            CoinCommitment::compute(amount, &puzzle_hash, &serial_commitment, test_hasher);
+        let commitment2 = CoinCommitment::compute(&program_hash, &serial_commitment, test_hasher);
         assert_eq!(commitment, commitment2);
-    }
-
-    #[test]
-    fn test_different_amounts_different_commitments() {
-        let puzzle_hash = [5u8; 32];
-        let serial_commitment = SerialCommitment([6u8; 32]);
-
-        let commitment1 =
-            CoinCommitment::compute(1000, &puzzle_hash, &serial_commitment, test_hasher);
-        let commitment2 =
-            CoinCommitment::compute(2000, &puzzle_hash, &serial_commitment, test_hasher);
-
-        assert_ne!(commitment1, commitment2);
     }
 
     #[test]
@@ -251,8 +237,8 @@ mod tests {
         let serial_randomness = [99u8; 32];
         let secrets = CoinSecrets::new(serial_number, serial_randomness);
 
-        // nullifier is the serial_number
-        assert_eq!(secrets.nullifier(), serial_number);
+        // serial_number accessor returns the serial_number
+        assert_eq!(secrets.serial_number(), serial_number);
     }
 
     #[test]

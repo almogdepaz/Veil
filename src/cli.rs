@@ -750,9 +750,9 @@ impl WalletCoinWrapper {
         self.wallet_coin.amount()
     }
 
-    /// get coin nullifier
-    fn nullifier(&self) -> [u8; 32] {
-        self.wallet_coin.nullifier()
+    /// get coin serial_number
+    fn serial_number(&self) -> [u8; 32] {
+        self.wallet_coin.serial_number()
     }
 
     /// get coin puzzle hash
@@ -1125,13 +1125,13 @@ fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Resul
             println!("coins in wallet '{}':", name);
             for (i, coin) in wallet.coins.iter().enumerate() {
                 let status = if coin.spent { "spent" } else { "unspent" };
-                let nullifier = coin.nullifier();
+                let serial_number = coin.serial_number();
                 println!(
-                    "  {}. {} {} (nullifier: {}...)",
+                    "  {}. {} {} (serial: {}...)",
                     i,
                     coin.amount(),
                     status,
-                    hex::encode(&nullifier[0..8])
+                    hex::encode(&serial_number[0..8])
                 );
             }
         }
@@ -1159,12 +1159,12 @@ fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Resul
             );
             let mut total = 0u64;
             for (i, coin) in &unspent_coins {
-                let nullifier = coin.nullifier();
+                let serial_number = coin.serial_number();
                 println!(
-                    "  [{}] {} (nullifier: {}...)",
+                    "  [{}] {} (serial: {}...)",
                     i,
                     coin.amount(),
-                    hex::encode(&nullifier[0..8])
+                    hex::encode(&serial_number[0..8])
                 );
                 total += coin.amount();
             }
@@ -1578,7 +1578,7 @@ fn scan_command(data_dir: &PathBuf, wallet_name: &str) -> Result<(), ClvmZkError
 
             // Check if we already have this coin
             let nullifier = payment_note.serial_number;
-            let already_have = wallet.coins.iter().any(|c| c.nullifier() == nullifier);
+            let already_have = wallet.coins.iter().any(|c| c.serial_number() == nullifier);
 
             if already_have {
                 println!("    (already in wallet, skipping)");
@@ -1726,11 +1726,11 @@ fn spend_to_puzzle_command(
             // mark coins as spent
             let from_wallet = state.wallets.get_mut(from).unwrap();
             for coin in &spend_coins {
-                let coin_nullifier = coin.nullifier();
+                let coin_serial = coin.serial_number();
                 if let Some(wallet_coin) = from_wallet
                     .coins
                     .iter_mut()
-                    .find(|c| c.nullifier() == coin_nullifier)
+                    .find(|c| c.serial_number() == coin_serial)
                 {
                     wallet_coin.spent = true;
                 }
@@ -1797,9 +1797,9 @@ fn spend_to_puzzle_command(
 
             state.save(data_dir)?;
             println!(
-                "locked {} in puzzle coin (nullifier: {}..., program: {})",
+                "locked {} in puzzle coin (serial: {}..., program: {})",
                 amount,
-                hex::encode(&puzzle_coin.secrets.nullifier()[0..8]),
+                hex::encode(&puzzle_coin.secrets.serial_number()[0..8]),
                 program
             );
         }
@@ -1885,8 +1885,8 @@ fn spend_to_wallet_command(
 
             // remove the spent puzzle coin
             let puzzle_coins = state.puzzle_coins.as_mut().unwrap();
-            let spent_nullifier = puzzle_coin.secrets.nullifier();
-            puzzle_coins.retain(|c| c.secrets.nullifier() != spent_nullifier);
+            let spent_serial = puzzle_coin.secrets.serial_number();
+            puzzle_coins.retain(|c| c.secrets.serial_number() != spent_serial);
 
             // create new coin for destination wallet
             let to_wallet = state.wallets.get_mut(to).unwrap();

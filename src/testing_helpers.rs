@@ -211,10 +211,10 @@ impl TestScenarios {
         let (_coin1, secrets1) = CoinFactory::create_coin(spend_secret, PuzzleType::P2PK, 1000);
         let (_coin2, secrets2) = CoinFactory::create_coin(spend_secret, PuzzleType::Multisig, 1000);
 
-        let null1 = secrets1.nullifier();
-        let null2 = secrets2.nullifier();
+        let serial1 = secrets1.serial_number();
+        let serial2 = secrets2.serial_number();
 
-        if null1 == null2 {
+        if serial1 == serial2 {
             return Err(SimulatorError::TestFailed(
                 "cross-puzzle replay vulnerability".to_string(),
             ));
@@ -294,7 +294,7 @@ impl TestScenarios {
                 },
             );
 
-            coin_secrets_backup.push((secrets.nullifier(), secrets));
+            coin_secrets_backup.push((secrets.serial_number(), secrets));
         }
 
         println!(
