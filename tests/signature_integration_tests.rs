@@ -93,7 +93,10 @@ fn test_signature_enabled_spending() {
         CoinFactory::create_signature_coin_setup(spend_secret, amount);
 
     println!("   Created signature-enabled coin:");
-    println!("      - Serial number: {}", hex::encode(secrets.serial_number()));
+    println!(
+        "      - Serial number: {}",
+        hex::encode(secrets.serial_number())
+    );
     println!("      - Amount: {}", coin.amount);
     println!("      - Puzzle requires ECDSA signature");
 

@@ -1,14 +1,10 @@
 # Cargo configuration for separate backend builds
 
 [alias]
-# Build commands
-build-risc0 = "build --target-dir target/risc0 --no-default-features --features risc0,testing"
-build-sp1 = "build --target-dir target/sp1 --no-default-features --features sp1,testing"
-build-mock = "build --target-dir target/mock --no-default-features --features mock,testing"
-
-# Release builds
-release-risc0 = "build --release --target-dir target/risc0 --no-default-features --features risc0,testing"
-release-sp1 = "build --release --target-dir target/sp1 --no-default-features --features sp1,testing"
+# Release builds (primary commands)
+risc0 = "build --release --target-dir target/risc0 --no-default-features --features risc0,testing"
+sp1 = "build --release --target-dir target/sp1 --no-default-features --features sp1,testing"
+mock = "build --release --target-dir target/mock --no-default-features --features mock,testing"
 
 # Test commands
 test-risc0 = "test --target-dir target/risc0 --no-default-features --features risc0,testing"

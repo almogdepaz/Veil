@@ -62,6 +62,7 @@ impl Sp1Backend {
         let inputs = Input {
             chialisp_source: chialisp_source.to_string(),
             program_parameters: program_parameters.to_vec(),
+            serial_commitment_data: None,
         };
 
         let mut stdin = SP1Stdin::new();
@@ -107,7 +108,7 @@ impl Sp1Backend {
 
     pub fn prove_with_input(
         &self,
-        inputs: clvm_zk_core::InputWithSerial,
+        inputs: clvm_zk_core::Input,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use sp1_sdk::{ProverClient, SP1Stdin};
         let mut stdin = SP1Stdin::new();

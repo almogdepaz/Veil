@@ -185,7 +185,12 @@ impl WalletPrivateCoin {
 
     pub fn with_hint(&self) -> ([u8; 4], [u8; 32]) {
         let serial_number = self.serial_number();
-        let hint = [serial_number[0], serial_number[1], serial_number[2], serial_number[3]];
+        let hint = [
+            serial_number[0],
+            serial_number[1],
+            serial_number[2],
+            serial_number[3],
+        ];
         (hint, serial_number)
     }
 

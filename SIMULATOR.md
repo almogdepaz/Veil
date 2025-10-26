@@ -59,35 +59,29 @@ nullifier = hash(serial_number || program_hash)
 
 ## Quick start
 
-### automated demo script
+### Demo script
 
-fastest way to see the full simulator in action:
+Run the full encrypted payment notes demo:
 
 ```bash
-# run encrypted payment notes demo with risc0 backend (default)
-./sim_demo.sh
-
-# or use sp1 backend
-./sim_demo.sh sp1
+./sim_demo.sh         # RISC0 backend (default)
+./sim_demo.sh sp1     # SP1 backend
 ```
 
-the script:
-- auto-builds the backend if needed (builds to `target/risc0/` or `target/sp1/`)
-- resets simulator state
-- creates alice and bob wallets
-- funds alice with coins
-- alice sends to bob (bob offline)
-- bob scans and discovers payments
-- bob sends back to alice
-- shows timing metrics for all operations
-- displays final balances and proof count
+**What it does:**
+1. Builds backend if needed (`target/risc0/` or `target/sp1/`)
+2. Resets simulator state
+3. Creates alice and bob wallets with HD keys
+4. Funds alice from faucet
+5. Alice sends to bob (bob offline, doesn't receive yet)
+6. Bob scans blockchain and discovers payments via encrypted notes
+7. Bob sends back to alice
+8. Shows timing and final balances
 
-expected timing:
-- risc0: ~11s per send transaction
-- sp1: ~15s per send transaction
-- scan operations: instant (no zkvm execution)
 
-output saved to `simulator_data/state.json` with all zk proofs (~245kb each).
+- Scan operations: instant (decryption only, no zkVM)
+
+**Output:** Persistent state in `simulator_data/state.json` with all ZK proofs.
 
 ### manual commands
 
@@ -218,7 +212,7 @@ cargo run-mock -- sim init
 **Always use `--release` for SP1 and RISC0 backends** - they require release mode for proof generation.
 Use mock backend for fast testing without real proofs: `cargo run-mock -- sim init`
 Reset corrupted state with `cargo run-sp1 --release -- sim init --reset`
-Switch backends using cargo aliases: `cargo run-risc0`, `cargo run-sp1`, or `cargo run-mock` (see [CARGO_ALIASES.md](CARGO_ALIASES.md))
+Switch backends using cargo aliases: `cargo run-risc0`, `cargo run-sp1`
 
 ## Use cases
 

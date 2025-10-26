@@ -897,7 +897,7 @@ impl SimulatorState {
         }
     }
 
-    fn save(&self, data_dir: &PathBuf) -> Result<(), ClvmZkError> {
+    fn save(&self, data_dir: &Path) -> Result<(), ClvmZkError> {
         fs::create_dir_all(data_dir).map_err(|e| {
             ClvmZkError::SerializationError(format!("failed to create data dir: {e}"))
         })?;
@@ -913,7 +913,7 @@ impl SimulatorState {
 }
 
 // Simulator CLI commands
-fn run_simulator_command(data_dir: &PathBuf, action: SimAction) -> Result<(), ClvmZkError> {
+fn run_simulator_command(data_dir: &Path, action: SimAction) -> Result<(), ClvmZkError> {
     match action {
         SimAction::Init { reset } => {
             if reset && data_dir.exists() {
@@ -992,7 +992,7 @@ fn run_simulator_command(data_dir: &PathBuf, action: SimAction) -> Result<(), Cl
 }
 
 fn faucet_command(
-    data_dir: &PathBuf,
+    data_dir: &Path,
     wallet_name: &str,
     amount: u64,
     count: u32,
@@ -1048,7 +1048,7 @@ fn faucet_command(
     Ok(())
 }
 
-fn wallet_command(data_dir: &PathBuf, name: &str, action: WalletAction) -> Result<(), ClvmZkError> {
+fn wallet_command(data_dir: &Path, name: &str, action: WalletAction) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
     match action {
@@ -1280,9 +1280,10 @@ fn wallets_command(data_dir: &Path) -> Result<(), ClvmZkError> {
 }
 
 // Helper functions
-fn create_faucet_puzzle(amount: u64) -> (String, [u8; 32]) {
-    let program = format!("{}", amount);
-    let hash = Sha256::digest(program.as_bytes()).into();
+fn create_faucet_puzzle(_amount: u64) -> (String, [u8; 32]) {
+    let program = "(mod () 1)".to_string();
+    let hash =
+        compile_chialisp_template_hash_default(&program).expect("faucet puzzle compilation failed");
     (program, hash)
 }
 
@@ -1307,7 +1308,7 @@ fn decode_clvm_output(output_bytes: &[u8]) -> Option<String> {
 }
 
 fn send_command(
-    data_dir: &PathBuf,
+    data_dir: &Path,
     from: &str,
     to: &str,
     amount: u64,
@@ -1545,7 +1546,7 @@ fn send_command(
     Ok(())
 }
 
-fn scan_command(data_dir: &PathBuf, wallet_name: &str) -> Result<(), ClvmZkError> {
+fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
     // Get wallet
@@ -1640,7 +1641,7 @@ fn scan_command(data_dir: &PathBuf, wallet_name: &str) -> Result<(), ClvmZkError
     Ok(())
 }
 
-fn proofs_command(data_dir: &PathBuf) -> Result<(), ClvmZkError> {
+fn proofs_command(data_dir: &Path) -> Result<(), ClvmZkError> {
     let state = SimulatorState::load(data_dir)?;
 
     if state.spend_bundles.is_empty() {
@@ -1670,7 +1671,7 @@ fn proofs_command(data_dir: &PathBuf) -> Result<(), ClvmZkError> {
 // ============================================================================
 
 fn spend_to_puzzle_command(
-    data_dir: &PathBuf,
+    data_dir: &Path,
     from: &str,
     amount: u64,
     program: &str,
@@ -1816,7 +1817,7 @@ fn spend_to_puzzle_command(
 }
 
 fn spend_to_wallet_command(
-    data_dir: &PathBuf,
+    data_dir: &Path,
     program: &str,
     params: &str,
     to: &str,
@@ -1957,7 +1958,7 @@ fn spend_to_wallet_command(
     Ok(())
 }
 
-fn observer_command(data_dir: &PathBuf, action: ObserverAction) -> Result<(), ClvmZkError> {
+fn observer_command(data_dir: &Path, action: ObserverAction) -> Result<(), ClvmZkError> {
     use crate::wallet::Network;
 
     let mut state = SimulatorState::load(data_dir)?;

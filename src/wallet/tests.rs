@@ -85,7 +85,10 @@ mod tests {
 
         assert_eq!(wallet_coin.puzzle_hash(), protocol_coin.puzzle_hash);
         assert_eq!(wallet_coin.amount(), protocol_coin.amount);
-        assert_eq!(wallet_coin.serial_number(), wallet_coin.secrets.serial_number());
+        assert_eq!(
+            wallet_coin.serial_number(),
+            wallet_coin.secrets.serial_number()
+        );
     }
 
     #[test]

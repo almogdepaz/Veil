@@ -2,34 +2,34 @@
 
 **Work in progress research project**
 
-Zero-knowledge proof system for running Chialisp (CLVM) programs privately. Take a chialisp program, prove it executed correctly, and verify that proof without revealing the inputs or program logic.
+Zero-knowledge proof system for running Chialisp (CLVM) programs privately. Generates proofs of correct execution without revealing inputs or program logic.
 
-General purpose zkvm approach - supports arbitrary chialisp programs instead of hardcoded circuits.
+Supports arbitrary Chialisp programs instead of hardcoded circuits.
 
 ## What it does
 
-- Run chialisp programs in zkvm (SP1 by default, RISC0 also supported)
+- Run Chialisp programs in zkVM (SP1 by default, RISC0 also supported)
 - Generate proofs that hide inputs and program logic
-- Verify proofs without seeing the private data
-- BLS and ECDSA signature verification support
+- Verify proofs without revealing private data
+- BLS and ECDSA signature verification
 
 
 ## Getting started
 
-### Quick start: simulator demo
+### Simulator demo
 
-fastest way to see veil in action:
+Run encrypted payment notes demo:
 
 ```bash
 # install dependencies
 ./install-deps.sh
 
-# run encrypted payment notes demo
-./sim_demo.sh         # risc0 backend (default)
-./sim_demo.sh sp1     # sp1 backend
+# run demo
+./sim_demo.sh         # RISC0 backend (default)
+./sim_demo.sh sp1     # SP1 backend
 ```
 
-see **[SIMULATOR.md](SIMULATOR.md)** for details.
+See **[SIMULATOR.md](SIMULATOR.md)** for details.
 
 ### Install dependencies
 
@@ -42,77 +42,47 @@ rustup target add riscv32im-unknown-none-elf
 curl -L https://risczero.com/install | bash && rzup
 ```
 
-### Backend-specific builds (recommended)
+### Build and test
 
-to prevent backends from overwriting each other's builds, use cargo aliases:
+Use backend-specific cargo aliases to avoid rebuilding when switching backends:
 
 ```bash
-# build commands
-cargo build-risc0        # debug build to target/risc0/
-cargo release-risc0      # release build to target/risc0/
-cargo build-sp1          # debug build to target/sp1/
-cargo release-sp1        # release build to target/sp1/
+# build (release)
+cargo risc0              # RISC0 backend to target/risc0/
+cargo sp1                # SP1 backend to target/sp1/
+cargo mock               # mock backend to target/mock/
 
-# run tests
-cargo test-risc0
-cargo test-sp1
+# test
+cargo test-risc0         # run all tests with RISC0
+cargo test-sp1           # run all tests with SP1
+cargo test-mock          # fast tests without zkVM
+
+# run
+cargo run-risc0 -- demo
+cargo run-sp1 -- prove --expression "(mod (a b) (+ a b))" --variables "5,3"
+
+# examples
+cargo run-risc0 --example alice_bob_lock
+cargo run-sp1 --example backend_benchmark
 
 # development
 cargo check-risc0        # fast compile check
 cargo clippy-risc0       # lints
 ```
 
-see **[CARGO_ALIASES.md](CARGO_ALIASES.md)** for complete documentation.
+Backend-specific builds prevent clobbering. Each backend uses ~1GB disk space. Aliases defined in `.cargo/config.toml`.
 
-**benefits:**
-- ✅ building sp1 won't delete risc0 binaries
-- ✅ switch between backends without rebuilding
-- ✅ parallel builds in different terminals
-- ⚠️  uses ~1GB per backend
-
-### Standard build (single backend at a time)
-
-```bash
-# default: sp1 backend (requires --release for proof generation)
-cargo build --release
-cargo test --release
-
-# risc0 backend
-cargo release-risc0
-cargo test-risc0 --release
-
-# mock backend (for testing without zkvm overhead)
-cargo test-mock
-```
-
-### Run examples
-
-```bash
-# run with cargo (use --release for actual proof generation)
-cargo run --release -- demo
-cargo run --release -- prove --expression "(mod (a b) (+ a b))" --variables "5,3"
-
-# or run binary directly (faster, no rebuild)
-./target/release/clvm-zk demo
-./target/release/clvm-zk prove --expression "(mod (a b) (+ a b))" --variables "5,3"
-./target/release/clvm-zk verify --proof-file proof.bin --template "(mod (a b) (+ a b))"
-
-# run code examples
-cargo run --release --example alice_bob_lock
-cargo run --release --example backend_benchmark
-```
-
-for simulator usage, see **[SIMULATOR.md](SIMULATOR.md)**.
+For simulator usage, see **[SIMULATOR.md](SIMULATOR.md)**.
 
 
 
-## Supported chialisp
+## Supported Chialisp
 
 **Arithmetic**: `+`, `-`, `*`, `divmod`, `modpow`
 **Comparison**: `=`, `>`, `<`
 **Control flow**: `i` (if-then-else), `if`
 **Lists**: `c` (cons), `f` (first), `r` (rest), `l` (length)
-**Functions**: helper functions with recursion support
+**Functions**: Helper functions with recursion support
 **Cryptography**: `sha256`, `ecdsa_verify`, `bls_verify`
 **Blockchain**: `create_coin`, `agg_sig_unsafe`, `reserve_fee`, etc
 **Modules**: `mod` wrapper syntax for named parameters
@@ -149,7 +119,7 @@ BLS signature verification (`bls_verify`) works on SP1 and RISC0 backends.
     0))
 ```
 
-See `tests/` for examples of supported operations.
+See `tests/` for examples.
 
 
 
@@ -217,36 +187,37 @@ clvm-zk/
 ### Core components
 
 #### `clvm_zk_core/` - Backend-agnostic compilation and execution
-Unconditionally no_std chialisp compiler and CLVM executor with dependency injection for zkvm-optimized crypto:
+no_std Chialisp compiler and CLVM executor with dependency injection for zkVM-optimized crypto:
 
 **Compilation:**
-- **`compile_chialisp_to_bytecode_with_table()`**: compiles chialisp source to CLVM bytecode with function table
-- **`compile_chialisp_template_hash()`**: generates deterministic program hashes for verification
-- **Compilation pipeline**: chialisp source → s-expressions → AST → CLVM bytecode → ClvmValue
+- **`compile_chialisp_to_bytecode_with_table()`**: Compiles Chialisp source to CLVM bytecode with function table
+- **`compile_chialisp_template_hash()`**: Generates deterministic program hashes for verification
+- **Compilation pipeline**: Chialisp source → s-expressions → AST → CLVM bytecode → ClvmValue
 
 **Execution:**
-- **`ClvmEvaluator`**: main evaluation struct with injected backend crypto
-  - `hasher: fn(&[u8]) -> [u8; 32]` - hash function (zkvm-optimized)
+- **`ClvmEvaluator`**: Main evaluation struct with injected backend crypto
+  - `hasher: fn(&[u8]) -> [u8; 32]` - Hash function (zkVM-optimized)
   - `bls_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>` - BLS signature verification
   - `ecdsa_verifier: fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>` - ECDSA signature verification
-- **`evaluate_clvm_program()`**: executes bytecode with parameter substitution
-- **All CLVM opcodes**: arithmetic, comparison, list operations, conditionals, crypto, blockchain conditions
-  
-#### `backends/` - zkvm implementations
-Each backend provides host integration and guest program:
-- **risc0**: mature backend with optimized precompiles for BLS/ECDSA
-- **sp1**: default backend, potentially faster proving times
-- **mock**: no-zkvm testing backend for fast iteration
+- **`evaluate_clvm_program()`**: Executes bytecode with parameter substitution
+- **All CLVM opcodes**: Arithmetic, comparison, list operations, conditionals, crypto, blockchain conditions
 
-#### `examples/` - working code examples
+#### `backends/` - zkVM implementations
+Each backend provides host integration and guest program:
+- **RISC0**: Mature backend with optimized precompiles for BLS/ECDSA
+- **SP1**: Default backend, potentially faster proving times
+- **mock**: No-zkVM testing backend for fast iteration
+
+#### `examples/` - Working code examples
 - `alice_bob_lock.rs` - ECDSA signature verification with ZK proofs
-- `performance_profiling.rs` - performance benchmarking suite
-- `backend_benchmark.rs` - backend comparison tool
+- `performance_profiling.rs` - Performance benchmarking suite
+- `backend_benchmark.rs` - Backend comparison tool
+
 ## Development
 
 ### Basic usage
 
-`ClvmZkProver::prove(expression)` generates proofs. `ClvmZkProver::verify_proof()` verifies them. Expressions support named variables and `mod` wrapper syntax. Check `examples/` for working code.
+`ClvmZkProver::prove(expression)` generates proofs. `ClvmZkProver::verify_proof()` verifies them. Expressions support named variables and `mod` wrapper syntax. See `examples/` for working code.
 
 ### Examples
 
@@ -266,30 +237,83 @@ let result = ClvmZkProver::prove(chialisp_source, parameters)?;
 See `examples/` for complete working code including `alice_bob_lock.rs` for ECDSA signatures.
 
 
-**Flow**: Host sends chialisp source to guest → guest compiles and executes → returns proof with program hash.
+**Flow**: Host sends Chialisp source to guest → guest compiles and executes → returns proof with program hash.
 
 
+
+## Privacy protocols
+
+### Nullifier protocol
+
+Coins use serial commitment scheme to prevent double-spending while hiding which coin was spent:
+
+**Coin creation:**
+- Generate random `serial_number` and `serial_randomness`
+- `serial_commitment = hash("clvm_zk_serial_v1.0" || serial_number || serial_randomness)`
+- `coin_commitment = hash("clvm_zk_coin_v1.0" || amount || puzzle_hash || serial_commitment)`
+- Coin commitment added to merkle tree
+
+**Spending:**
+- Guest verifies: `puzzle_hash == program_hash` (proves running correct puzzle)
+- Guest verifies: `hash(serial_number || serial_randomness) == serial_commitment`
+- Guest verifies: `hash(amount || puzzle_hash || serial_commitment) == coin_commitment`
+- Guest verifies: Merkle membership of coin_commitment
+- Guest computes: `nullifier = hash(serial_number || program_hash)`
+- Proof reveals nullifier, hides which coin was spent
+
+**Security properties:**
+- Each coin has exactly one valid nullifier
+- Nullifier set tracks spent coins
+- Double-spending cryptographically impossible
+- Merkle proof shows coin exists without revealing which one
+- serial_randomness prevents linking nullifier to coin_commitment
+
+### Recovery protocol
+
+Encrypted payment notes enable offline receiving and backup recovery:
+
+**Sending:**
+- Alice generates coin with random serial_number and serial_randomness
+- Alice encrypts `(serial_number, serial_randomness)` to Bob's x25519 viewing key
+- Alice publishes encrypted note on-chain alongside transaction
+
+**Receiving:**
+- Bob scans blockchain with x25519 decryption key
+- Bob decrypts notes to discover coins sent to him
+- Bob stores coin secrets locally
+
+**Recovery:**
+- Bob re-scans blockchain with viewing key
+- Recovers all coins from encrypted notes
+- Works offline - no interaction with sender needed
+
+**Privacy:**
+- Alice cannot track Bob's spending after sending
+- Encrypted notes unlinkable to coin commitments
+- Viewing key enables read-only access
+
+See **[ENCRYPTED_NOTES.md](ENCRYPTED_NOTES.md)** and **[nullifier.md](nullifier.md)** for detailed specifications.
 
 ## Blockchain simulator
 
-local privacy-preserving blockchain simulator with encrypted payment notes, hd wallets, persistent state, and real zk proofs.
+Local privacy-preserving blockchain simulator with encrypted payment notes, HD wallets, persistent state, and real ZK proofs.
 
 ```bash
 # run the full demo
-./sim_demo.sh         # risc0 backend (default)
-./sim_demo.sh sp1     # sp1 backend
+./sim_demo.sh         # RISC0 backend (default)
+./sim_demo.sh sp1     # SP1 backend
 ```
 
-see **[SIMULATOR.md](SIMULATOR.md)** for complete documentation and usage examples.
+See **[SIMULATOR.md](SIMULATOR.md)** for complete documentation and usage examples.
 
 
-## Adding new zkvm backends
+## Adding new zkVM backends
 
-To add a new zkvm backend:
+To add a new zkVM backend:
 
 1. Create `backends/your_zkvm/src/lib.rs` implementing the backend
 2. Create guest program using `clvm_zk_core` (no_std compatible)
-3. Inject zkvm-optimized crypto functions into `ClvmEvaluator`
+3. Inject zkVM-optimized crypto functions into `ClvmEvaluator`
 4. Add feature flag to workspace `Cargo.toml`
 5. Implement `ZKCLVMBackend` trait in `src/backends.rs`
 
@@ -297,12 +321,12 @@ See `backends/risc0/` or `backends/sp1/` as reference implementations.
 
 ## Contributing
 
-Areas where help would be useful:
+Contributions welcome in these areas:
 - Performance optimizations
-- More chialisp operations
-- Better error messages
-- Documentation improvements
-- More test cases
-- New zkvm backends
+- Chialisp operations
+- Error messages
+- Documentation
+- Test cases
+- zkVM backends
 
-Check the test suite in `tests/` to understand how everything works.
+See test suite in `tests/` for implementation patterns.
