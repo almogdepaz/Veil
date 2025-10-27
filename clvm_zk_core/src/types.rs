@@ -102,15 +102,58 @@ pub struct ZKClvmResult {
     pub proof_bytes: Vec<u8>,
 }
 
-/// guest program input/output types
+/// Unified guest program input type
+/// Supports both simple program execution and serial commitment protocol
 #[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct Input {
     /// Raw Chialisp source code (e.g., "(mod (x y) (+ x y))")
     pub chialisp_source: String,
     /// Parameter values for the program - supports both integers and bytes
     pub program_parameters: Vec<ProgramParameter>,
-    /// Optional spend secret for nullifier generation
-    pub spend_secret: Option<[u8; 32]>,
+
+    /// Optional serial commitment data for nullifier-based spending
+    /// - None: Simple program execution (BLS tests, basic proving)
+    /// - Some(...): Full serial commitment protocol (blockchain simulator, real spending)
+    pub serial_commitment_data: Option<SerialCommitmentData>,
+}
+
+/// Serial commitment protocol data for nullifier-based spending
+/// When None, guest performs simple program execution without nullifier verification
+#[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct SerialCommitmentData {
+    /// Serial number (becomes the nullifier when revealed)
+    /// This is the unique identifier for the coin being spent
+    pub serial_number: [u8; 32],
+
+    /// Serial number randomness for commitment opening
+    /// Used to prove: serial_commitment = hash(serial_number || serial_randomness)
+    pub serial_randomness: [u8; 32],
+
+    /// Merkle authentication path for coin membership proof
+    /// Each element is a sibling hash in the path from leaf to root
+    pub merkle_path: Vec<[u8; 32]>,
+
+    /// Coin commitment value (hash of coin data including serial_commitment)
+    /// This is the leaf value in the merkle tree
+    pub coin_commitment: [u8; 32],
+
+    /// Expected serial commitment from the coin
+    /// Guest will verify: hash(serial_number || serial_randomness) == serial_commitment
+    pub serial_commitment: [u8; 32],
+
+    /// Expected merkle root (current tree state)
+    /// Guest will verify: computed_root == merkle_root
+    /// This binds the proof to a specific ledger state, preventing replay attacks
+    pub merkle_root: [u8; 32],
+
+    /// Leaf index in the merkle tree (for position-based hashing)
+    pub leaf_index: usize,
+
+    /// Puzzle hash that locks the coin (must match program_hash)
+    pub program_hash: [u8; 32],
+
+    /// Coin amount
+    pub amount: u64,
 }
 
 #[derive(

@@ -20,12 +20,14 @@
 //! 5. L1 blockchain validates nullifiers haven't been used before
 //! ```
 
+pub mod encrypted_notes;
 pub mod puzzles;
 pub mod recursive;
 pub mod spender;
 pub mod structures;
 
 // Re-export main types for convenient access
+pub use encrypted_notes::{EncryptedNote, PaymentNote};
 pub use puzzles::{
     create_password_puzzle, create_password_puzzle_program, create_password_spend_parameters,
     create_password_spend_params, create_signature_puzzle, create_signature_spend_params,

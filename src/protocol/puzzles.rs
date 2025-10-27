@@ -205,8 +205,8 @@ mod tests {
         ); // Proper Chialisp syntax
 
         // Create a coin with this puzzle
-        let spend_secret = [0x42; 32];
-        let _coin = PrivateCoin::new(spend_secret, puzzle_hash, 1000);
+        let _ = [0x42; 32]; // ignored for test
+        let _coin = PrivateCoin::new_random(puzzle_hash, 1000);
 
         // Create a test message and signature
         let message = b"spend_authorization_test";

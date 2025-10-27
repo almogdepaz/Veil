@@ -3,6 +3,13 @@
 
 use sha2::{Digest, Sha256};
 
+/// sha256 hash function for general use
+pub fn hash_data_default(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
 /// make viewing tag for coin discovery
 ///
 /// viewing tags are 4-byte ids that let wallets scan for coins efficiently
@@ -47,34 +54,6 @@ pub fn find_coin_index_by_viewing_tag(
         }
     }
     None
-}
-
-/// make canonical nullifier with domain separation and puzzle binding
-///
-/// this implements the hardened nullifier algorithm v1.0 with:
-/// - domain separation to prevent cross-protocol attacks
-/// - puzzle binding for future features
-/// - deterministic output for the same inputs
-///
-/// design note: the puzzle_hash binding is defensive programming.
-/// in the current protocol, each spend_secret should be globally unique,
-/// so simple sha256(spend_secret) would work for double-spend prevention.
-/// but puzzle_hash binding gives us:
-/// - future-proofing for protocol extensions
-/// - extra protection against bugs
-/// - flexibility for future features
-///
-/// returns 32-byte nullifier that uniquely identifies this spend
-pub fn generate_nullifier(spend_secret: &[u8; 32], puzzle_hash: &[u8; 32]) -> [u8; 32] {
-    // use same single-hash approach as guest-side for consistency
-    let mut combined = Vec::with_capacity(64 + 32);
-    combined.extend_from_slice(b"clvm_zk_nullifier_v1.0");
-    combined.extend_from_slice(spend_secret);
-    combined.extend_from_slice(puzzle_hash);
-
-    let mut hasher = Sha256::new();
-    hasher.update(&combined);
-    hasher.finalize().into()
 }
 
 #[cfg(test)]
