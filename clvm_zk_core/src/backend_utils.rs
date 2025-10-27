@@ -1,21 +1,8 @@
 //! Common utilities shared between different zkVM backends
 
-use crate::{ClvmZkError, Input, ProgramParameter, ProofOutput};
+use crate::{ClvmZkError, ProofOutput};
 use alloc::{format, string::ToString};
 use core::fmt::Display;
-
-/// Prepare inputs for guest-side compilation
-pub fn prepare_guest_inputs(
-    chialisp_source: &str,
-    program_parameters: &[ProgramParameter],
-    spend_secret: Option<[u8; 32]>,
-) -> Input {
-    Input {
-        chialisp_source: chialisp_source.to_string(),
-        program_parameters: program_parameters.to_vec(),
-        spend_secret,
-    }
-}
 
 /// Convert proving errors from zkVM into clean user-facing error messages
 pub fn convert_proving_error(error: impl Display, backend_name: &str) -> ClvmZkError {

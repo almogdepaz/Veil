@@ -12,6 +12,8 @@ use sha2::{Digest, Sha256};
 pub mod backend_utils;
 pub mod chialisp;
 pub mod clvm_parser;
+pub mod coin_commitment;
+pub mod merkle;
 pub mod operators;
 pub mod types;
 
@@ -1376,18 +1378,6 @@ pub fn hash_data(data: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(data);
     hasher.finalize().into()
-}
-
-pub fn generate_nullifier(
-    hasher: Hasher,
-    spend_secret: &[u8; 32],
-    puzzle_hash: &[u8; 32],
-) -> [u8; 32] {
-    let mut combined = Vec::with_capacity(64 + 32);
-    combined.extend_from_slice(b"clvm_zk_nullifier_v1.0");
-    combined.extend_from_slice(spend_secret);
-    combined.extend_from_slice(puzzle_hash);
-    hasher(&combined)
 }
 
 /// encode a clvmvalue as clvm bytes following the standard serialization format

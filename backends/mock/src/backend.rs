@@ -1,7 +1,7 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode_with_table, generate_nullifier, ClvmEvaluator, ClvmResult,
-    ClvmZkError, ProgramParameter, ProofOutput, ZKClvmResult, BLS_DST,
+    compile_chialisp_to_bytecode_with_table, ClvmEvaluator, ClvmResult, ClvmZkError,
+    ProgramParameter, ProofOutput, ZKClvmResult, BLS_DST,
 };
 use sha2::{Digest, Sha256};
 
@@ -104,20 +104,19 @@ impl MockBackend {
         Ok(result.proof_output.clvm_res.output == expected_result)
     }
 
-    pub fn prove_chialisp_with_nullifier(
+    pub fn prove_with_input(
         &self,
-        chialisp_source: &str,
-        program_parameters: &[ProgramParameter],
-        spend_secret: [u8; 32],
+        inputs: clvm_zk_core::Input,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         let (instance_bytecode, program_hash, function_table) =
-            compile_chialisp_to_bytecode_with_table(hash_data, chialisp_source, program_parameters)
-                .map_err(|e| {
-                    ClvmZkError::ProofGenerationFailed(format!(
-                        "chialisp compilation failed: {:?}",
-                        e
-                    ))
-                })?;
+            compile_chialisp_to_bytecode_with_table(
+                hash_data,
+                &inputs.chialisp_source,
+                &inputs.program_parameters,
+            )
+            .map_err(|e| {
+                ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
+            })?;
 
         let mut evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
         evaluator.function_table = function_table;
@@ -128,16 +127,90 @@ impl MockBackend {
                 ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
             })?;
 
-        let computed_nullifier = generate_nullifier(hash_data, &spend_secret, &program_hash);
-
         let clvm_output = ClvmResult {
             output: output_bytes,
             cost: 0,
         };
 
+        let nullifier = match inputs.serial_commitment_data {
+            Some(commitment_data) => {
+                let serial_randomness = commitment_data.serial_randomness;
+                let serial_number = commitment_data.serial_number;
+                let puzzle_hash = commitment_data.program_hash;
+
+                if program_hash != puzzle_hash {
+                    return Err(ClvmZkError::ProofGenerationFailed(
+                        "program_hash mismatch: cannot spend coin with different puzzle"
+                            .to_string(),
+                    ));
+                }
+
+                let domain = b"clvm_zk_serial_v1.0";
+                let mut serial_commit_data = Vec::with_capacity(19 + 64);
+                serial_commit_data.extend_from_slice(domain);
+                serial_commit_data.extend_from_slice(&serial_number);
+                serial_commit_data.extend_from_slice(&serial_randomness);
+                let computed_serial_commitment = hash_data(&serial_commit_data);
+
+                let serial_commitment_expected = commitment_data.serial_commitment;
+                if computed_serial_commitment != serial_commitment_expected {
+                    return Err(ClvmZkError::ProofGenerationFailed(
+                        "serial commitment verification failed".to_string(),
+                    ));
+                }
+
+                let coin_domain = b"clvm_zk_coin_v1.0";
+                let amount = commitment_data.amount;
+                let mut coin_data = [0u8; 17 + 8 + 32 + 32];
+                coin_data[..17].copy_from_slice(coin_domain);
+                coin_data[17..25].copy_from_slice(&amount.to_be_bytes());
+                coin_data[25..57].copy_from_slice(&program_hash);
+                coin_data[57..89].copy_from_slice(&computed_serial_commitment);
+                let computed_coin_commitment = hash_data(&coin_data);
+
+                let coin_commitment_provided = commitment_data.coin_commitment;
+                if computed_coin_commitment != coin_commitment_provided {
+                    return Err(ClvmZkError::ProofGenerationFailed(
+                        "coin commitment verification failed".to_string(),
+                    ));
+                }
+
+                let merkle_path = commitment_data.merkle_path;
+                let expected_root = commitment_data.merkle_root;
+                let leaf_index = commitment_data.leaf_index;
+                let mut current_hash = computed_coin_commitment;
+                let mut current_index = leaf_index;
+                for sibling in merkle_path.iter() {
+                    let mut combined = [0u8; 64];
+                    if current_index % 2 == 0 {
+                        combined[..32].copy_from_slice(&current_hash);
+                        combined[32..].copy_from_slice(sibling);
+                    } else {
+                        combined[..32].copy_from_slice(sibling);
+                        combined[32..].copy_from_slice(&current_hash);
+                    }
+                    current_hash = hash_data(&combined);
+                    current_index /= 2;
+                }
+
+                let computed_root = current_hash;
+                if computed_root != expected_root {
+                    return Err(ClvmZkError::ProofGenerationFailed(
+                        "merkle root mismatch: coin not in current tree state".to_string(),
+                    ));
+                }
+
+                let mut nullifier_data = Vec::with_capacity(64);
+                nullifier_data.extend_from_slice(&serial_number);
+                nullifier_data.extend_from_slice(&program_hash);
+                Some(hash_data(&nullifier_data))
+            }
+            None => None,
+        };
+
         let proof_output = ProofOutput {
             program_hash,
-            nullifier: Some(computed_nullifier),
+            nullifier,
             clvm_res: clvm_output.clone(),
         };
 

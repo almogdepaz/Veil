@@ -9,13 +9,6 @@ pub trait ZKCLVMBackend {
         program_parameters: &[ProgramParameter],
     ) -> Result<ZKClvmResult, ClvmZkError>;
 
-    fn prove_with_nullifier(
-        &self,
-        chialisp_source: &str,
-        program_parameters: &[ProgramParameter],
-        spend_secret: [u8; 32],
-    ) -> Result<ZKClvmResult, ClvmZkError>;
-
     fn verify_proof(&self, proof: &[u8]) -> Result<(bool, [u8; 32], Vec<u8>), ClvmZkError>;
 
     fn backend_name(&self) -> &'static str;
@@ -72,15 +65,6 @@ impl ZKCLVMBackend for Risc0Backend {
         self.prove_chialisp_program(chialisp_source, program_parameters)
     }
 
-    fn prove_with_nullifier(
-        &self,
-        chialisp_source: &str,
-        program_parameters: &[ProgramParameter],
-        spend_secret: [u8; 32],
-    ) -> Result<ZKClvmResult, ClvmZkError> {
-        self.prove_chialisp_with_nullifier(chialisp_source, program_parameters, spend_secret)
-    }
-
     fn verify_proof(&self, proof: &[u8]) -> Result<(bool, [u8; 32], Vec<u8>), ClvmZkError> {
         self.verify_proof_and_extract(proof)
     }
@@ -104,15 +88,6 @@ impl ZKCLVMBackend for Sp1Backend {
         self.prove_chialisp_program(chialisp_source, program_parameters)
     }
 
-    fn prove_with_nullifier(
-        &self,
-        chialisp_source: &str,
-        program_parameters: &[ProgramParameter],
-        spend_secret: [u8; 32],
-    ) -> Result<ZKClvmResult, ClvmZkError> {
-        self.prove_chialisp_with_nullifier(chialisp_source, program_parameters, spend_secret)
-    }
-
     fn verify_proof(&self, proof: &[u8]) -> Result<(bool, [u8; 32], Vec<u8>), ClvmZkError> {
         self.verify_proof_and_extract(proof)
     }
@@ -134,15 +109,6 @@ impl ZKCLVMBackend for MockBackend {
         program_parameters: &[ProgramParameter],
     ) -> Result<ZKClvmResult, ClvmZkError> {
         self.prove_chialisp_program(chialisp_source, program_parameters)
-    }
-
-    fn prove_with_nullifier(
-        &self,
-        chialisp_source: &str,
-        program_parameters: &[ProgramParameter],
-        spend_secret: [u8; 32],
-    ) -> Result<ZKClvmResult, ClvmZkError> {
-        self.prove_chialisp_with_nullifier(chialisp_source, program_parameters, spend_secret)
     }
 
     fn verify_proof(&self, proof: &[u8]) -> Result<(bool, [u8; 32], Vec<u8>), ClvmZkError> {

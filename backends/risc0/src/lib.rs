@@ -3,8 +3,7 @@ pub use methods::*;
 
 use borsh;
 use clvm_zk_core::backend_utils::{
-    convert_proving_error, prepare_guest_inputs, validate_nullifier_proof_output,
-    validate_proof_output,
+    convert_proving_error, validate_nullifier_proof_output, validate_proof_output,
 };
 pub use clvm_zk_core::{
     ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
@@ -34,7 +33,11 @@ impl Risc0Backend {
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use risc0_zkvm::{default_prover, ExecutorEnv};
 
-        let inputs = prepare_guest_inputs(chialisp_source, program_parameters, None);
+        let inputs = Input {
+            chialisp_source: chialisp_source.to_string(),
+            program_parameters: program_parameters.to_vec(),
+            serial_commitment_data: None,
+        };
         let env = ExecutorEnv::builder()
             .write(&inputs)
             .map_err(|e| {
@@ -71,15 +74,12 @@ impl Risc0Backend {
         })
     }
 
-    pub fn prove_chialisp_with_nullifier(
+    pub fn prove_with_input(
         &self,
-        chialisp_source: &str,
-        program_parameters: &[ProgramParameter],
-        spend_secret: [u8; 32],
+        inputs: clvm_zk_core::Input,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use risc0_zkvm::{default_prover, ExecutorEnv};
 
-        let inputs = prepare_guest_inputs(chialisp_source, program_parameters, Some(spend_secret));
         let env = ExecutorEnv::builder()
             .write(&inputs)
             .map_err(|e| {
@@ -103,7 +103,7 @@ impl Risc0Backend {
 
         let receipt_obj = receipt.receipt;
         let result: ProofOutput = receipt_obj.journal.decode().map_err(|e| {
-            ClvmZkError::InvalidProofFormat(format!("failed to decode nullifier journal: {e}"))
+            ClvmZkError::InvalidProofFormat(format!("failed to decode journal: {e}"))
         })?;
 
         validate_nullifier_proof_output(&result, "RISC0")?;
@@ -113,8 +113,8 @@ impl Risc0Backend {
         })?;
 
         Ok(ZKClvmResult {
-            proof_output: result,
             proof_bytes,
+            proof_output: result,
         })
     }
 

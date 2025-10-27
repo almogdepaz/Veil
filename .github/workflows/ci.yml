@@ -24,16 +24,16 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            target/mock
+          key: ${{ runner.os }}-cargo-mock-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-mock-
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Run Clippy (lint)
-        run:  cargo clippy  --no-default-features --features mock,testing -- -D warnings
+        run: cargo clippy-mock -- -D warnings
 
       - name: Run tests
-        run: cargo test --no-default-features --features mock,testing -- --nocapture
+        run: cargo test-mock -- --nocapture
