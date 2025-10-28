@@ -22,6 +22,9 @@ pub use clvm_parser::*;
 pub use operators::*;
 pub use types::*;
 
+// re-export AggregatedOutput for guest programs
+pub use types::AggregatedOutput;
+
 pub type Hasher = fn(&[u8]) -> [u8; 32];
 pub type BlsVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
 pub type EcdsaVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;

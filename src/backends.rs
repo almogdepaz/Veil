@@ -14,6 +14,14 @@ pub trait ZKCLVMBackend {
     fn backend_name(&self) -> &'static str;
 
     fn is_available(&self) -> bool;
+
+    // recursive aggregation support (optional, not all backends support it)
+    fn aggregate_proofs(&self, _proofs: &[&[u8]]) -> Result<Vec<u8>, ClvmZkError> {
+        Err(ClvmZkError::ConfigurationError(format!(
+            "{} backend does not support recursive aggregation",
+            self.backend_name()
+        )))
+    }
 }
 
 pub fn backend() -> Result<Box<dyn ZKCLVMBackend>, ClvmZkError> {
@@ -76,6 +84,12 @@ impl ZKCLVMBackend for Risc0Backend {
     fn is_available(&self) -> bool {
         self.is_available()
     }
+
+    fn aggregate_proofs(&self, proofs: &[&[u8]]) -> Result<Vec<u8>, ClvmZkError> {
+        use clvm_zk_risc0::RecursiveAggregator;
+        let aggregator = RecursiveAggregator::new()?;
+        aggregator.aggregate_proofs(proofs)
+    }
 }
 
 #[cfg(feature = "sp1")]
@@ -98,6 +112,12 @@ impl ZKCLVMBackend for Sp1Backend {
 
     fn is_available(&self) -> bool {
         self.is_available()
+    }
+
+    fn aggregate_proofs(&self, proofs: &[&[u8]]) -> Result<Vec<u8>, ClvmZkError> {
+        use clvm_zk_sp1::RecursiveAggregator;
+        let aggregator = RecursiveAggregator::new()?;
+        aggregator.aggregate_proofs(proofs)
     }
 }
 

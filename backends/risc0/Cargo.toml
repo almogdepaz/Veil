@@ -9,10 +9,12 @@ build = "build.rs"
 borsh = { version = "1.5.7", features = ["derive"] }
 risc0-zkvm = { version = "3.0.3", default-features = false, features = ["std", "unstable", "client"] }
 clvm-zk-core = { path = "../../clvm_zk_core" }
+serde = { version = "1.0", features = ["derive"] }
+hex = "0.4"
 
 [build-dependencies]
 risc0-build = "3.0.3"
 
 [package.metadata.risc0]
-methods = ["guest"]
+methods = ["guest", "guest_recursive"]
 

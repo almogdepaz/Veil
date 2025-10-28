@@ -84,7 +84,7 @@ For simulator usage, see **[SIMULATOR.md](SIMULATOR.md)**.
 **Lists**: `c` (cons), `f` (first), `r` (rest), `l` (length)
 **Functions**: Helper functions with recursion support
 **Cryptography**: `sha256`, `ecdsa_verify`, `bls_verify`
-**Blockchain**: `create_coin`, `agg_sig_unsafe`, `reserve_fee`, etc
+**Blockchain**: `CREATE_COIN`, `AGG_SIG_ME`, `RESERVE_FEE`, etc (14 chia consensus opcodes)
 **Modules**: `mod` wrapper syntax for named parameters
 
 BLS signature verification (`bls_verify`) works on SP1 and RISC0 backends.
@@ -217,22 +217,9 @@ Each backend provides host integration and guest program:
 
 ### Basic usage
 
-`ClvmZkProver::prove(expression)` generates proofs. `ClvmZkProver::verify_proof()` verifies them. Expressions support named variables and `mod` wrapper syntax. See `examples/` for working code.
+`ClvmZkProver::prove(expression)` generates proofs. `ClvmZkProver::verify_proof()` verifies them. Expressions support named variables and `mod` wrapper syntax.
 
-### Examples
-
-```rust
-use clvm_zk::{ClvmZkProver, ProgramParameter};
-
-// Basic proof generation
-let chialisp_source = "(mod (amount fee) (+ amount fee))";
-let parameters = &[
-    ProgramParameter::int(1000),
-    ProgramParameter::int(50),
-];
-
-let result = ClvmZkProver::prove(chialisp_source, parameters)?;
-```
+**Flow**: Host sends chialisp source to guest → guest compiles and executes → returns proof with program hash.
 
 See `examples/` for complete working code including `alice_bob_lock.rs` for ECDSA signatures.
 
@@ -304,7 +291,24 @@ Local privacy-preserving blockchain simulator with encrypted payment notes, HD w
 ./sim_demo.sh sp1     # SP1 backend
 ```
 
-See **[SIMULATOR.md](SIMULATOR.md)** for complete documentation and usage examples.
+See **[SIMULATOR.md](SIMULATOR.md)** for detailed documentation.
+
+## Recursive proof aggregation
+
+**Production-ready** recursive aggregation compresses N transaction proofs into 1 aggregated proof.
+
+**Features:**
+- N base proofs → 1 aggregated proof (flat aggregation)
+- duplicate nullifier detection (security)
+- merkle tree commitments for proof inclusion
+- constant proof size (~252KB regardless of child count)
+- works on both risc0 and sp1 backends
+
+**Performance (risc0):**
+- 10→1 aggregation: ~22 seconds
+- proof size: ~252KB (constant)
+
+See `examples/recursive_aggregation.rs` 
 
 
 ## Adding new zkVM backends

@@ -1,6 +1,9 @@
-//! SP1 program ELF
+//! SP1 program ELFs
 
 use sp1_sdk::include_elf;
 
-/// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
+/// The ELF for the base CLVM execution program
 pub const CLVM_ZK_SP1_ELF: &[u8] = include_elf!("clvm-zk-sp1-program");
+
+/// The ELF for the recursive aggregation program
+pub const RECURSIVE_SP1_ELF: &[u8] = include_elf!("clvm-zk-sp1-recursive");

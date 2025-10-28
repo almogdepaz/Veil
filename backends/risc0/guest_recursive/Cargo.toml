@@ -1,0 +1,13 @@
+[package]
+name = "clvm-zk-risc0-guest-recursive"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+risc0-zkvm = "3.0.3"
+clvm-zk-core = { path = "../../../clvm_zk_core" }
+serde = { version = "1.0", features = ["derive"] }
+
+[[bin]]
+name = "recursive"
+path = "src/main.rs"

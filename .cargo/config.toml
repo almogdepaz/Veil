@@ -7,13 +7,13 @@ sp1 = "build --release --target-dir target/sp1 --no-default-features --features 
 mock = "build --release --target-dir target/mock --no-default-features --features mock,testing"
 
 # Test commands
-test-risc0 = "test --target-dir target/risc0 --no-default-features --features risc0,testing"
-test-sp1 = "test --target-dir target/sp1 --no-default-features --features sp1,testing"
+test-risc0 = "test --release --target-dir target/risc0 --no-default-features --features risc0,testing"
+test-sp1 = "test --release --target-dir target/sp1 --no-default-features --features sp1,testing"
 test-mock = "test --target-dir target/mock --no-default-features --features mock,testing"
 
 # Run commands (use with -- <args>)
-run-risc0 = "run --target-dir target/risc0 --no-default-features --features risc0,testing"
-run-sp1 = "run --target-dir target/sp1 --no-default-features --features sp1,testing"
+run-risc0 = "run --release --target-dir target/risc0 --no-default-features --features risc0,testing"
+run-sp1 = "run --release --target-dir target/sp1 --no-default-features --features sp1,testing"
 run-mock = "run --target-dir target/mock --no-default-features --features mock,testing"
 
 # Check commands (fast compile check without building)

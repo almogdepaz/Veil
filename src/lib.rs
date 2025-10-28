@@ -199,4 +199,15 @@ impl ClvmZkProver {
             backend.prove_with_input(input)
         }
     }
+
+    /// aggregate multiple proofs into a single recursive proof
+    ///
+    /// this compresses N transaction proofs into 1 proof while preserving
+    /// all nullifiers and conditions.
+    ///
+    /// returns an error if the backend doesn't support recursion (e.g., mock backend)
+    pub fn aggregate_proofs(proofs: &[&[u8]]) -> Result<Vec<u8>, ClvmZkError> {
+        let backend = crate::backends::backend()?;
+        backend.aggregate_proofs(proofs)
+    }
 }
