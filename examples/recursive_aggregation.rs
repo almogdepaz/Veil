@@ -38,12 +38,19 @@ fn main() {
 
         // compute commitments
         let serial_commitment = coin_secrets.serial_commitment(hash_data);
-        let coin_commitment = CoinCommitment::compute(amount, &program_hash, &serial_commitment, hash_data);
+        let coin_commitment =
+            CoinCommitment::compute(amount, &program_hash, &serial_commitment, hash_data);
 
         // insert into merkle tree
         let leaf_index = merkle_tree.insert(*coin_commitment.as_bytes(), hash_data);
 
-        coin_data.push((coin_secrets, amount, serial_commitment, coin_commitment, leaf_index));
+        coin_data.push((
+            coin_secrets,
+            amount,
+            serial_commitment,
+            coin_commitment,
+            leaf_index,
+        ));
     }
 
     let merkle_root = merkle_tree.root();
@@ -53,7 +60,9 @@ fn main() {
     println!("generating 10 base proofs with nullifiers...");
     let mut proofs = Vec::new();
 
-    for (i, (coin_secrets, amount, serial_commitment, coin_commitment, leaf_index)) in coin_data.iter().enumerate() {
+    for (i, (coin_secrets, amount, serial_commitment, coin_commitment, leaf_index)) in
+        coin_data.iter().enumerate()
+    {
         // generate merkle proof
         let merkle_proof_struct = merkle_tree.generate_proof(*leaf_index, hash_data).unwrap();
         let merkle_path = merkle_proof_struct.path;

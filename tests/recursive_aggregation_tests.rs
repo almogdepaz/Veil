@@ -36,7 +36,8 @@ fn generate_test_proof(
 
     // compute commitments
     let serial_commitment = coin_secrets.serial_commitment(hash_data);
-    let coin_commitment = CoinCommitment::compute(amount, &program_hash, &serial_commitment, hash_data);
+    let coin_commitment =
+        CoinCommitment::compute(amount, &program_hash, &serial_commitment, hash_data);
 
     // create merkle tree with single coin
     let mut merkle_tree = SparseMerkleTree::new(20, hash_data);
@@ -61,7 +62,9 @@ fn generate_test_proof(
         }),
     };
 
-    backend.prove_with_input(input).expect("proof generation should succeed")
+    backend
+        .prove_with_input(input)
+        .expect("proof generation should succeed")
 }
 
 #[test]
@@ -138,7 +141,12 @@ fn test_single_proof_handling() {
     let aggregator = RecursiveAggregator::new().expect("aggregator should initialize");
 
     // generate 1 proof
-    let proof = generate_test_proof(&backend, "(mod (x) (* x 3))", &[ProgramParameter::Int(5)], 42);
+    let proof = generate_test_proof(
+        &backend,
+        "(mod (x) (* x 3))",
+        &[ProgramParameter::Int(5)],
+        42,
+    );
 
     let proof_refs = vec![proof.proof_bytes.as_slice()];
 
