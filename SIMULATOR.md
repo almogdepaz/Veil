@@ -86,22 +86,22 @@ Run the full encrypted payment notes demo:
 ### manual commands
 
 ```bash
-# Initialize the simulator (use --release for actual proof generation)
-cargo run-sp1 --release -- sim init
+# Initialize the simulator
+cargo run-sp1 -- sim init
 
 # Create wallet
-cargo run-sp1 --release -- sim wallet alice create
+cargo run-sp1 -- sim wallet alice create
 
 # Fund it from the faucet
-cargo run-sp1 --release -- sim faucet alice --amount 5000
+cargo run-sp1 -- sim faucet alice --amount 5000
 
 # Check your balance
-cargo run-sp1 --release -- sim wallet alice show
+cargo run-sp1 -- sim wallet alice show
 ```
 
 Run tests with:
 ```bash
-cargo test-sp1 --release --test simulator_tests
+cargo test-sp1 --test simulator_tests
 ```
 
 ## How it works
@@ -120,34 +120,34 @@ Everything gets saved to `./simulator_data/state.json`:
 
 ### Basic setup
 ```bash
-# Initialize simulator (use --release for actual proof generation)
-cargo run-sp1 --release -- sim init
+# Initialize simulator
+cargo run-sp1 -- sim init
 
 # Create wallets
-cargo run-sp1 --release -- sim wallet alice create
-cargo run-sp1 --release -- sim wallet bob create
+cargo run-sp1 -- sim wallet alice create
+cargo run-sp1 -- sim wallet bob create
 
 # Fund wallet from faucet
-cargo run-sp1 --release -- sim faucet alice --amount 5000 --count 3
+cargo run-sp1 -- sim faucet alice --amount 5000 --count 3
 
 # Check wallet status
-cargo run-sp1 --release -- sim wallet alice show
-cargo run-sp1 --release -- sim status
+cargo run-sp1 -- sim wallet alice show
+cargo run-sp1 -- sim status
 ```
 
 ### Private transactions
 ```bash
 # Generate password puzzle program
-cargo run-sp1 --release -- hash-password mysecret
+cargo run-sp1 -- hash-password mysecret
 # Output: (= (sha256 password) 0x652c7dc687d98c9889304ed2e408c74b611e86a40caa51c4b43f1dd5913c5cd0)
 
 # Alice locks coins with password
-cargo run-sp1 --release -- sim spend-to-puzzle alice 3000 \
+cargo run-sp1 -- sim spend-to-puzzle alice 3000 \
   "(= (sha256 password) 0x652c7dc687d98c9889304ed2e408c74b611e86a40caa51c4b43f1dd5913c5cd0)" \
   --coins "0"
 
 # Bob unlocks with password
-cargo run-sp1 --release -- sim spend-to-wallet \
+cargo run-sp1 -- sim spend-to-wallet \
   "(= (sha256 password) 0x652c7dc687d98c9889304ed2e408c74b611e86a40caa51c4b43f1dd5913c5cd0)" \
   bob 3000 --params "mysecret"
 ```
@@ -155,21 +155,21 @@ cargo run-sp1 --release -- sim spend-to-wallet \
 ### More examples
 ```bash
 # Send between wallets
-cargo run-sp1 --release -- sim send alice bob 2000 --coins "0,1"
+cargo run-sp1 -- sim send alice bob 2000 --coins "0,1"
 
 # Custom puzzle programs
-cargo run-sp1 --release -- sim spend-to-puzzle alice 1000 "(> minimum_amount 100)" --coins "auto"
-cargo run-sp1 --release -- sim spend-to-wallet "(> minimum_amount 100)" bob 1000 --params "150"
+cargo run-sp1 -- sim spend-to-puzzle alice 1000 "(> minimum_amount 100)" --coins "auto"
+cargo run-sp1 -- sim spend-to-wallet "(> minimum_amount 100)" bob 1000 --params "150"
 
 # Using mod wrapper syntax for named parameters
-cargo run-sp1 --release -- sim spend-to-puzzle alice 1000 "(mod (threshold) (> threshold 100))" --coins "auto"
-cargo run-sp1 --release -- sim spend-to-wallet "(mod (threshold) (> threshold 100))" bob 1000 --params "150"
+cargo run-sp1 -- sim spend-to-puzzle alice 1000 "(mod (threshold) (> threshold 100))" --coins "auto"
+cargo run-sp1 -- sim spend-to-wallet "(mod (threshold) (> threshold 100))" bob 1000 --params "150"
 
 # Wallet management
-cargo run-sp1 --release -- sim wallets                    # List all wallets
-cargo run-sp1 --release -- sim wallet alice coins         # Show all coins
-cargo run-sp1 --release -- sim wallet alice unspent       # Show unspent coins
-cargo run-sp1 --release -- sim wallet alice balance       # Show balance only
+cargo run-sp1 -- sim wallets                    # List all wallets
+cargo run-sp1 -- sim wallet alice coins         # Show all coins
+cargo run-sp1 -- sim wallet alice unspent       # Show unspent coins
+cargo run-sp1 -- sim wallet alice balance       # Show balance only
 ```
 
 ## encrypted payment notes
@@ -197,22 +197,22 @@ see [ENCRYPTED_NOTES.md](ENCRYPTED_NOTES.md) for full documentation.
 
 ### Choose zk backend
 ```bash
-# Default: SP1 backend (requires --release)
-cargo run-sp1 --release -- sim init
+# Default: SP1 backend (--release included in alias)
+cargo run-sp1 -- sim init
 
-# Use RISC0 backend (requires --release)
-cargo run-risc0 --release -- sim init
+# Use RISC0 backend (--release included in alias)
+cargo run-risc0 -- sim init
 
-# Use mock backend for fast testing (no real proofs, no --release needed)
+# Use mock backend for fast testing (no real proofs)
 cargo run-mock -- sim init
 ```
 
 ## Troubleshooting
 
-**Always use `--release` for SP1 and RISC0 backends** - they require release mode for proof generation.
+**Use the correct backend alias** - `run-risc0` and `run-sp1` include `--release` automatically.
 Use mock backend for fast testing without real proofs: `cargo run-mock -- sim init`
-Reset corrupted state with `cargo run-sp1 --release -- sim init --reset`
-Switch backends using cargo aliases: `cargo run-risc0`, `cargo run-sp1`
+Reset corrupted state with `cargo run-sp1 -- sim init --reset`
+Switch backends using cargo aliases: `cargo run-risc0`, `cargo run-sp1`, `cargo run-mock`
 
 ## Use cases
 
