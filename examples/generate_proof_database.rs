@@ -1,6 +1,20 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
+use clvm_zk_core::coin_commitment::{CoinCommitment, CoinSecrets};
+use clvm_zk_core::merkle::SparseMerkleTree;
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::time::Instant;
+
+fn hash_data(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
+fn compile_program_hash(program: &str) -> [u8; 32] {
+    clvm_zk_core::compile_chialisp_template_hash(hash_data, program)
+        .expect("program compilation failed")
+}
 
 /// # Proof Database Generator
 ///
@@ -82,30 +96,79 @@ fn main() {
     let mut total_proof_size = 0usize;
     let mut proofs_data = Vec::new();
 
-    println!("generating proofs...");
-    let start_all = Instant::now();
+    // setup: create merkle tree and coins with proper commitments
+    println!("creating coins with serial commitments...");
+    let program_hash = compile_program_hash(coin_spend_program);
+    let mut merkle_tree = SparseMerkleTree::new(20, hash_data);
+    let mut coin_data = Vec::new();
 
     for i in 0..proof_count {
-        // unique spend_secret per proof → unique nullifier (prevents collisions)
-        let mut spend_secret = [0u8; 32];
-        let i_u64 = i as u64;
-        spend_secret[0..8].copy_from_slice(&i_u64.to_le_bytes());
+        let amount = (100 + (i * 99)) as u64;
 
+        // generate unique coin secrets
+        let serial_number = {
+            let mut sn = [0u8; 32];
+            sn[0..8].copy_from_slice(&(i as u64).to_le_bytes());
+            sn
+        };
+        let serial_randomness = {
+            let mut sr = [0u8; 32];
+            sr[0..8].copy_from_slice(&((i + 1000) as u64).to_le_bytes());
+            sr
+        };
+        let coin_secrets = CoinSecrets::new(serial_number, serial_randomness);
+
+        // compute commitments
+        let serial_commitment = coin_secrets.serial_commitment(hash_data);
+        let coin_commitment =
+            CoinCommitment::compute(amount, &program_hash, &serial_commitment, hash_data);
+
+        // insert into merkle tree
+        let leaf_index = merkle_tree.insert(*coin_commitment.as_bytes(), hash_data);
+
+        coin_data.push((
+            coin_secrets,
+            amount,
+            serial_commitment,
+            coin_commitment,
+            leaf_index,
+        ));
+    }
+
+    let merkle_root = merkle_tree.root();
+    println!("✓ created {} coins in merkle tree\n", proof_count);
+
+    println!("generating proofs with nullifiers...");
+    let start_all = Instant::now();
+
+    for (i, (coin_secrets, amount, serial_commitment, coin_commitment, leaf_index)) in
+        coin_data.iter().enumerate()
+    {
+        // generate recipient hash for CREATE_COIN condition
         let mut recipient_hash = [0u8; 32];
         let recipient_id = ((i + 1) % 100) as u64;
         recipient_hash[0..8].copy_from_slice(&recipient_id.to_le_bytes());
 
-        let amount = 100 + (i * 99);
+        // generate merkle proof
+        let merkle_proof_struct = merkle_tree.generate_proof(*leaf_index, hash_data).unwrap();
+        let merkle_path = merkle_proof_struct.path;
 
-        // generate base proof with nullifier
+        // generate proof with serial commitment (full nullifier protocol)
         let prove_start = Instant::now();
-        let result = ClvmZkProver::prove_with_nullifier(
-            &coin_spend_program,
+        let result = ClvmZkProver::prove_with_serial_commitment(
+            coin_spend_program,
             &[
-                ProgramParameter::Int(amount as u64),
+                ProgramParameter::Int(*amount),
                 ProgramParameter::Bytes(recipient_hash.to_vec()),
             ],
-            spend_secret,
+            coin_secrets,
+            merkle_path,
+            *coin_commitment.as_bytes(),
+            *serial_commitment.as_bytes(),
+            merkle_root,
+            *leaf_index,
+            program_hash,
+            *amount,
         )
         .expect(&format!("failed to generate proof {}", i));
 
