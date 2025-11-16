@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use borsh::BorshDeserialize;
 use super::structures::ProtocolError;
 
 /// conditional offer data structure
@@ -83,12 +84,17 @@ impl ConditionalOffer {
     /// extract nullifier from conditional proof public outputs
     /// the nullifier is the first public output in the proof
     pub fn get_nullifier(&self) -> Result<[u8; 32], ProtocolError> {
-        // TODO: implement actual proof output extraction
-        // for now, this is a placeholder that will be implemented
-        // when we add structured proof output format
-        Err(ProtocolError::ProofExtractionFailed(
-            "nullifier extraction not yet implemented".to_string()
-        ))
+        // deserialize proof to get proof output
+        let proof_output = clvm_zk_core::ProofOutput::try_from_slice(&self.conditional_proof)
+            .map_err(|e| ProtocolError::ProofExtractionFailed(
+                format!("failed to deserialize proof: {}", e)
+            ))?;
+
+        proof_output.nullifier.ok_or_else(|| {
+            ProtocolError::ProofExtractionFailed(
+                "conditional proof missing nullifier".to_string()
+            )
+        })
     }
 
     /// check if offer is still available (nullifier not in set)
@@ -98,12 +104,54 @@ impl ConditionalOffer {
     }
 
     /// get amount that was burned in conditional proof
-    /// extracted from proof public outputs
+    /// extracted from proof public outputs (first public value)
     pub fn get_burned_amount(&self) -> Result<u64, ProtocolError> {
-        // TODO: implement actual proof output extraction
-        Err(ProtocolError::ProofExtractionFailed(
-            "amount extraction not yet implemented".to_string()
-        ))
+        let proof_output = clvm_zk_core::ProofOutput::try_from_slice(&self.conditional_proof)
+            .map_err(|e| ProtocolError::ProofExtractionFailed(
+                format!("failed to deserialize proof: {}", e)
+            ))?;
+
+        if proof_output.public_values.is_empty() {
+            return Err(ProtocolError::ProofExtractionFailed(
+                "no public values in proof (expected amount)".to_string()
+            ));
+        }
+
+        if proof_output.public_values[0].len() != 8 {
+            return Err(ProtocolError::ProofExtractionFailed(
+                format!("invalid amount length: expected 8 bytes, got {}", proof_output.public_values[0].len())
+            ));
+        }
+
+        let amount_bytes: [u8; 8] = proof_output.public_values[0][..8].try_into()
+            .map_err(|_| ProtocolError::ProofExtractionFailed("failed to parse amount".to_string()))?;
+
+        Ok(u64::from_be_bytes(amount_bytes))
+    }
+
+    /// get merkle root from proof public outputs (second public value)
+    pub fn get_merkle_root(&self) -> Result<[u8; 32], ProtocolError> {
+        let proof_output = clvm_zk_core::ProofOutput::try_from_slice(&self.conditional_proof)
+            .map_err(|e| ProtocolError::ProofExtractionFailed(
+                format!("failed to deserialize proof: {}", e)
+            ))?;
+
+        if proof_output.public_values.len() < 2 {
+            return Err(ProtocolError::ProofExtractionFailed(
+                "no merkle root in proof public values".to_string()
+            ));
+        }
+
+        if proof_output.public_values[1].len() != 32 {
+            return Err(ProtocolError::ProofExtractionFailed(
+                format!("invalid merkle root length: expected 32 bytes, got {}", proof_output.public_values[1].len())
+            ));
+        }
+
+        let merkle_root: [u8; 32] = proof_output.public_values[1][..32].try_into()
+            .map_err(|_| ProtocolError::ProofExtractionFailed("failed to parse merkle root".to_string()))?;
+
+        Ok(merkle_root)
     }
 
     pub fn validate(&self) -> Result<(), ProtocolError> {

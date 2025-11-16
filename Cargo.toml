@@ -41,6 +41,7 @@ testing = ["clvm-zk-core/sha2-hasher"]
 # Core dependencies
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0"
+borsh = "1.5"  # For proof deserialization in offers
 clvm-zk-core = { path = "clvm_zk_core" }
 clap = { version = "4.5.43", features = ["derive"] }
 thiserror = "2.0.12"

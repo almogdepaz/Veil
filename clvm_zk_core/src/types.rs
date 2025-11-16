@@ -172,6 +172,17 @@ pub struct ProofOutput {
     pub nullifier: Option<[u8; 32]>,
     /// CLVM execution result
     pub clvm_res: ClvmResult,
+    /// Proof type (Transaction, ConditionalSpend, Settlement)
+    #[serde(default = "default_proof_type_u8")]
+    #[borsh(skip)]
+    pub proof_type: u8,
+    /// Additional public values (merkle_root, amount, etc.)
+    #[serde(default)]
+    pub public_values: Vec<Vec<u8>>,
+}
+
+fn default_proof_type_u8() -> u8 {
+    0 // Transaction
 }
 
 /// aggregated proof output (no_std compatible)
