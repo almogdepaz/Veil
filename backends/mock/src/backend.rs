@@ -67,14 +67,101 @@ impl MockBackend {
         let mut evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
         evaluator.function_table = function_table;
 
-        let (output_bytes, _conditions) = evaluator
+        let (output_bytes, _runtime_conditions) = evaluator
             .evaluate_clvm_program(&instance_bytecode)
             .map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
             })?;
 
+        // Parse conditions from output (list-based programs return condition structures)
+        let mut conditions = clvm_zk_core::deserialize_clvm_output_to_conditions(&output_bytes)
+            .unwrap_or_else(|_| _runtime_conditions); // fallback to runtime conditions if parsing fails
+
+        // Transform CREATE_COIN conditions for output privacy
+        let mut has_transformations = false;
+        for condition in conditions.iter_mut() {
+            if condition.opcode == 51 {
+                // CREATE_COIN opcode
+                match condition.args.len() {
+                    2 => {
+                        // Transparent mode: CREATE_COIN(puzzle_hash, amount)
+                        // Leave as-is for testing/debugging
+                    }
+                    4 => {
+                        // Private mode: CREATE_COIN(puzzle_hash, amount, serial_num, serial_rand)
+                        let puzzle_hash = &condition.args[0];
+                        let amount_bytes = &condition.args[1];
+                        let serial_number = &condition.args[2];
+                        let serial_randomness = &condition.args[3];
+
+                        // Validate sizes
+                        if puzzle_hash.len() != 32 {
+                            return Err(ClvmZkError::ProofGenerationFailed(
+                                "puzzle_hash must be 32 bytes".to_string(),
+                            ));
+                        }
+                        if amount_bytes.len() > 8 {
+                            return Err(ClvmZkError::ProofGenerationFailed(
+                                "amount too large (max 8 bytes)".to_string(),
+                            ));
+                        }
+                        if serial_number.len() != 32 {
+                            return Err(ClvmZkError::ProofGenerationFailed(
+                                "serial_number must be 32 bytes".to_string(),
+                            ));
+                        }
+                        if serial_randomness.len() != 32 {
+                            return Err(ClvmZkError::ProofGenerationFailed(
+                                "serial_randomness must be 32 bytes".to_string(),
+                            ));
+                        }
+
+                        // Parse amount from variable-length big-endian bytes (CLVM compact encoding)
+                        let mut amount = 0u64;
+                        for &byte in amount_bytes {
+                            amount = (amount << 8) | (byte as u64);
+                        }
+
+                        // Compute serial_commitment
+                        let serial_domain = b"clvm_zk_serial_v1.0";
+                        let mut serial_data = [0u8; 83];
+                        serial_data[..19].copy_from_slice(serial_domain);
+                        serial_data[19..51].copy_from_slice(serial_number);
+                        serial_data[51..83].copy_from_slice(serial_randomness);
+                        let serial_commitment = hash_data(&serial_data);
+
+                        // Compute coin_commitment
+                        let coin_domain = b"clvm_zk_coin_v1.0";
+                        let mut coin_data = [0u8; 89];
+                        coin_data[..17].copy_from_slice(coin_domain);
+                        coin_data[17..25].copy_from_slice(&amount.to_be_bytes());
+                        coin_data[25..57].copy_from_slice(puzzle_hash);
+                        coin_data[57..89].copy_from_slice(&serial_commitment);
+                        let coin_commitment = hash_data(&coin_data);
+
+                        // Replace args: [puzzle, amount, serial, rand] → [commitment]
+                        condition.args = vec![coin_commitment.to_vec()];
+                        has_transformations = true;
+                    }
+                    n => {
+                        return Err(ClvmZkError::ProofGenerationFailed(format!(
+                            "CREATE_COIN must have 2 args (transparent) or 4 args (private), got {}",
+                            n
+                        )))
+                    }
+                }
+            }
+        }
+
+        // Only re-serialize if we actually transformed something
+        let final_output = if has_transformations {
+            clvm_zk_core::serialize_conditions_to_bytes(&conditions)
+        } else {
+            output_bytes
+        };
+
         let clvm_output = ClvmResult {
-            output: output_bytes,
+            output: final_output,
             cost: 0,
         };
 
@@ -121,14 +208,101 @@ impl MockBackend {
         let mut evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
         evaluator.function_table = function_table;
 
-        let (output_bytes, _conditions) = evaluator
+        let (output_bytes, _runtime_conditions) = evaluator
             .evaluate_clvm_program(&instance_bytecode)
             .map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
             })?;
 
+        // Parse conditions from output (list-based programs return condition structures)
+        let mut conditions = clvm_zk_core::deserialize_clvm_output_to_conditions(&output_bytes)
+            .unwrap_or_else(|_| _runtime_conditions); // fallback to runtime conditions if parsing fails
+
+        // Transform CREATE_COIN conditions for output privacy
+        let mut has_transformations = false;
+        for condition in conditions.iter_mut() {
+            if condition.opcode == 51 {
+                // CREATE_COIN opcode
+                match condition.args.len() {
+                    2 => {
+                        // Transparent mode: CREATE_COIN(puzzle_hash, amount)
+                        // Leave as-is for testing/debugging
+                    }
+                    4 => {
+                        // Private mode: CREATE_COIN(puzzle_hash, amount, serial_num, serial_rand)
+                        let puzzle_hash = &condition.args[0];
+                        let amount_bytes = &condition.args[1];
+                        let serial_number = &condition.args[2];
+                        let serial_randomness = &condition.args[3];
+
+                        // Validate sizes
+                        if puzzle_hash.len() != 32 {
+                            return Err(ClvmZkError::ProofGenerationFailed(
+                                "puzzle_hash must be 32 bytes".to_string(),
+                            ));
+                        }
+                        if amount_bytes.len() > 8 {
+                            return Err(ClvmZkError::ProofGenerationFailed(
+                                "amount too large (max 8 bytes)".to_string(),
+                            ));
+                        }
+                        if serial_number.len() != 32 {
+                            return Err(ClvmZkError::ProofGenerationFailed(
+                                "serial_number must be 32 bytes".to_string(),
+                            ));
+                        }
+                        if serial_randomness.len() != 32 {
+                            return Err(ClvmZkError::ProofGenerationFailed(
+                                "serial_randomness must be 32 bytes".to_string(),
+                            ));
+                        }
+
+                        // Parse amount from variable-length big-endian bytes (CLVM compact encoding)
+                        let mut amount = 0u64;
+                        for &byte in amount_bytes {
+                            amount = (amount << 8) | (byte as u64);
+                        }
+
+                        // Compute serial_commitment
+                        let serial_domain = b"clvm_zk_serial_v1.0";
+                        let mut serial_data = [0u8; 83];
+                        serial_data[..19].copy_from_slice(serial_domain);
+                        serial_data[19..51].copy_from_slice(serial_number);
+                        serial_data[51..83].copy_from_slice(serial_randomness);
+                        let serial_commitment = hash_data(&serial_data);
+
+                        // Compute coin_commitment
+                        let coin_domain = b"clvm_zk_coin_v1.0";
+                        let mut coin_data = [0u8; 89];
+                        coin_data[..17].copy_from_slice(coin_domain);
+                        coin_data[17..25].copy_from_slice(&amount.to_be_bytes());
+                        coin_data[25..57].copy_from_slice(puzzle_hash);
+                        coin_data[57..89].copy_from_slice(&serial_commitment);
+                        let coin_commitment = hash_data(&coin_data);
+
+                        // Replace args: [puzzle, amount, serial, rand] → [commitment]
+                        condition.args = vec![coin_commitment.to_vec()];
+                        has_transformations = true;
+                    }
+                    n => {
+                        return Err(ClvmZkError::ProofGenerationFailed(format!(
+                            "CREATE_COIN must have 2 args (transparent) or 4 args (private), got {}",
+                            n
+                        )))
+                    }
+                }
+            }
+        }
+
+        // Only re-serialize if we actually transformed something
+        let final_output = if has_transformations {
+            clvm_zk_core::serialize_conditions_to_bytes(&conditions)
+        } else {
+            output_bytes
+        };
+
         let clvm_output = ClvmResult {
-            output: output_bytes,
+            output: final_output,
             cost: 0,
         };
 
@@ -200,9 +374,10 @@ impl MockBackend {
                     ));
                 }
 
-                let mut nullifier_data = Vec::with_capacity(64);
+                let mut nullifier_data = Vec::with_capacity(72);
                 nullifier_data.extend_from_slice(&serial_number);
                 nullifier_data.extend_from_slice(&program_hash);
+                nullifier_data.extend_from_slice(&amount.to_be_bytes());
                 Some(hash_data(&nullifier_data))
             }
             None => None,

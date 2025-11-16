@@ -18,7 +18,7 @@ pub enum ClvmOperator {
     // Comparison operators (ASCII codes)
     Equal,       // 61 (=)
     GreaterThan, // 62 (>)
-    LessThan,    // 60 (<)
+    // Note: LessThan removed - not in standard Chialisp, use (> b a) instead
 
     // CLVM primitives (ASCII codes)
     If,        // 105 (i)
@@ -39,23 +39,32 @@ pub enum ClvmOperator {
     EcdsaVerify,  // 200 (custom opcode for ECDSA verification)
     BlsVerify,    // 201 (custom opcode for BLS signature verification)
 
+    // Output/Messaging
+    Remark, // 1 (arbitrary output data)
+
     // Coin operations
     CreateCoin, // 51
     ReserveFee, // 52
+
+    // Announcements
+    CreateCoinAnnouncement,   // 60
+    AssertCoinAnnouncement,   // 61
+    CreatePuzzleAnnouncement, // 62
+    AssertPuzzleAnnouncement, // 63
+
+    // Concurrency
+    AssertConcurrentSpend,  // 64
+    AssertConcurrentPuzzle, // 65
+
+    // Messaging
+    SendMessage,    // 66
+    ReceiveMessage, // 67
 
     // Assertions
     AssertMyCoinId,         // 70
     AssertMyParentId,       // 71
     AssertMyPuzzleHash,     // 72
     AssertMyAmount,         // 73
-    AssertConcurrentSpend,  // 64
-    AssertConcurrentPuzzle, // 65
-
-    // Announcements
-    CreateCoinAnnouncement,   // 74
-    AssertCoinAnnouncement,   // 75
-    CreatePuzzleAnnouncement, // 76
-    AssertPuzzleAnnouncement, // 77
 
     // Runtime function calls
     CallFunction, // 250 (custom opcode for runtime function calls)
@@ -79,7 +88,6 @@ impl ClvmOperator {
             // Comparison (ASCII codes)
             ClvmOperator::Equal => 61,       // '='
             ClvmOperator::GreaterThan => 62, // '>'
-            ClvmOperator::LessThan => 60,    // '<'
 
             // CLVM primitives (ASCII codes)
             ClvmOperator::If => 105,        // 'i'
@@ -100,23 +108,32 @@ impl ClvmOperator {
             ClvmOperator::EcdsaVerify => 200,
             ClvmOperator::BlsVerify => 201,
 
+            // Output/Messaging
+            ClvmOperator::Remark => 1,
+
             // Coin operations
             ClvmOperator::CreateCoin => 51,
             ClvmOperator::ReserveFee => 52,
+
+            // Announcements
+            ClvmOperator::CreateCoinAnnouncement => 60,
+            ClvmOperator::AssertCoinAnnouncement => 61,
+            ClvmOperator::CreatePuzzleAnnouncement => 62,
+            ClvmOperator::AssertPuzzleAnnouncement => 63,
+
+            // Concurrency
+            ClvmOperator::AssertConcurrentSpend => 64,
+            ClvmOperator::AssertConcurrentPuzzle => 65,
+
+            // Messaging
+            ClvmOperator::SendMessage => 66,
+            ClvmOperator::ReceiveMessage => 67,
 
             // Assertions
             ClvmOperator::AssertMyCoinId => 70,
             ClvmOperator::AssertMyParentId => 71,
             ClvmOperator::AssertMyPuzzleHash => 72,
             ClvmOperator::AssertMyAmount => 73,
-            ClvmOperator::AssertConcurrentSpend => 64,
-            ClvmOperator::AssertConcurrentPuzzle => 65,
-
-            // Announcements
-            ClvmOperator::CreateCoinAnnouncement => 74,
-            ClvmOperator::AssertCoinAnnouncement => 75,
-            ClvmOperator::CreatePuzzleAnnouncement => 76,
-            ClvmOperator::AssertPuzzleAnnouncement => 77,
 
             // Runtime function calls
             ClvmOperator::CallFunction => 150,
@@ -139,7 +156,6 @@ impl ClvmOperator {
             // Comparison
             "=" => Some(ClvmOperator::Equal),
             ">" => Some(ClvmOperator::GreaterThan),
-            "<" => Some(ClvmOperator::LessThan),
 
             // CLVM primitives
             "i" => Some(ClvmOperator::If),
@@ -161,23 +177,32 @@ impl ClvmOperator {
             "ecdsa_verify" => Some(ClvmOperator::EcdsaVerify),
             "bls_verify" => Some(ClvmOperator::BlsVerify),
 
+            // Output/Messaging
+            "remark" => Some(ClvmOperator::Remark),
+
             // Coin operations
             "create_coin" => Some(ClvmOperator::CreateCoin),
             "reserve_fee" => Some(ClvmOperator::ReserveFee),
-
-            // Assertions
-            "assert_my_coin_id" => Some(ClvmOperator::AssertMyCoinId),
-            "assert_my_parent_id" => Some(ClvmOperator::AssertMyParentId),
-            "assert_my_puzzle_hash" => Some(ClvmOperator::AssertMyPuzzleHash),
-            "assert_my_amount" => Some(ClvmOperator::AssertMyAmount),
-            "assert_concurrent_spend" => Some(ClvmOperator::AssertConcurrentSpend),
-            "assert_concurrent_puzzle" => Some(ClvmOperator::AssertConcurrentPuzzle),
 
             // Announcements
             "create_coin_announcement" => Some(ClvmOperator::CreateCoinAnnouncement),
             "assert_coin_announcement" => Some(ClvmOperator::AssertCoinAnnouncement),
             "create_puzzle_announcement" => Some(ClvmOperator::CreatePuzzleAnnouncement),
             "assert_puzzle_announcement" => Some(ClvmOperator::AssertPuzzleAnnouncement),
+
+            // Concurrency
+            "assert_concurrent_spend" => Some(ClvmOperator::AssertConcurrentSpend),
+            "assert_concurrent_puzzle" => Some(ClvmOperator::AssertConcurrentPuzzle),
+
+            // Messaging
+            "send_message" => Some(ClvmOperator::SendMessage),
+            "receive_message" => Some(ClvmOperator::ReceiveMessage),
+
+            // Assertions
+            "assert_my_coin_id" => Some(ClvmOperator::AssertMyCoinId),
+            "assert_my_parent_id" => Some(ClvmOperator::AssertMyParentId),
+            "assert_my_puzzle_hash" => Some(ClvmOperator::AssertMyPuzzleHash),
+            "assert_my_amount" => Some(ClvmOperator::AssertMyAmount),
 
             // Host-only helpers
             "list" => Some(ClvmOperator::List),
@@ -199,7 +224,6 @@ impl ClvmOperator {
             // Comparison (ASCII codes)
             61 => Some(ClvmOperator::Equal),
             62 => Some(ClvmOperator::GreaterThan),
-            60 => Some(ClvmOperator::LessThan),
 
             // CLVM primitives (ASCII codes)
             105 => Some(ClvmOperator::If),
@@ -220,23 +244,28 @@ impl ClvmOperator {
             200 => Some(ClvmOperator::EcdsaVerify),
             201 => Some(ClvmOperator::BlsVerify),
 
+            // Output/Messaging
+            1 => Some(ClvmOperator::Remark),
+
             // Coin operations
             51 => Some(ClvmOperator::CreateCoin),
             52 => Some(ClvmOperator::ReserveFee),
+
+            // Note: Announcement conditions (60-63) are NOT in from_opcode() because they
+            // conflict with CLVM operators (60='<', 61='=', 62='>'). Their opcode() mappings
+            // are used by handlers to create condition structures.
+
+            // Concurrency
+            64 => Some(ClvmOperator::AssertConcurrentSpend),
+            65 => Some(ClvmOperator::AssertConcurrentPuzzle),
+
+            // Note: Messaging conditions (66-67) not in from_opcode() to avoid conflicts
 
             // Assertions
             70 => Some(ClvmOperator::AssertMyCoinId),
             71 => Some(ClvmOperator::AssertMyParentId),
             72 => Some(ClvmOperator::AssertMyPuzzleHash),
             73 => Some(ClvmOperator::AssertMyAmount),
-            64 => Some(ClvmOperator::AssertConcurrentSpend),
-            65 => Some(ClvmOperator::AssertConcurrentPuzzle),
-
-            // Announcements
-            74 => Some(ClvmOperator::CreateCoinAnnouncement),
-            75 => Some(ClvmOperator::AssertCoinAnnouncement),
-            76 => Some(ClvmOperator::CreatePuzzleAnnouncement),
-            77 => Some(ClvmOperator::AssertPuzzleAnnouncement),
 
             // Runtime function calls
             150 => Some(ClvmOperator::CallFunction),
@@ -256,7 +285,6 @@ impl ClvmOperator {
             | ClvmOperator::Modulo
             | ClvmOperator::Equal
             | ClvmOperator::GreaterThan
-            | ClvmOperator::LessThan
             | ClvmOperator::Cons
             | ClvmOperator::Apply
             | ClvmOperator::DivMod
@@ -267,6 +295,7 @@ impl ClvmOperator {
             | ClvmOperator::Rest
             | ClvmOperator::ListCheck
             | ClvmOperator::Quote
+            | ClvmOperator::Remark
             | ClvmOperator::AssertMyCoinId
             | ClvmOperator::AssertMyParentId
             | ClvmOperator::AssertMyPuzzleHash
@@ -277,7 +306,9 @@ impl ClvmOperator {
             | ClvmOperator::CreatePuzzleAnnouncement
             | ClvmOperator::AssertPuzzleAnnouncement
             | ClvmOperator::AssertConcurrentSpend
-            | ClvmOperator::AssertConcurrentPuzzle => Some(1),
+            | ClvmOperator::AssertConcurrentPuzzle
+            | ClvmOperator::SendMessage
+            | ClvmOperator::ReceiveMessage => Some(1),
 
             // Ternary operators (3 arguments)
             ClvmOperator::If
@@ -303,7 +334,6 @@ impl ClvmOperator {
             ClvmOperator::Modulo => "%",
             ClvmOperator::Equal => "=",
             ClvmOperator::GreaterThan => ">",
-            ClvmOperator::LessThan => "<",
             ClvmOperator::If => "i",
             ClvmOperator::First => "f",
             ClvmOperator::Rest => "r",
@@ -317,18 +347,21 @@ impl ClvmOperator {
             ClvmOperator::AggSigMe => "agg_sig_me",
             ClvmOperator::EcdsaVerify => "ecdsa_verify",
             ClvmOperator::BlsVerify => "bls_verify",
+            ClvmOperator::Remark => "remark",
             ClvmOperator::CreateCoin => "create_coin",
             ClvmOperator::ReserveFee => "reserve_fee",
-            ClvmOperator::AssertMyCoinId => "assert_my_coin_id",
-            ClvmOperator::AssertMyParentId => "assert_my_parent_id",
-            ClvmOperator::AssertMyPuzzleHash => "assert_my_puzzle_hash",
-            ClvmOperator::AssertMyAmount => "assert_my_amount",
-            ClvmOperator::AssertConcurrentSpend => "assert_concurrent_spend",
-            ClvmOperator::AssertConcurrentPuzzle => "assert_concurrent_puzzle",
             ClvmOperator::CreateCoinAnnouncement => "create_coin_announcement",
             ClvmOperator::AssertCoinAnnouncement => "assert_coin_announcement",
             ClvmOperator::CreatePuzzleAnnouncement => "create_puzzle_announcement",
             ClvmOperator::AssertPuzzleAnnouncement => "assert_puzzle_announcement",
+            ClvmOperator::AssertConcurrentSpend => "assert_concurrent_spend",
+            ClvmOperator::AssertConcurrentPuzzle => "assert_concurrent_puzzle",
+            ClvmOperator::SendMessage => "send_message",
+            ClvmOperator::ReceiveMessage => "receive_message",
+            ClvmOperator::AssertMyCoinId => "assert_my_coin_id",
+            ClvmOperator::AssertMyParentId => "assert_my_parent_id",
+            ClvmOperator::AssertMyPuzzleHash => "assert_my_puzzle_hash",
+            ClvmOperator::AssertMyAmount => "assert_my_amount",
             ClvmOperator::CallFunction => "call_function",
             ClvmOperator::List => "list",
         }

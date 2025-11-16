@@ -196,7 +196,7 @@ fn test_deep_recursion() {
     let fibonacci_source = r#"
         (mod (n)
             (defun fib (x)
-                (if (< x 2)
+                (if (> 2 x)
                     x
                     (+ (fib (- x 1)) (fib (- x 2)))))
             (fib n)

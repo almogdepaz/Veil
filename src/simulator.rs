@@ -174,6 +174,19 @@ impl CLVMZkSimulator {
             clvm_zk_core::coin_commitment::CoinSecrets,
         )>,
     ) -> Result<SimulatedTransaction, SimulatorError> {
+        self.spend_coins_with_params_and_outputs(spends, vec![])
+    }
+
+    pub fn spend_coins_with_params_and_outputs(
+        &mut self,
+        spends: Vec<(
+            PrivateCoin,
+            String,
+            Vec<crate::ProgramParameter>,
+            clvm_zk_core::coin_commitment::CoinSecrets,
+        )>,
+        output_coins: Vec<(PrivateCoin, clvm_zk_core::coin_commitment::CoinSecrets, CoinMetadata)>,
+    ) -> Result<SimulatedTransaction, SimulatorError> {
         let merkle_root = self
             .coin_tree
             .root()
@@ -215,6 +228,35 @@ impl CLVMZkSimulator {
             new_nullifiers.push(nullifier);
         }
 
+        // Extract coin_commitments from CREATE_COIN conditions in proof outputs
+        let mut new_coin_commitments = Vec::new();
+        for bundle in &spend_bundles {
+            // Try to parse CLVM output as conditions
+            // If it fails (e.g., simple return value), skip extraction
+            if let Ok(conditions) = clvm_zk_core::deserialize_clvm_output_to_conditions(&bundle.public_conditions) {
+                // Extract CREATE_COIN commitments (opcode 51)
+                for condition in conditions {
+                    if condition.opcode == 51 {
+                        if condition.args.len() != 1 {
+                            return Err(SimulatorError::TestFailed(
+                                "CREATE_COIN must have 1 arg (coin_commitment)".to_string()
+                            ));
+                        }
+                        if condition.args[0].len() != 32 {
+                            return Err(SimulatorError::TestFailed(
+                                "coin_commitment must be 32 bytes".to_string()
+                            ));
+                        }
+                        let mut commitment = [0u8; 32];
+                        commitment.copy_from_slice(&condition.args[0]);
+                        new_coin_commitments.push(commitment);
+                    }
+                }
+            }
+            // If parsing fails, program returned non-condition value (e.g., simple number)
+            // This is fine - just means no coins were created
+        }
+
         let tx = SimulatedTransaction {
             id: self.generate_tx_id(),
             spend_bundles,
@@ -226,6 +268,59 @@ impl CLVMZkSimulator {
         // Add nullifiers to nullifier set (prevents double-spend)
         for nullifier in &new_nullifiers {
             self.nullifier_set.insert(*nullifier);
+        }
+
+        // Add new coin_commitments to merkle tree
+        for commitment in &new_coin_commitments {
+            let leaf_index = self.coin_tree.leaves_len();
+            self.coin_tree.insert(*commitment);
+            self.commitment_to_index.insert(*commitment, leaf_index);
+            self.merkle_leaves.push(*commitment);
+        }
+
+        // Commit tree after adding all new coins
+        if !new_coin_commitments.is_empty() {
+            self.coin_tree.commit();
+        }
+
+        // If output coins provided (for simulator testing), validate and track them
+        if !output_coins.is_empty() {
+            if output_coins.len() != new_coin_commitments.len() {
+                return Err(SimulatorError::TestFailed(format!(
+                    "output_coins count ({}) doesn't match CREATE_COIN count ({})",
+                    output_coins.len(),
+                    new_coin_commitments.len()
+                )));
+            }
+
+            // Validate commitments match and add to utxo_set
+            for (i, (coin, secrets, metadata)) in output_coins.into_iter().enumerate() {
+                let expected_commitment = CoinCommitment::compute(
+                    coin.amount,
+                    &coin.puzzle_hash,
+                    &coin.serial_commitment,
+                    crate::crypto_utils::hash_data_default,
+                );
+
+                if expected_commitment.0 != new_coin_commitments[i] {
+                    return Err(SimulatorError::TestFailed(format!(
+                        "output coin {} commitment mismatch: expected {}, got {}",
+                        i,
+                        hex::encode(new_coin_commitments[i]),
+                        hex::encode(expected_commitment.0)
+                    )));
+                }
+
+                // Add to utxo_set
+                self.utxo_set.insert(
+                    secrets.serial_number,
+                    CoinInfo {
+                        coin,
+                        metadata,
+                        created_at_height: self.block_height,
+                    },
+                );
+            }
         }
 
         // Remove spent coins from utxo_set (keyed by serial_number)

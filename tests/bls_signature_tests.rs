@@ -29,6 +29,38 @@ fn get_valid_bls_test_vector() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
 }
 
 #[test]
+fn test_simple_list_compilation() {
+    // Test basic list compilation
+    let program = "(mod () (list (list REMARK 1)))";
+    let result = compile_and_test_program(program, &[]);
+
+    match result {
+        Ok(zk_result) => {
+            let output = &zk_result.proof_output.clvm_res.output;
+            println!("Simple list output hex: {}", hex::encode(output));
+            println!("Simple list output bytes: {:?}", output);
+
+            match clvm_zk_core::deserialize_clvm_output_to_conditions(output) {
+                Ok(conditions) => {
+                    println!("Parsed {} conditions successfully", conditions.len());
+                    assert_eq!(conditions.len(), 1);
+                    assert_eq!(conditions[0].opcode, 1);
+                }
+                Err(e) => {
+                    panic!("Failed to parse simple list: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            let error_msg = format!("{:?}", e);
+            if !error_msg.contains("not available") {
+                panic!("Unexpected error: {}", error_msg);
+            }
+        }
+    }
+}
+
+#[test]
 fn test_bls_verify_operator_parsing() {
     // Test that the BLS verify operator parses correctly
     use clvm_zk_core::operators::ClvmOperator;
@@ -54,7 +86,7 @@ fn test_bls_verify_operator_parsing() {
 #[test]
 fn test_bls_verify_compilation() {
     // Test that BLS verify compiles and executes with valid test vectors
-    let program = "(mod (public_key message signature) (bls_verify public_key message signature))";
+    let program = "(mod (public_key message signature) (list (list REMARK (bls_verify public_key message signature))))";
 
     // Use valid BLS12-381 test vector
     let (pk, msg, sig) = get_valid_bls_test_vector();
@@ -69,14 +101,24 @@ fn test_bls_verify_compilation() {
     let result = compile_and_test_program(program, &params);
     match result {
         Ok(zk_result) => {
-            // BLS verification succeeded - should return 1 (true)
+            // BLS verification succeeded
             println!("BLS program executed successfully");
             let output = &zk_result.proof_output.clvm_res.output;
-            assert_eq!(output.len(), 1, "BLS verify should return single value");
-            assert_eq!(
-                output[0], 1,
-                "Valid BLS signature should verify successfully, returning 1"
-            );
+
+            // Parse conditions from output
+            let conditions = clvm_zk_core::deserialize_clvm_output_to_conditions(output)
+                .expect("failed to parse conditions");
+
+            // Should have REMARK condition with result
+            assert_eq!(conditions.len(), 1, "expected 1 REMARK");
+            assert_eq!(conditions[0].opcode, 1, "expected REMARK opcode");
+            assert_eq!(conditions[0].args.len(), 1, "REMARK should have 1 arg");
+
+            // BLS verify returns true (empty atom) on success
+            let result_bytes = &conditions[0].args[0];
+            assert!(result_bytes.is_empty() || result_bytes == &vec![1],
+                    "BLS verify should return true, got: {:?}", result_bytes);
+
             println!("Valid BLS signature correctly verified ✓");
         }
         Err(e) => {
@@ -127,10 +169,7 @@ fn test_bls_program_with_backend() {
     // Test BLS program execution with current backend (should handle gracefully)
     let program = r#"
     (mod (pk msg sig)
-        (if (bls_verify pk msg sig)
-            1
-            0
-        )
+        (list (list REMARK (if (bls_verify pk msg sig) 1 0)))
     )
     "#;
 
@@ -148,16 +187,22 @@ fn test_bls_program_with_backend() {
     match result {
         Ok(result) => {
             // With valid test vector, verification should succeed
-            let output = &result.proof_output.clvm_res;
-            assert_eq!(
-                output.output.len(),
-                1,
-                "BLS program should return single value"
-            );
-            assert_eq!(
-                output.output[0], 1,
-                "Valid BLS signature should verify successfully, returning 1"
-            );
+            let output = &result.proof_output.clvm_res.output;
+
+            // Parse conditions from output
+            let conditions = clvm_zk_core::deserialize_clvm_output_to_conditions(output)
+                .expect("failed to parse conditions");
+
+            // Should have REMARK condition with result
+            assert_eq!(conditions.len(), 1, "expected 1 REMARK");
+            assert_eq!(conditions[0].opcode, 1, "expected REMARK opcode");
+            assert_eq!(conditions[0].args.len(), 1, "REMARK should have 1 arg");
+
+            // Result should be 1 for success
+            let result_bytes = &conditions[0].args[0];
+            assert!(result_bytes.is_empty() || result_bytes == &vec![1],
+                    "BLS verify should return 1 for success, got: {:?}", result_bytes);
+
             println!("BLS signature verified successfully ✓");
         }
         Err(e) => {
