@@ -56,8 +56,9 @@ async fn fuzz_arithmetic_operations() -> Result<(), String> {
                     match result {
                         TestResult::Success(output) => {
                             // Parse announcement condition to get result
-                            let conditions = clvm_zk_core::deserialize_clvm_output_to_conditions(&output)
-                                .expect("failed to parse conditions");
+                            let conditions =
+                                clvm_zk_core::deserialize_clvm_output_to_conditions(&output)
+                                    .expect("failed to parse conditions");
                             assert_eq!(conditions.len(), 1, "expected 1 announcement");
                             assert_eq!(conditions[0].opcode, 1, "expected REMARK");
                             let result_bytes = &conditions[0].args[0];
@@ -151,10 +152,16 @@ async fn fuzz_comparison_operations() -> Result<(), String> {
 
                     if let TestResult::Success(output) = &result {
                         // Parse announcement condition
-                        let conditions = match clvm_zk_core::deserialize_clvm_output_to_conditions(output) {
-                            Ok(c) => c,
-                            Err(e) => return TestResult::VerifyFailed(format!("failed to parse conditions: {}", e)),
-                        };
+                        let conditions =
+                            match clvm_zk_core::deserialize_clvm_output_to_conditions(output) {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    return TestResult::VerifyFailed(format!(
+                                        "failed to parse conditions: {}",
+                                        e
+                                    ))
+                                }
+                            };
 
                         if conditions.len() != 1 || conditions[0].opcode != 1 {
                             return TestResult::VerifyFailed("expected 1 REMARK".to_string());
@@ -167,7 +174,9 @@ async fn fuzz_comparison_operations() -> Result<(), String> {
                         let expected = match op.as_str() {
                             "=" => a == b,
                             ">" => a > b,
-                            _ => return TestResult::VerifyFailed(format!("Unknown operator: {op}")),
+                            _ => {
+                                return TestResult::VerifyFailed(format!("Unknown operator: {op}"))
+                            }
                         };
 
                         let is_true = !result_bytes.is_empty();

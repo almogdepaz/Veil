@@ -36,8 +36,8 @@ fn test_create_coin_private_mode() {
         .expect("proof generation failed");
 
     // Extract coin commitments from proof output
-    let commitments = extract_coin_commitments(&result.proof_output)
-        .expect("failed to extract commitments");
+    let commitments =
+        extract_coin_commitments(&result.proof_output).expect("failed to extract commitments");
 
     // Should have exactly 1 commitment
     assert_eq!(commitments.len(), 1, "expected 1 coin commitment");
@@ -50,10 +50,7 @@ fn test_create_coin_private_mode() {
         &serial_randomness,
     );
 
-    assert_eq!(
-        commitments[0], expected_commitment,
-        "commitment mismatch"
-    );
+    assert_eq!(commitments[0], expected_commitment, "commitment mismatch");
 
     println!("✓ CREATE_COIN private mode working");
     println!("  coin_commitment: {}", hex::encode(commitments[0]));
@@ -97,8 +94,8 @@ fn test_create_coin_multiple_outputs() {
         .prove_chialisp_program(program, &params)
         .expect("proof generation failed");
 
-    let commitments = extract_coin_commitments(&result.proof_output)
-        .expect("failed to extract commitments");
+    let commitments =
+        extract_coin_commitments(&result.proof_output).expect("failed to extract commitments");
 
     // Should have exactly 2 commitments
     assert_eq!(commitments.len(), 2, "expected 2 coin commitments");
@@ -143,7 +140,11 @@ fn test_create_coin_transparent_mode() {
 
     assert_eq!(conditions.len(), 1, "expected 1 condition");
     assert_eq!(conditions[0].opcode, 51, "expected CREATE_COIN opcode");
-    assert_eq!(conditions[0].args.len(), 2, "expected 2 args (transparent mode)");
+    assert_eq!(
+        conditions[0].args.len(),
+        2,
+        "expected 2 args (transparent mode)"
+    );
     assert_eq!(&conditions[0].args[0], &recipient.to_vec());
 
     println!("✓ CREATE_COIN transparent mode (backward compatibility) working");

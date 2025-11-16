@@ -116,8 +116,11 @@ fn test_bls_verify_compilation() {
 
             // BLS verify returns true (empty atom) on success
             let result_bytes = &conditions[0].args[0];
-            assert!(result_bytes.is_empty() || result_bytes == &vec![1],
-                    "BLS verify should return true, got: {:?}", result_bytes);
+            assert!(
+                result_bytes.is_empty() || result_bytes == &vec![1],
+                "BLS verify should return true, got: {:?}",
+                result_bytes
+            );
 
             println!("Valid BLS signature correctly verified ✓");
         }
@@ -200,8 +203,11 @@ fn test_bls_program_with_backend() {
 
             // Result should be 1 for success
             let result_bytes = &conditions[0].args[0];
-            assert!(result_bytes.is_empty() || result_bytes == &vec![1],
-                    "BLS verify should return 1 for success, got: {:?}", result_bytes);
+            assert!(
+                result_bytes.is_empty() || result_bytes == &vec![1],
+                "BLS verify should return 1 for success, got: {:?}",
+                result_bytes
+            );
 
             println!("BLS signature verified successfully ✓");
         }

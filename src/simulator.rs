@@ -185,7 +185,11 @@ impl CLVMZkSimulator {
             Vec<crate::ProgramParameter>,
             clvm_zk_core::coin_commitment::CoinSecrets,
         )>,
-        output_coins: Vec<(PrivateCoin, clvm_zk_core::coin_commitment::CoinSecrets, CoinMetadata)>,
+        output_coins: Vec<(
+            PrivateCoin,
+            clvm_zk_core::coin_commitment::CoinSecrets,
+            CoinMetadata,
+        )>,
     ) -> Result<SimulatedTransaction, SimulatorError> {
         let merkle_root = self
             .coin_tree
@@ -233,18 +237,20 @@ impl CLVMZkSimulator {
         for bundle in &spend_bundles {
             // Try to parse CLVM output as conditions
             // If it fails (e.g., simple return value), skip extraction
-            if let Ok(conditions) = clvm_zk_core::deserialize_clvm_output_to_conditions(&bundle.public_conditions) {
+            if let Ok(conditions) =
+                clvm_zk_core::deserialize_clvm_output_to_conditions(&bundle.public_conditions)
+            {
                 // Extract CREATE_COIN commitments (opcode 51)
                 for condition in conditions {
                     if condition.opcode == 51 {
                         if condition.args.len() != 1 {
                             return Err(SimulatorError::TestFailed(
-                                "CREATE_COIN must have 1 arg (coin_commitment)".to_string()
+                                "CREATE_COIN must have 1 arg (coin_commitment)".to_string(),
                             ));
                         }
                         if condition.args[0].len() != 32 {
                             return Err(SimulatorError::TestFailed(
-                                "coin_commitment must be 32 bytes".to_string()
+                                "coin_commitment must be 32 bytes".to_string(),
                             ));
                         }
                         let mut commitment = [0u8; 32];

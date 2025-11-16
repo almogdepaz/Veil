@@ -1,8 +1,8 @@
 /// test simulator integration with 4-arg CREATE_COIN (output privacy)
 use clvm_zk::protocol::PrivateCoin;
 use clvm_zk::simulator::*;
-use clvm_zk_core::coin_commitment::{CoinSecrets, SerialCommitment};
 use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::coin_commitment::{CoinSecrets, SerialCommitment};
 
 #[test]
 #[cfg(feature = "mock")]
@@ -36,8 +36,8 @@ fn test_create_and_spend_coins() {
     // alice sends 600 to bob, 300 to charlie (100 implicit fee)
     // bob will spend with an empty program
     let bob_program = "(mod () ())";
-    let bob_puzzle = compile_chialisp_template_hash_default(bob_program)
-        .expect("failed to compile bob program");
+    let bob_puzzle =
+        compile_chialisp_template_hash_default(bob_program).expect("failed to compile bob program");
 
     // charlie uses dummy puzzle for now (not spending)
     let charlie_puzzle = [0x33u8; 32];
@@ -116,10 +116,22 @@ fn test_create_and_spend_coins() {
     println!("  nullifiers: {}", tx.nullifiers.len());
 
     // verify simulator state
-    assert!(sim.has_nullifier(&tx.nullifiers[0]), "alice's nullifier should be tracked");
-    assert!(sim.get_coin_info(&alice_serial_num).is_none(), "alice's coin should be spent");
-    assert!(sim.get_coin_info(&bob_serial).is_some(), "bob's coin should exist");
-    assert!(sim.get_coin_info(&charlie_serial).is_some(), "charlie's coin should exist");
+    assert!(
+        sim.has_nullifier(&tx.nullifiers[0]),
+        "alice's nullifier should be tracked"
+    );
+    assert!(
+        sim.get_coin_info(&alice_serial_num).is_none(),
+        "alice's coin should be spent"
+    );
+    assert!(
+        sim.get_coin_info(&bob_serial).is_some(),
+        "bob's coin should exist"
+    );
+    assert!(
+        sim.get_coin_info(&charlie_serial).is_some(),
+        "charlie's coin should exist"
+    );
 
     println!("✓ coins tracked in simulator");
 
@@ -129,14 +141,24 @@ fn test_create_and_spend_coins() {
         vec![],
     );
 
-    assert!(result2.is_ok(), "bob should be able to spend his coin: {:?}", result2.err());
+    assert!(
+        result2.is_ok(),
+        "bob should be able to spend his coin: {:?}",
+        result2.err()
+    );
     let tx2 = result2.unwrap();
 
     println!("✓ bob spent his coin");
     println!("  tx: {}", hex::encode(tx2.id));
 
-    assert!(sim.get_coin_info(&bob_serial).is_none(), "bob's coin should be spent");
-    assert!(sim.get_coin_info(&charlie_serial).is_some(), "charlie's coin still exists");
+    assert!(
+        sim.get_coin_info(&bob_serial).is_none(),
+        "bob's coin should be spent"
+    );
+    assert!(
+        sim.get_coin_info(&charlie_serial).is_some(),
+        "charlie's coin still exists"
+    );
 
     println!("✓ full create → spend cycle working");
 }
@@ -155,8 +177,8 @@ fn test_create_coin_adds_to_merkle_tree() {
     "#;
 
     // compute actual puzzle hash for alice's coin
-    let puzzle_hash = compile_chialisp_template_hash_default(program)
-        .expect("failed to compile program");
+    let puzzle_hash =
+        compile_chialisp_template_hash_default(program).expect("failed to compile program");
 
     let (alice_coin, alice_secrets) = PrivateCoin::new_with_secrets(puzzle_hash, 1000);
 
@@ -200,7 +222,10 @@ fn test_create_coin_adds_to_merkle_tree() {
     assert!(result.is_ok(), "spend should succeed: {:?}", result.err());
     let tx = result.unwrap();
 
-    println!("✓ spend succeeded, created transaction {}", hex::encode(tx.id));
+    println!(
+        "✓ spend succeeded, created transaction {}",
+        hex::encode(tx.id)
+    );
     println!("  nullifiers: {}", tx.nullifiers.len());
     println!("  spend bundles: {}", tx.spend_bundles.len());
 
@@ -227,8 +252,8 @@ fn test_create_coin_transparent_mode() {
     "#;
 
     // compute actual puzzle hash
-    let puzzle_hash = compile_chialisp_template_hash_default(program)
-        .expect("failed to compile program");
+    let puzzle_hash =
+        compile_chialisp_template_hash_default(program).expect("failed to compile program");
 
     let (coin, secrets) = PrivateCoin::new_with_secrets(puzzle_hash, 2000);
 
@@ -247,7 +272,11 @@ fn test_create_coin_transparent_mode() {
 
     let result = sim.spend_coins_with_params(vec![(coin, program.to_string(), params, secrets)]);
 
-    assert!(result.is_ok(), "transparent mode should work: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "transparent mode should work: {:?}",
+        result.err()
+    );
 
     println!("✓ transparent mode (2-arg CREATE_COIN) working");
 }

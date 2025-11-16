@@ -49,7 +49,11 @@ fn test_condition_transformation_logic() {
     condition.args = vec![coin_commitment.to_vec()];
 
     // Verify transformation
-    assert_eq!(condition.args.len(), 1, "should have 1 arg after transformation");
+    assert_eq!(
+        condition.args.len(),
+        1,
+        "should have 1 arg after transformation"
+    );
     assert_eq!(condition.args[0].len(), 32, "commitment should be 32 bytes");
 
     println!("✓ condition transformation logic works");
@@ -79,7 +83,11 @@ fn test_condition_serialization() {
     assert!(!serialized.is_empty(), "serialization should produce bytes");
 
     println!("✓ condition serialization works");
-    println!("  {} conditions → {} bytes", conditions.len(), serialized.len());
+    println!(
+        "  {} conditions → {} bytes",
+        conditions.len(),
+        serialized.len()
+    );
 }
 
 #[test]
@@ -88,7 +96,7 @@ fn test_transparent_mode_preserved() {
     let condition = Condition {
         opcode: 51,
         args: vec![
-            vec![0x42; 32], // puzzle_hash
+            vec![0x42; 32],                 // puzzle_hash
             vec![0, 0, 0, 0, 0, 0, 3, 232], // amount = 1000 in big-endian
         ],
     };
@@ -111,11 +119,17 @@ fn test_commitment_determinism() {
     let commitment1 = compute_coin_commitment(&puzzle, amount, &serial, &rand);
     let commitment2 = compute_coin_commitment(&puzzle, amount, &serial, &rand);
 
-    assert_eq!(commitment1, commitment2, "commitment should be deterministic");
+    assert_eq!(
+        commitment1, commitment2,
+        "commitment should be deterministic"
+    );
 
     // Different inputs should produce different commitment
     let commitment3 = compute_coin_commitment(&puzzle, 2000, &serial, &rand);
-    assert_ne!(commitment1, commitment3, "different amount should change commitment");
+    assert_ne!(
+        commitment1, commitment3,
+        "different amount should change commitment"
+    );
 
     println!("✓ commitment computation is deterministic");
 }

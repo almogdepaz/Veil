@@ -300,8 +300,8 @@ async fn test_arithmetic_operations() -> Result<(), String> {
         ("%", 15, 7, 1),
         ("/", 20, 4, 5),
         ("%", 10, 3, 1),
-        (">", 10, 5, 1),      // 10 > 5 = true
-        (">", 5, 10, 0x80),   // 5 > 10 = false (encoded as 0x80)
+        (">", 10, 5, 1),    // 10 > 5 = true
+        (">", 5, 10, 0x80), // 5 > 10 = false (encoded as 0x80)
     ];
 
     let total_cases = test_cases.len();

@@ -61,10 +61,10 @@ pub enum ClvmOperator {
     ReceiveMessage, // 67
 
     // Assertions
-    AssertMyCoinId,         // 70
-    AssertMyParentId,       // 71
-    AssertMyPuzzleHash,     // 72
-    AssertMyAmount,         // 73
+    AssertMyCoinId,     // 70
+    AssertMyParentId,   // 71
+    AssertMyPuzzleHash, // 72
+    AssertMyAmount,     // 73
 
     // Runtime function calls
     CallFunction, // 250 (custom opcode for runtime function calls)

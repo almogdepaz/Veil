@@ -1485,7 +1485,9 @@ pub fn extract_coin_commitments(proof_output: &ProofOutput) -> Result<Vec<[u8; 3
 }
 
 /// Deserialize CLVM output bytes to Vec<Condition>
-pub fn deserialize_clvm_output_to_conditions(output: &[u8]) -> Result<Vec<Condition>, &'static str> {
+pub fn deserialize_clvm_output_to_conditions(
+    output: &[u8],
+) -> Result<Vec<Condition>, &'static str> {
     let mut parser = ClvmParser::new(output);
     let parsed = parser.parse()?;
 
