@@ -21,6 +21,7 @@
 //! ```
 
 pub mod encrypted_notes;
+pub mod offers;
 pub mod puzzles;
 pub mod recursive;
 pub mod spender;
@@ -28,6 +29,7 @@ pub mod structures;
 
 // Re-export main types for convenient access
 pub use encrypted_notes::{EncryptedNote, PaymentNote};
+pub use offers::{ConditionalOffer, OfferMetadata};
 pub use puzzles::{
     create_password_puzzle, create_password_puzzle_program, create_password_spend_parameters,
     create_password_spend_params, create_signature_puzzle, create_signature_spend_params,
@@ -35,4 +37,4 @@ pub use puzzles::{
 };
 pub use recursive::{AggregatedOutput, AggregatedProof};
 pub use spender::Spender;
-pub use structures::{PrivateCoin, PrivateSpendBundle, ProtocolError};
+pub use structures::{PrivateCoin, PrivateSpendBundle, ProtocolError, ProofType};
