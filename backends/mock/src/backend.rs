@@ -75,7 +75,7 @@ impl MockBackend {
 
         // Parse conditions from output (list-based programs return condition structures)
         let mut conditions = clvm_zk_core::deserialize_clvm_output_to_conditions(&output_bytes)
-            .unwrap_or_else(|_| _runtime_conditions); // fallback to runtime conditions if parsing fails
+            .unwrap_or(_runtime_conditions); // fallback to runtime conditions if parsing fails
 
         // Transform CREATE_COIN conditions for output privacy
         let mut has_transformations = false;
@@ -216,7 +216,7 @@ impl MockBackend {
 
         // Parse conditions from output (list-based programs return condition structures)
         let mut conditions = clvm_zk_core::deserialize_clvm_output_to_conditions(&output_bytes)
-            .unwrap_or_else(|_| _runtime_conditions); // fallback to runtime conditions if parsing fails
+            .unwrap_or(_runtime_conditions); // fallback to runtime conditions if parsing fails
 
         // Transform CREATE_COIN conditions for output privacy
         let mut has_transformations = false;
