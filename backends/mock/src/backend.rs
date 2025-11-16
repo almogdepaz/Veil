@@ -143,10 +143,12 @@ impl MockBackend {
                         condition.args = vec![coin_commitment.to_vec()];
                         has_transformations = true;
                     }
-                    n => return Err(ClvmZkError::ProofGenerationFailed(format!(
+                    n => {
+                        return Err(ClvmZkError::ProofGenerationFailed(format!(
                         "CREATE_COIN must have 2 args (transparent) or 4 args (private), got {}",
                         n
-                    ))),
+                    )))
+                    }
                 }
             }
         }
@@ -282,10 +284,12 @@ impl MockBackend {
                         condition.args = vec![coin_commitment.to_vec()];
                         has_transformations = true;
                     }
-                    n => return Err(ClvmZkError::ProofGenerationFailed(format!(
+                    n => {
+                        return Err(ClvmZkError::ProofGenerationFailed(format!(
                         "CREATE_COIN must have 2 args (transparent) or 4 args (private), got {}",
                         n
-                    ))),
+                    )))
+                    }
                 }
             }
         }
