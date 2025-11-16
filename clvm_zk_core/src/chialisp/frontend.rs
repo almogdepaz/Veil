@@ -271,16 +271,24 @@ fn parse_atom_expression(atom: String) -> Result<Expression, CompileError> {
         "AGG_SIG_ME" => Ok(Expression::number(50)),
         "CREATE_COIN" => Ok(Expression::number(51)),
         "RESERVE_FEE" => Ok(Expression::number(52)),
+        // Output/Messaging
+        "REMARK" => Ok(Expression::number(1)),
+        // Announcements
+        "CREATE_COIN_ANNOUNCEMENT" => Ok(Expression::number(60)),
+        "ASSERT_COIN_ANNOUNCEMENT" => Ok(Expression::number(61)),
+        "CREATE_PUZZLE_ANNOUNCEMENT" => Ok(Expression::number(62)),
+        "ASSERT_PUZZLE_ANNOUNCEMENT" => Ok(Expression::number(63)),
+        // Concurrency
         "ASSERT_CONCURRENT_SPEND" => Ok(Expression::number(64)),
         "ASSERT_CONCURRENT_PUZZLE" => Ok(Expression::number(65)),
+        // Messaging
+        "SEND_MESSAGE" => Ok(Expression::number(66)),
+        "RECEIVE_MESSAGE" => Ok(Expression::number(67)),
+        // Assertions
         "ASSERT_MY_COIN_ID" => Ok(Expression::number(70)),
         "ASSERT_MY_PARENT_ID" => Ok(Expression::number(71)),
         "ASSERT_MY_PUZZLEHASH" => Ok(Expression::number(72)),
         "ASSERT_MY_AMOUNT" => Ok(Expression::number(73)),
-        "CREATE_COIN_ANNOUNCEMENT" => Ok(Expression::number(74)),
-        "ASSERT_COIN_ANNOUNCEMENT" => Ok(Expression::number(75)),
-        "CREATE_PUZZLE_ANNOUNCEMENT" => Ok(Expression::number(76)),
-        "ASSERT_PUZZLE_ANNOUNCEMENT" => Ok(Expression::number(77)),
         _ => Ok(Expression::variable(atom)),
     }
 }

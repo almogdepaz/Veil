@@ -347,11 +347,30 @@ pub fn compile_expression_unified(
             compile_function_call_unified(name, arguments, context)
         }
         Expression::List(items) => {
-            let compiled_items = items
-                .iter()
-                .map(|item| compile_expression_unified(item, context))
-                .collect::<Result<Vec<_>, _>>()?;
-            create_list_from_values(compiled_items)
+            // Compile (list a b c) to nested cons operations: (c a (c b (c c (q ()))))
+            // This builds the list at execution time, not as static structure
+
+            if items.is_empty() {
+                // Empty list: (q . nil) - quotes nil
+                let nil = ClvmValue::Atom(vec![]);
+                let quote_op = ClvmValue::Atom(vec![113]); // 'q' opcode
+                return Ok(ClvmValue::Cons(Box::new(quote_op), Box::new(nil)));
+            }
+
+            // Build nested cons operations from right to left
+            // Start with (q . nil) for the tail - this quotes an empty list
+            let nil = ClvmValue::Atom(vec![]);
+            let quote_op = ClvmValue::Atom(vec![113]); // 'q' opcode
+            let mut result = ClvmValue::Cons(Box::new(quote_op), Box::new(nil));
+
+            // Wrap each item in cons operation
+            for item in items.iter().rev() {
+                let compiled_item = compile_expression_unified(item, context)?;
+                let cons_op = ClvmValue::Atom(vec![99]); // 'c' opcode (cons)
+                result = create_cons_list(cons_op, vec![compiled_item, result])?;
+            }
+
+            Ok(result)
         }
         Expression::Quote(inner) => {
             let compiled_inner = compile_expression_unified(inner, context)?;

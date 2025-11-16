@@ -166,7 +166,6 @@ impl ClvmEvaluator {
                 ClvmOperator::Modulo => self.handle_op_modulo(args, conditions),
                 ClvmOperator::Equal => self.handle_op_equal(args, conditions),
                 ClvmOperator::GreaterThan => self.handle_op_greater(args, conditions),
-                ClvmOperator::LessThan => self.handle_op_less(args, conditions),
                 ClvmOperator::If => self.handle_op_if(args, None, conditions),
                 ClvmOperator::Cons => self.handle_op_cons(args, conditions),
                 ClvmOperator::First => self.handle_op_first(args, conditions),
@@ -191,6 +190,7 @@ impl ClvmEvaluator {
                 // Conditions
                 ClvmOperator::AggSigMe => self.handle_op_agg_sig_me(args, conditions),
                 ClvmOperator::AggSigUnsafe => self.handle_op_agg_sig_unsafe(args, conditions),
+                ClvmOperator::Remark => self.handle_op_remark(args, conditions),
                 ClvmOperator::CreateCoin => self.handle_op_create_coin(args, conditions),
                 ClvmOperator::ReserveFee => self.handle_op_reserve_fee(args, conditions),
                 ClvmOperator::CreateCoinAnnouncement => {
@@ -205,6 +205,14 @@ impl ClvmEvaluator {
                 ClvmOperator::AssertPuzzleAnnouncement => {
                     self.handle_op_assert_puzzle_announcement(args, conditions)
                 }
+                ClvmOperator::AssertConcurrentSpend => {
+                    self.handle_op_assert_concurrent_spend(args, conditions)
+                }
+                ClvmOperator::AssertConcurrentPuzzle => {
+                    self.handle_op_assert_concurrent_puzzle(args, conditions)
+                }
+                ClvmOperator::SendMessage => self.handle_op_send_message(args, conditions),
+                ClvmOperator::ReceiveMessage => self.handle_op_receive_message(args, conditions),
                 ClvmOperator::AssertMyCoinId => self.handle_op_assert_my_coin_id(args, conditions),
                 ClvmOperator::AssertMyParentId => {
                     self.handle_op_assert_my_parent_id(args, conditions)
@@ -213,12 +221,6 @@ impl ClvmEvaluator {
                     self.handle_op_assert_my_puzzle_hash(args, conditions)
                 }
                 ClvmOperator::AssertMyAmount => self.handle_op_assert_my_amount(args, conditions),
-                ClvmOperator::AssertConcurrentSpend => {
-                    self.handle_op_assert_concurrent_spend(args, conditions)
-                }
-                ClvmOperator::AssertConcurrentPuzzle => {
-                    self.handle_op_assert_concurrent_puzzle(args, conditions)
-                }
             },
             None => {
                 // Handle opcodes not in the enum (like SHA-256) using evaluator
@@ -546,21 +548,6 @@ impl ClvmEvaluator {
         ))
     }
 
-    pub fn handle_op_less(
-        &mut self,
-        args: &ClvmValue,
-        conditions: &mut Vec<Condition>,
-    ) -> Result<ClvmValue, &'static str> {
-        let (a, b) = self.extract_binary_clvm_args_with_params(args, conditions)?;
-        Ok(number_to_atom(
-            if atom_to_number(&a)? < atom_to_number(&b)? {
-                1
-            } else {
-                0
-            },
-        ))
-    }
-
     pub fn handle_op_equal(
         &mut self,
         args: &ClvmValue,
@@ -804,17 +791,6 @@ impl ClvmEvaluator {
                     let a = atom_to_number(&left)?;
                     let b = atom_to_number(&right)?;
                     Ok(if a > b {
-                        ClvmValue::Atom(vec![1])
-                    } else {
-                        ClvmValue::Atom(vec![])
-                    })
-                }
-                ClvmOperator::LessThan => {
-                    let (left, right) =
-                        self.extract_binary_clvm_args_evaled_with_env(args, env, conditions)?;
-                    let a = atom_to_number(&left)?;
-                    let b = atom_to_number(&right)?;
-                    Ok(if a < b {
                         ClvmValue::Atom(vec![1])
                     } else {
                         ClvmValue::Atom(vec![])
@@ -1132,7 +1108,7 @@ impl ClvmEvaluator {
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(74, args, conditions)
+        self.handle_single_arg_condition(60, args, conditions)
     }
 
     fn handle_op_assert_coin_announcement(
@@ -1140,7 +1116,7 @@ impl ClvmEvaluator {
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(75, args, conditions)
+        self.handle_single_arg_condition(61, args, conditions)
     }
 
     fn handle_op_create_puzzle_announcement(
@@ -1148,7 +1124,7 @@ impl ClvmEvaluator {
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(76, args, conditions)
+        self.handle_single_arg_condition(62, args, conditions)
     }
 
     fn handle_op_assert_puzzle_announcement(
@@ -1156,7 +1132,31 @@ impl ClvmEvaluator {
         args: &ClvmValue,
         conditions: &mut Vec<Condition>,
     ) -> Result<ClvmValue, &'static str> {
-        self.handle_single_arg_condition(77, args, conditions)
+        self.handle_single_arg_condition(63, args, conditions)
+    }
+
+    fn handle_op_remark(
+        &mut self,
+        args: &ClvmValue,
+        conditions: &mut Vec<Condition>,
+    ) -> Result<ClvmValue, &'static str> {
+        self.handle_single_arg_condition(1, args, conditions)
+    }
+
+    fn handle_op_send_message(
+        &mut self,
+        args: &ClvmValue,
+        conditions: &mut Vec<Condition>,
+    ) -> Result<ClvmValue, &'static str> {
+        self.handle_single_arg_condition(66, args, conditions)
+    }
+
+    fn handle_op_receive_message(
+        &mut self,
+        args: &ClvmValue,
+        conditions: &mut Vec<Condition>,
+    ) -> Result<ClvmValue, &'static str> {
+        self.handle_single_arg_condition(67, args, conditions)
     }
 
     fn handle_op_call_function_context(
@@ -1447,6 +1447,149 @@ pub fn encode_clvm_value(value: ClvmValue) -> Vec<u8> {
             result
         }
     }
+}
+
+/// Convert conditions back to CLVM serialized format
+/// Takes a Vec<Condition> and returns serialized bytes representing a list of conditions
+pub fn serialize_conditions_to_bytes(conditions: &[Condition]) -> Vec<u8> {
+    // Convert conditions to CLVM list structure
+    let clvm_list = conditions_to_clvm_value(conditions);
+    encode_clvm_value(clvm_list)
+}
+
+/// Extract coin commitments from proof output
+/// Returns all CREATE_COIN commitments (opcode 51 with 1 arg)
+pub fn extract_coin_commitments(proof_output: &ProofOutput) -> Result<Vec<[u8; 32]>, &'static str> {
+    // Deserialize the clvm output to get conditions
+    let conditions = deserialize_clvm_output_to_conditions(&proof_output.clvm_res.output)?;
+
+    let mut commitments = Vec::new();
+    for condition in conditions {
+        if condition.opcode == 51 {
+            // CREATE_COIN
+            if condition.args.len() != 1 {
+                return Err("CREATE_COIN in proof output must have 1 arg (coin_commitment)");
+            }
+
+            if condition.args[0].len() != 32 {
+                return Err("coin_commitment must be 32 bytes");
+            }
+
+            let mut commitment = [0u8; 32];
+            commitment.copy_from_slice(&condition.args[0]);
+            commitments.push(commitment);
+        }
+    }
+
+    Ok(commitments)
+}
+
+/// Deserialize CLVM output bytes to Vec<Condition>
+pub fn deserialize_clvm_output_to_conditions(
+    output: &[u8],
+) -> Result<Vec<Condition>, &'static str> {
+    let mut parser = ClvmParser::new(output);
+    let parsed = parser.parse()?;
+
+    // Parse list of conditions: ((opcode1 args...) (opcode2 args...) ...)
+    clvm_value_to_conditions(&parsed)
+}
+
+/// Convert ClvmValue to Vec<Condition>
+fn clvm_value_to_conditions(value: &ClvmValue) -> Result<Vec<Condition>, &'static str> {
+    let mut conditions = Vec::new();
+
+    // Traverse the list
+    let mut current = value;
+    loop {
+        match current {
+            ClvmValue::Atom(ref bytes) if bytes.is_empty() => {
+                // End of list (nil)
+                break;
+            }
+            ClvmValue::Cons(ref first, ref rest) => {
+                // Parse condition: (opcode arg1 arg2 ...)
+                let condition = parse_single_condition(first)?;
+                conditions.push(condition);
+                current = rest;
+            }
+            _ => return Err("invalid condition list structure"),
+        }
+    }
+
+    Ok(conditions)
+}
+
+/// Parse a single condition from ClvmValue
+fn parse_single_condition(value: &ClvmValue) -> Result<Condition, &'static str> {
+    match value {
+        ClvmValue::Cons(ref opcode_val, ref args_val) => {
+            // Extract opcode
+            let opcode = match opcode_val.as_ref() {
+                ClvmValue::Atom(ref bytes) if bytes.len() == 1 => bytes[0],
+                _ => return Err("condition opcode must be single byte"),
+            };
+
+            // Extract args
+            let args = extract_args_from_list(args_val)?;
+
+            Ok(Condition { opcode, args })
+        }
+        _ => Err("condition must be a cons pair"),
+    }
+}
+
+/// Extract arguments from CLVM list
+fn extract_args_from_list(value: &ClvmValue) -> Result<Vec<Vec<u8>>, &'static str> {
+    let mut args = Vec::new();
+    let mut current = value;
+
+    loop {
+        match current {
+            ClvmValue::Atom(ref bytes) if bytes.is_empty() => {
+                // End of list
+                break;
+            }
+            ClvmValue::Cons(ref first, ref rest) => {
+                match first.as_ref() {
+                    ClvmValue::Atom(ref bytes) => args.push(bytes.clone()),
+                    _ => return Err("argument must be an atom"),
+                }
+                current = rest;
+            }
+            _ => return Err("invalid argument list structure"),
+        }
+    }
+
+    Ok(args)
+}
+
+/// Convert Vec<Condition> to ClvmValue list representation
+/// Each condition becomes: (opcode arg1 arg2 ...)
+/// All conditions form a list: ((opcode1 args...) (opcode2 args...) ...)
+fn conditions_to_clvm_value(conditions: &[Condition]) -> ClvmValue {
+    // Build list from right to left (CLVM cons structure)
+    let mut result = ClvmValue::Atom(vec![]); // Start with nil (empty list)
+
+    for condition in conditions.iter().rev() {
+        // Build condition as (opcode arg1 arg2 ...)
+        let opcode = ClvmValue::Atom(vec![condition.opcode]);
+
+        // Build args list
+        let mut args_list = ClvmValue::Atom(vec![]); // nil
+        for arg in condition.args.iter().rev() {
+            let arg_value = ClvmValue::Atom(arg.clone());
+            args_list = ClvmValue::Cons(Box::new(arg_value), Box::new(args_list));
+        }
+
+        // Cons opcode with args: (opcode . args_list)
+        let condition_value = ClvmValue::Cons(Box::new(opcode), Box::new(args_list));
+
+        // Add to result list
+        result = ClvmValue::Cons(Box::new(condition_value), Box::new(result));
+    }
+
+    result
 }
 
 #[cfg(test)]

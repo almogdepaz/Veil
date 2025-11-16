@@ -79,12 +79,12 @@ For simulator usage, see **[SIMULATOR.md](SIMULATOR.md)**.
 ## Supported Chialisp
 
 **Arithmetic**: `+`, `-`, `*`, `divmod`, `modpow`
-**Comparison**: `=`, `>`, `<`
+**Comparison**: `=`, `>` (use `(> b a)` for less-than)
 **Control flow**: `i` (if-then-else), `if`
 **Lists**: `c` (cons), `f` (first), `r` (rest), `l` (length)
 **Functions**: Helper functions with recursion support
 **Cryptography**: `sha256`, `ecdsa_verify`, `bls_verify`
-**Blockchain**: `CREATE_COIN`, `AGG_SIG_ME`, `RESERVE_FEE`, etc (14 chia consensus opcodes)
+**Blockchain**: `CREATE_COIN`, `AGG_SIG_ME`, `RESERVE_FEE`, `REMARK`, announcements, assertions, etc
 **Modules**: `mod` wrapper syntax for named parameters
 
 BLS signature verification (`bls_verify`) works on SP1 and RISC0 backends.
@@ -178,6 +178,9 @@ clvm-zk/
 │   ├── bls_signature_tests.rs     # BLS12-381 signature verification
 │   ├── signature_tests.rs         # signature verification tests
 │   ├── proof_validation_tests.rs  # security validation tests
+│   ├── test_create_coin_privacy.rs        # CREATE_COIN output privacy tests
+│   ├── test_condition_transformation.rs   # 4-arg→1-arg transformation tests
+│   ├── test_simulator_create_coin.rs      # simulator integration tests
 │   └── ...                        # additional test files
 │
 └── Cargo.toml                     # workspace configuration
@@ -245,7 +248,7 @@ Coins use serial commitment scheme to prevent double-spending while hiding which
 - Guest verifies: `hash(serial_number || serial_randomness) == serial_commitment`
 - Guest verifies: `hash(amount || puzzle_hash || serial_commitment) == coin_commitment`
 - Guest verifies: Merkle membership of coin_commitment
-- Guest computes: `nullifier = hash(serial_number || program_hash)`
+- Guest computes: `nullifier = hash(serial_number || program_hash || amount)`
 - Proof reveals nullifier, hides which coin was spent
 
 **Security properties:**
@@ -254,6 +257,34 @@ Coins use serial commitment scheme to prevent double-spending while hiding which
 - Double-spending cryptographically impossible
 - Merkle proof shows coin exists without revealing which one
 - serial_randomness prevents linking nullifier to coin_commitment
+
+### Output privacy (CREATE_COIN transformation)
+
+Chialisp programs create coins with 4 arguments, but zkVM transforms to 1 argument before outputting:
+
+**Inside zkVM (private):**
+```chialisp
+;; program outputs detailed CREATE_COIN condition
+(list CREATE_COIN puzzle_hash amount serial_number serial_randomness)
+```
+
+**Guest transformation (still private):**
+- Computes `serial_commitment = hash(serial_number || serial_randomness)`
+- Computes `coin_commitment = hash(amount || puzzle_hash || serial_commitment)`
+- Replaces 4-arg condition with 1-arg: `CREATE_COIN(coin_commitment)`
+
+**Proof output (public):**
+```
+CREATE_COIN(coin_commitment)  // single 32-byte commitment
+```
+
+**Privacy guarantee:**
+- Proof verifier sees only `coin_commitment`
+- Cannot determine `puzzle_hash` (address), `amount`, or `serial_number`
+- zkVM proves commitment was computed correctly without revealing preimage
+- Only coin owner (with serial secrets) can later spend
+
+See `tests/test_create_coin_privacy.rs` and `tests/test_condition_transformation.rs`.
 
 ### Recovery protocol
 

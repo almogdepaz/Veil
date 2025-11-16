@@ -290,17 +290,18 @@ async fn test_complex_nested_expressions() -> Result<(), String> {
     Ok(())
 }
 
-/// Test arithmetic operations not covered in fuzz tests (/, %, <)
+/// Test arithmetic operations not covered in fuzz tests (/, %, >)
 #[tokio::test]
 async fn test_arithmetic_operations() -> Result<(), String> {
     // Note: CLVM encoding - true (1) = [1], false (0) = [0x80]
+    // Note: < operator removed (not in standard Chialisp), use > with reversed args
     let test_cases = vec![
         ("/", 15, 3, 5),
         ("%", 15, 7, 1),
         ("/", 20, 4, 5),
         ("%", 10, 3, 1),
-        ("<", 5, 10, 1),
-        ("<", 10, 5, 0x80), // false encoded as 0x80
+        (">", 10, 5, 1),    // 10 > 5 = true
+        (">", 5, 10, 0x80), // 5 > 10 = false (encoded as 0x80)
     ];
 
     let total_cases = test_cases.len();

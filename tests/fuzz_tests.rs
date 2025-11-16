@@ -50,12 +50,19 @@ async fn fuzz_arithmetic_operations() -> Result<(), String> {
                 let a = *a;
                 let b = *b;
                 task::spawn_blocking(move || {
-                    let expr = format!("(mod (a b) ({op} a b))");
+                    let expr = format!("(mod (a b) (list (list REMARK ({op} a b))))");
                     let result = test_expression(&expr, &[a as i64, b as i64]);
 
                     match result {
                         TestResult::Success(output) => {
-                            test_info!("[PASS] {expr} = {}", output[0]);
+                            // Parse announcement condition to get result
+                            let conditions =
+                                clvm_zk_core::deserialize_clvm_output_to_conditions(&output)
+                                    .expect("failed to parse conditions");
+                            assert_eq!(conditions.len(), 1, "expected 1 announcement");
+                            assert_eq!(conditions[0].opcode, 1, "expected REMARK");
+                            let result_bytes = &conditions[0].args[0];
+                            test_info!("[PASS] {expr} = {:?}", result_bytes);
                             Ok((op, a, b))
                         }
                         // Any other result for a known-good input is a test failure.
@@ -140,54 +147,49 @@ async fn fuzz_comparison_operations() -> Result<(), String> {
                 let a = *a;
                 let b = *b;
                 task::spawn_blocking(move || {
-                    // BEGIN inlined test_comparison logic
-
-                    let expr = format!("(mod (a b) ({op} a b))");
-
-                    // assuming test_expression returns TestResult and works same way as before
+                    let expr = format!("(mod (a b) (list (list REMARK ({op} a b))))");
                     let result = test_expression(&expr, &[a, b]);
 
                     if let TestResult::Success(output) = &result {
-                        // CLVM encoding: true=1 (encoded as [1]), false=0 (empty atom, encoded as [0x80])
-                        if output.len() == 1 && (output[0] == 1 || output[0] == 0x80) {
-                            let expected = match op.as_str() {
-                                "=" => {
-                                    if a == b {
-                                        1
-                                    } else {
-                                        0x80 // false is encoded as 0x80 (empty atom)
-                                    }
-                                }
-                                ">" => {
-                                    if a > b {
-                                        1
-                                    } else {
-                                        0x80 // false is encoded as 0x80 (empty atom)
-                                    }
-                                }
-                                _ => {
+                        // Parse announcement condition
+                        let conditions =
+                            match clvm_zk_core::deserialize_clvm_output_to_conditions(output) {
+                                Ok(c) => c,
+                                Err(e) => {
                                     return TestResult::VerifyFailed(format!(
-                                        "Unknown operator: {op}"
+                                        "failed to parse conditions: {}",
+                                        e
                                     ))
                                 }
                             };
-                            if output[0] == expected {
-                                let result_str = if output[0] == 1 { "true" } else { "false" };
-                                test_info!("{expr} = {} (correct)", result_str);
-                            } else {
-                                return TestResult::VerifyFailed(format!(
-                                    "Logic error: expected {expected}, got {}",
-                                    output[0]
-                                ));
+
+                        if conditions.len() != 1 || conditions[0].opcode != 1 {
+                            return TestResult::VerifyFailed("expected 1 REMARK".to_string());
+                        }
+
+                        let result_bytes = &conditions[0].args[0];
+
+                        // Check if result matches expected
+                        // In CLVM: true = non-empty (like [1]), false = empty []
+                        let expected = match op.as_str() {
+                            "=" => a == b,
+                            ">" => a > b,
+                            _ => {
+                                return TestResult::VerifyFailed(format!("Unknown operator: {op}"))
                             }
+                        };
+
+                        let is_true = !result_bytes.is_empty();
+                        if is_true == expected {
+                            let result_str = if is_true { "true" } else { "false" };
+                            test_info!("{expr} = {} (correct)", result_str);
                         } else {
                             return TestResult::VerifyFailed(format!(
-                                "Invalid output format: expected single byte 1 or 0x80, got {output:?}"
+                                "Logic error: expected {}, got {}",
+                                expected, is_true
                             ));
                         }
                     }
-
-                    // END inlined test_comparison logic
 
                     result
                 })
@@ -617,7 +619,7 @@ fn comprehensive_fuzz_conditions_security() -> Result<(), String> {
             vec![ProgramParameter::int(100)],
         ),
         (
-            "CREATE_COIN_ANNOUNCEMENT",
+            "REMARK",
             "(mod (a) (create_coin_announcement a))",
             vec![ProgramParameter::int(777)],
         ),

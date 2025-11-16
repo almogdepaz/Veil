@@ -94,9 +94,75 @@ fn main() {
 
     let mut evaluator = ClvmEvaluator::new(risc0_hasher, risc0_verify_bls, risc0_verify_ecdsa);
     evaluator.function_table = function_table;
-    let (output_bytes, _conditions) = evaluator
+    let (output_bytes, mut conditions) = evaluator
         .evaluate_clvm_program(&instance_bytecode)
         .expect("CLVM execution failed");
+
+    // Transform CREATE_COIN conditions for output privacy
+    let mut has_transformations = false;
+    for condition in conditions.iter_mut() {
+        if condition.opcode == 51 {
+            // CREATE_COIN opcode
+            match condition.args.len() {
+                2 => {
+                    // Transparent mode: CREATE_COIN(puzzle_hash, amount)
+                    // Leave as-is for testing/debugging
+                }
+                4 => {
+                    // Private mode: CREATE_COIN(puzzle_hash, amount, serial_num, serial_rand)
+                    let puzzle_hash = &condition.args[0];
+                    let amount_bytes = &condition.args[1];
+                    let serial_number = &condition.args[2];
+                    let serial_randomness = &condition.args[3];
+
+                    // Validate sizes
+                    assert_eq!(puzzle_hash.len(), 32, "puzzle_hash must be 32 bytes");
+                    assert_eq!(amount_bytes.len(), 8, "amount must be 8 bytes");
+                    assert_eq!(serial_number.len(), 32, "serial_number must be 32 bytes");
+                    assert_eq!(
+                        serial_randomness.len(),
+                        32,
+                        "serial_randomness must be 32 bytes"
+                    );
+
+                    // Parse amount
+                    let amount = u64::from_be_bytes(amount_bytes.as_slice().try_into().unwrap());
+
+                    // Compute serial_commitment
+                    let serial_domain = b"clvm_zk_serial_v1.0";
+                    let mut serial_data = [0u8; 83];
+                    serial_data[..19].copy_from_slice(serial_domain);
+                    serial_data[19..51].copy_from_slice(serial_number);
+                    serial_data[51..83].copy_from_slice(serial_randomness);
+                    let serial_commitment = risc0_hasher(&serial_data);
+
+                    // Compute coin_commitment
+                    let coin_domain = b"clvm_zk_coin_v1.0";
+                    let mut coin_data = [0u8; 89];
+                    coin_data[..17].copy_from_slice(coin_domain);
+                    coin_data[17..25].copy_from_slice(&amount.to_be_bytes());
+                    coin_data[25..57].copy_from_slice(puzzle_hash);
+                    coin_data[57..89].copy_from_slice(&serial_commitment);
+                    let coin_commitment = risc0_hasher(&coin_data);
+
+                    // Replace args: [puzzle, amount, serial, rand] → [commitment]
+                    condition.args = vec![coin_commitment.to_vec()];
+                    has_transformations = true;
+                }
+                n => panic!(
+                    "CREATE_COIN must have 2 args (transparent) or 4 args (private), got {}",
+                    n
+                ),
+            }
+        }
+    }
+
+    // Only re-serialize if we actually transformed something
+    let final_output = if has_transformations {
+        clvm_zk_core::serialize_conditions_to_bytes(&conditions)
+    } else {
+        output_bytes
+    };
 
     let nullifier = match private_inputs.serial_commitment_data {
         Some(commitment_data) => {
@@ -161,9 +227,10 @@ fn main() {
                 "merkle root mismatch: coin not in current tree state"
             );
 
-            let mut nullifier_data = Vec::with_capacity(64);
+            let mut nullifier_data = Vec::with_capacity(72);
             nullifier_data.extend_from_slice(&serial_number);
             nullifier_data.extend_from_slice(&program_hash);
+            nullifier_data.extend_from_slice(&amount.to_be_bytes());
             Some(risc0_hasher(&nullifier_data))
         }
         None => None,
@@ -172,7 +239,7 @@ fn main() {
     let end_cycles = env::cycle_count();
     let total_cycles = end_cycles.saturating_sub(start_cycles);
     let clvm_output = ClvmResult {
-        output: output_bytes,
+        output: final_output,
         cost: total_cycles,
     };
 
