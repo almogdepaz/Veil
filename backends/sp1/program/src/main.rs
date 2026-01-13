@@ -3,6 +3,7 @@
 use sp1_zkvm::io;
 
 extern crate alloc;
+use alloc::vec;
 
 use clvm_zk_core::{
     compile_chialisp_to_bytecode_with_table, ClvmEvaluator, ClvmResult, Input, ProofOutput, BLS_DST,

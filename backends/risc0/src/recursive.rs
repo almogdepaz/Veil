@@ -1,11 +1,11 @@
 use borsh;
-use clvm_zk_core::{ClvmZkError, ProofOutput};
+use clvm_zk_core::ClvmZkError;
 use risc0_zkvm::{default_prover, ExecutorEnv, Receipt};
 
 extern crate alloc;
 use alloc::vec::Vec;
 
-use crate::RECURSIVE_ELF;
+use crate::{CLVM_RISC0_GUEST_ID, RECURSIVE_ELF};
 
 /// minimal recursive aggregator for risc0
 pub struct RecursiveAggregator {}
@@ -25,34 +25,24 @@ impl RecursiveAggregator {
             ));
         }
 
-        // deserialize all child receipts (all must be base proofs)
+        // deserialize all child receipts and extract journal bytes
         let mut receipts = Vec::new();
-        let mut child_data = Vec::new();
+        let mut journal_bytes_vec = Vec::new();
 
         for (i, proof_bytes) in proofs.iter().enumerate() {
             let receipt: Receipt = borsh::from_slice(proof_bytes).map_err(|e| {
                 ClvmZkError::InvalidProofFormat(format!("failed to deserialize proof {i}: {e}"))
             })?;
 
-            // decode as ProofOutput (base proof only)
-            let output: ProofOutput = receipt.journal.decode().map_err(|e| {
-                ClvmZkError::InvalidProofFormat(format!(
-                    "failed to decode base proof journal {i}: {e}"
-                ))
-            })?;
-
-            child_data.push(BaseProofData {
-                program_hash: output.program_hash,
-                nullifier: output.nullifier,
-                output: output.clvm_res.output,
-            });
-
+            // extract journal bytes for guest to verify
+            journal_bytes_vec.push(receipt.journal.bytes.clone());
             receipts.push(receipt);
         }
 
-        // prepare recursive input
+        // prepare recursive input with journal bytes and IMAGE_ID
         let recursive_input = RecursiveInputData {
-            expected_outputs: child_data,
+            child_journal_bytes: journal_bytes_vec,
+            standard_guest_image_id: image_id_to_bytes(CLVM_RISC0_GUEST_ID),
         };
 
         // build executor environment with inputs
@@ -99,46 +89,99 @@ pub fn aggregate_two(
 /// input structure for recursive guest
 #[derive(serde::Serialize)]
 struct RecursiveInputData {
-    expected_outputs: alloc::vec::Vec<BaseProofData>,
+    child_journal_bytes: alloc::vec::Vec<alloc::vec::Vec<u8>>,
+    standard_guest_image_id: [u8; 32],
 }
 
-/// represents a base proof output
-#[derive(serde::Serialize)]
-struct BaseProofData {
-    program_hash: [u8; 32],
-    nullifier: Option<[u8; 32]>,
-    output: alloc::vec::Vec<u8>,
+/// convert [u32; 8] IMAGE_ID to [u8; 32] for guest verification
+fn image_id_to_bytes(id: [u32; 8]) -> [u8; 32] {
+    let mut bytes = [0u8; 32];
+    for (i, word) in id.iter().enumerate() {
+        bytes[i * 4..(i + 1) * 4].copy_from_slice(&word.to_le_bytes());
+    }
+    bytes
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Risc0Backend;
-    use clvm_zk_core::{AggregatedOutput, ProgramParameter};
+    use crate::{Risc0Backend, RECURSIVE_ID};
+    use clvm_zk_core::coin_commitment::{CoinCommitment, CoinSecrets};
+    use clvm_zk_core::merkle::SparseMerkleTree;
+    use clvm_zk_core::{Input, ProgramParameter, SerialCommitmentData};
+    use sha2::{Digest, Sha256};
+
+    fn hash_data(data: &[u8]) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        hasher.finalize().into()
+    }
+
+    fn create_test_proof_simple(
+        backend: &Risc0Backend,
+        program: &str,
+        params: &[ProgramParameter],
+        serial_number: [u8; 32],
+    ) -> clvm_zk_core::ZKClvmResult {
+        // compile to get program hash
+        let program_hash = clvm_zk_core::compile_chialisp_template_hash(hash_data, program)
+            .expect("program should compile");
+
+        // create coin secrets
+        let serial_randomness = [42u8; 32];
+        let secrets = CoinSecrets::new(serial_number, serial_randomness);
+
+        // compute commitments
+        let amount = 100;
+        let serial_commitment = secrets.serial_commitment(hash_data);
+        let coin_commitment =
+            CoinCommitment::compute(amount, &program_hash, &serial_commitment, hash_data);
+
+        // create merkle tree
+        let mut merkle_tree = SparseMerkleTree::new(20, hash_data);
+        let leaf_index = merkle_tree.insert(*coin_commitment.as_bytes(), hash_data);
+        let merkle_root = merkle_tree.root();
+        let merkle_proof = merkle_tree.generate_proof(leaf_index, hash_data).unwrap();
+
+        let input = Input {
+            chialisp_source: program.to_string(),
+            program_parameters: params.to_vec(),
+            serial_commitment_data: Some(SerialCommitmentData {
+                serial_number,
+                serial_randomness,
+                merkle_path: merkle_proof.path,
+                coin_commitment: *coin_commitment.as_bytes(),
+                serial_commitment: *serial_commitment.as_bytes(),
+                merkle_root,
+                leaf_index,
+                program_hash,
+                amount,
+            }),
+        };
+
+        backend
+            .prove_with_input(input)
+            .expect("proof should succeed")
+    }
 
     #[test]
     fn test_aggregate_two_proofs() {
         // generate 2 transaction proofs with nullifiers
         let backend = Risc0Backend::new().unwrap();
 
-        let spend_secret1 = [1u8; 32];
-        let spend_secret2 = [2u8; 32];
+        let proof1 = create_test_proof_simple(
+            &backend,
+            "(mod (x) (* x 2))",
+            &[ProgramParameter::Int(5)],
+            [1u8; 32],
+        );
 
-        let proof1 = backend
-            .prove_chialisp_with_nullifier(
-                "(mod (x) (* x 2))",
-                &[ProgramParameter::Int(5)],
-                spend_secret1,
-            )
-            .unwrap();
-
-        let proof2 = backend
-            .prove_chialisp_with_nullifier(
-                "(mod (y) (+ y 10))",
-                &[ProgramParameter::Int(3)],
-                spend_secret2,
-            )
-            .unwrap();
+        let proof2 = create_test_proof_simple(
+            &backend,
+            "(mod (y) (+ y 10))",
+            &[ProgramParameter::Int(3)],
+            [2u8; 32],
+        );
 
         // aggregate them
         let aggregator = RecursiveAggregator::new().unwrap();
@@ -180,14 +223,13 @@ mod tests {
 
         let mut proofs = Vec::new();
         for i in 0..5 {
-            let spend_secret = [i as u8; 32];
-            let proof = backend
-                .prove_chialisp_with_nullifier(
-                    "(mod (x) (* x 2))",
-                    &[ProgramParameter::Int(i as u64)],
-                    spend_secret,
-                )
-                .unwrap();
+            let serial_number = [i as u8; 32];
+            let proof = create_test_proof_simple(
+                &backend,
+                "(mod (x) (* x 2))",
+                &[ProgramParameter::Int(i as u64)],
+                serial_number,
+            );
             proofs.push(proof);
         }
 

@@ -1,5 +1,8 @@
 #![no_main]
 
+extern crate alloc;
+use alloc::vec;
+
 use risc0_zkvm::guest::env;
 use risc0_zkvm::sha::{Impl, Sha256 as RiscSha256};
 
