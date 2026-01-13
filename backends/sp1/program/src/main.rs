@@ -3,6 +3,7 @@
 use sp1_zkvm::io;
 
 extern crate alloc;
+use alloc::vec;
 
 use clvm_zk_core::{
     compile_chialisp_to_bytecode_with_table, ClvmEvaluator, ClvmResult, Input, ProofOutput, BLS_DST,
@@ -242,5 +243,7 @@ fn main() {
         program_hash,
         nullifier,
         clvm_res: clvm_output,
+        proof_type: 0, // Transaction type (default)
+        public_values: vec![],
     });
 }

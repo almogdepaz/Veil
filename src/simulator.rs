@@ -372,6 +372,10 @@ impl CLVMZkSimulator {
         Some((path, leaf_index))
     }
 
+    pub fn get_merkle_root(&self) -> Option<[u8; 32]> {
+        self.coin_tree.root()
+    }
+
     pub fn utxo_iter(&self) -> impl Iterator<Item = (&[u8; 32], &CoinInfo)> {
         self.utxo_set.iter()
     }
