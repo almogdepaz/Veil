@@ -1,0 +1,33 @@
+# sim_demo.sh usage
+
+Run the encrypted payment notes demo with different zkVM backends:
+
+## Usage:
+./sim_demo.sh [backend]
+
+## Backends:
+- risc0 (default) - RISC0 zkVM backend
+- sp1            - SP1 zkVM backend
+
+## Examples:
+./sim_demo.sh           # uses risc0 (default)
+./sim_demo.sh risc0     # explicitly use risc0
+./sim_demo.sh sp1       # use sp1 backend
+
+## What it does:
+1. Builds binary with selected backend if not found
+2. Initializes simulator
+3. Creates wallets (alice, bob, and charlie)
+4. Funds alice with 3000 mojos
+5. Alice sends 1000 to bob (500 + 500 in two transactions)
+6. Bob scans and receives encrypted notes
+7. Bob sends 200 back to alice
+8. Funds charlie with 1500 mojos
+9. Demonstrates unlinkable offers (alice creates offer, charlie takes it)
+10. Shows final balances and saved proofs
+
+## Output:
+- All proofs saved to simulator_data/state.json
+- Persistent blockchain state (merkle tree + nullifier set)
+- View with: ./target/release/clvm-zk sim status
+- View proofs: ./target/release/clvm-zk sim proofs

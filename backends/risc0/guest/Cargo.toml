@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 risc0-zkvm = "3.0.3"
 clvm-zk-core = { path = "../../../clvm_zk_core", features = ["risc0"] }
+borsh = { version = "1.5.7", features = ["derive"] }
 # ecdsa signature verification support with risc0 acceleration - use risc0's patched sha2
 sha2 = { git = "https://github.com/risc0/RustCrypto-hashes", tag = "sha2-v0.10.8-risczero.0" }
 # BLS signature verification support with RISC0 precompiles
