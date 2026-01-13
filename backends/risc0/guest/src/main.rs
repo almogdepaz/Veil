@@ -250,7 +250,5 @@ fn main() {
         program_hash,
         nullifier,
         clvm_res: clvm_output,
-        proof_type: 0, // Transaction type (default)
-        public_values: vec![],
     });
 }

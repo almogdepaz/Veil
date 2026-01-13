@@ -41,9 +41,8 @@ fn main() {
             .expect(&alloc::format!("child proof {} verification failed", i));
 
         // deserialize journal to extract ProofOutput (uses same bincode format as env::commit)
-        let proof_output: clvm_zk_core::ProofOutput =
-            risc0_zkvm::serde::from_slice(journal_bytes)
-                .expect(&alloc::format!("failed to deserialize journal {}", i));
+        let proof_output: clvm_zk_core::ProofOutput = risc0_zkvm::serde::from_slice(journal_bytes)
+            .expect(&alloc::format!("failed to deserialize journal {}", i));
 
         // collect nullifier if present
         if let Some(n) = proof_output.nullifier {

@@ -169,8 +169,6 @@ impl MockBackend {
             program_hash,
             nullifier: None,
             clvm_res: clvm_output.clone(),
-            proof_type: 0, // Transaction
-            public_values: vec![],
         };
 
         let proof_bytes = borsh::to_vec(&proof_output).map_err(|e| {
@@ -389,8 +387,6 @@ impl MockBackend {
             program_hash,
             nullifier,
             clvm_res: clvm_output.clone(),
-            proof_type: 0, // Transaction
-            public_values: vec![],
         };
 
         let proof_bytes = borsh::to_vec(&proof_output).map_err(|e| {

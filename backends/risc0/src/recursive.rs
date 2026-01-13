@@ -5,7 +5,7 @@ use risc0_zkvm::{default_prover, ExecutorEnv, Receipt};
 extern crate alloc;
 use alloc::vec::Vec;
 
-use crate::{RECURSIVE_ELF, CLVM_RISC0_GUEST_ID};
+use crate::{CLVM_RISC0_GUEST_ID, RECURSIVE_ELF};
 
 /// minimal recursive aggregator for risc0
 pub struct RecursiveAggregator {}
@@ -106,9 +106,9 @@ fn image_id_to_bytes(id: [u32; 8]) -> [u8; 32] {
 mod tests {
     use super::*;
     use crate::{Risc0Backend, RECURSIVE_ID};
-    use clvm_zk_core::{ProgramParameter, Input, SerialCommitmentData};
     use clvm_zk_core::coin_commitment::{CoinCommitment, CoinSecrets};
     use clvm_zk_core::merkle::SparseMerkleTree;
+    use clvm_zk_core::{Input, ProgramParameter, SerialCommitmentData};
     use sha2::{Digest, Sha256};
 
     fn hash_data(data: &[u8]) -> [u8; 32] {
@@ -134,7 +134,8 @@ mod tests {
         // compute commitments
         let amount = 100;
         let serial_commitment = secrets.serial_commitment(hash_data);
-        let coin_commitment = CoinCommitment::compute(amount, &program_hash, &serial_commitment, hash_data);
+        let coin_commitment =
+            CoinCommitment::compute(amount, &program_hash, &serial_commitment, hash_data);
 
         // create merkle tree
         let mut merkle_tree = SparseMerkleTree::new(20, hash_data);
@@ -158,7 +159,9 @@ mod tests {
             }),
         };
 
-        backend.prove_with_input(input).expect("proof should succeed")
+        backend
+            .prove_with_input(input)
+            .expect("proof should succeed")
     }
 
     #[test]
