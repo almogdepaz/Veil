@@ -210,11 +210,12 @@ mod tests {
     fn test_coin_commitment_compute() {
         let program_hash = [5u8; 32];
         let serial_commitment = SerialCommitment([6u8; 32]);
+        let amount = 1000u64;
 
-        let commitment = CoinCommitment::compute(&program_hash, &serial_commitment, test_hasher);
+        let commitment = CoinCommitment::compute(amount, &program_hash, &serial_commitment, test_hasher);
 
         // verify consistent
-        let commitment2 = CoinCommitment::compute(&program_hash, &serial_commitment, test_hasher);
+        let commitment2 = CoinCommitment::compute(amount, &program_hash, &serial_commitment, test_hasher);
         assert_eq!(commitment, commitment2);
     }
 

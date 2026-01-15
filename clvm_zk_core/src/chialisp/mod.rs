@@ -713,8 +713,8 @@ mod tests {
 
         assert_ne!(hash1, hash5);
 
-        // Test 4: Function names ALSO don't affect bytecode in Template mode!
-        // Functions are inlined during compilation, so only the logic matters
+        // Test 4: Function names DO affect bytecode because CallFunction stores the name
+        // This is intentional - function names are embedded in the bytecode via CallFunction opcode
         let program6 = r#"(mod (x)
             (defun double (y) (* y 2))
             (double x))"#;
@@ -731,9 +731,9 @@ mod tests {
         let hash6 = generate_program_hash(hash_data, &template6);
         let hash7 = generate_program_hash(hash_data, &template7);
 
-        // Surprising finding: Function names DON'T affect template bytecode!
-        // Functions are compiled as apply operations, not stored by name
-        assert_eq!(hash6, hash7);
+        // Function names ARE stored in bytecode via CallFunction opcode (150)
+        // So different function names produce different bytecode hashes
+        assert_ne!(hash6, hash7);
     }
 
     #[test]
