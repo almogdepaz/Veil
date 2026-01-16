@@ -10,7 +10,7 @@ use alloc::{
 };
 
 use super::{ast::*, CompileError};
-use crate::ClvmValue;
+use crate::{operators::ClvmOperator, ClvmValue};
 
 /// Convert i64 to ClvmValue using consistent encoding
 pub fn number_to_clvm_value(num: i64) -> ClvmValue {
@@ -132,7 +132,7 @@ pub fn compile_basic_expression_types(
 /// Wrap a ClvmValue with quote operator: (q . value)
 pub fn quote_value(value: ClvmValue) -> ClvmValue {
     ClvmValue::Cons(
-        Box::new(ClvmValue::Atom(vec![113])), // 'q' opcode
+        Box::new(ClvmValue::Atom(vec![ClvmOperator::Quote.opcode()])),
         Box::new(value),
     )
 }
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn test_create_cons_list() {
-        let op = ClvmValue::Atom(vec![43]); // '+' operator
+        let op = ClvmValue::Atom(vec![ClvmOperator::Add.opcode()]);
         let args = vec![ClvmValue::Atom(vec![1]), ClvmValue::Atom(vec![2])];
 
         let result = create_cons_list(op, args).unwrap();

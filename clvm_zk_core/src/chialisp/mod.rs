@@ -11,7 +11,7 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::{encode_clvm_value, types::ClvmValue, Hasher};
+use crate::{encode_clvm_value, operators::ClvmOperator, types::ClvmValue, Hasher};
 
 pub mod ast;
 pub mod compiler_utils;
@@ -353,20 +353,20 @@ pub fn compile_expression_unified(
             if items.is_empty() {
                 // Empty list: (q . nil) - quotes nil
                 let nil = ClvmValue::Atom(vec![]);
-                let quote_op = ClvmValue::Atom(vec![113]); // 'q' opcode
+                let quote_op = ClvmValue::Atom(vec![ClvmOperator::Quote.opcode()]);
                 return Ok(ClvmValue::Cons(Box::new(quote_op), Box::new(nil)));
             }
 
             // Build nested cons operations from right to left
             // Start with (q . nil) for the tail - this quotes an empty list
             let nil = ClvmValue::Atom(vec![]);
-            let quote_op = ClvmValue::Atom(vec![113]); // 'q' opcode
+            let quote_op = ClvmValue::Atom(vec![ClvmOperator::Quote.opcode()]);
             let mut result = ClvmValue::Cons(Box::new(quote_op), Box::new(nil));
 
             // Wrap each item in cons operation
             for item in items.iter().rev() {
                 let compiled_item = compile_expression_unified(item, context)?;
-                let cons_op = ClvmValue::Atom(vec![99]); // 'c' opcode (cons)
+                let cons_op = ClvmValue::Atom(vec![ClvmOperator::Cons.opcode()]);
                 result = create_cons_list(cons_op, vec![compiled_item, result])?;
             }
 
@@ -374,7 +374,7 @@ pub fn compile_expression_unified(
         }
         Expression::Quote(inner) => {
             let compiled_inner = compile_expression_unified(inner, context)?;
-            let quote_op = ClvmValue::Atom(vec![113]); // 'q' opcode
+            let quote_op = ClvmValue::Atom(vec![ClvmOperator::Quote.opcode()]);
             create_cons_list(quote_op, vec![compiled_inner])
         }
         Expression::Number(_) | Expression::String(_) | Expression::Bytes(_) | Expression::Nil => {
@@ -452,7 +452,7 @@ fn create_parameter_access(index: usize) -> ClvmValue {
     if index == 0 {
         // (f 1)
         ClvmValue::Cons(
-            Box::new(ClvmValue::Atom(vec![102])), // 'f' opcode
+            Box::new(ClvmValue::Atom(vec![ClvmOperator::First.opcode()])),
             Box::new(ClvmValue::Cons(
                 Box::new(ClvmValue::Atom(vec![1])), // environment reference (NOT quoted)
                 Box::new(ClvmValue::Atom(vec![])),  // nil
@@ -465,7 +465,7 @@ fn create_parameter_access(index: usize) -> ClvmValue {
         // Apply 'r' (rest) operations
         for _ in 0..index {
             inner = ClvmValue::Cons(
-                Box::new(ClvmValue::Atom(vec![114])), // 'r' opcode
+                Box::new(ClvmValue::Atom(vec![ClvmOperator::Rest.opcode()])),
                 Box::new(ClvmValue::Cons(
                     Box::new(inner),
                     Box::new(ClvmValue::Atom(vec![])),
@@ -475,7 +475,7 @@ fn create_parameter_access(index: usize) -> ClvmValue {
 
         // Apply 'f' (first) to get the parameter
         ClvmValue::Cons(
-            Box::new(ClvmValue::Atom(vec![102])), // 'f' opcode
+            Box::new(ClvmValue::Atom(vec![ClvmOperator::First.opcode()])),
             Box::new(ClvmValue::Cons(
                 Box::new(inner),
                 Box::new(ClvmValue::Atom(vec![])),
@@ -758,17 +758,19 @@ mod tests {
         let bytes2 = encode_clvm_value(param2);
         let bytes3 = encode_clvm_value(param3);
 
-        // Parameter 0: (f 1) should be shortest - just [102, 1]
+        // Parameter 0: (f 1) should be shortest
         // Parameter 1: (f (r 1)) should contain 'f', 'r', and '1' opcodes
         // Pattern should get progressively longer for higher parameters
         assert!(bytes0.len() < bytes1.len());
         assert!(bytes1.len() < bytes2.len());
         assert!(bytes2.len() < bytes3.len());
 
-        // All should contain the 'f' opcode (102) at some point
-        assert!(bytes0.contains(&102)); // 'f' opcode
-        assert!(bytes1.contains(&102)); // 'f' opcode
-        assert!(bytes1.contains(&114)); // 'r' opcode
-        assert!(bytes2.contains(&114)); // 'r' opcode (multiple times)
+        // All should contain the 'f' opcode at some point
+        let f_opcode = ClvmOperator::First.opcode();
+        let r_opcode = ClvmOperator::Rest.opcode();
+        assert!(bytes0.contains(&f_opcode));
+        assert!(bytes1.contains(&f_opcode));
+        assert!(bytes1.contains(&r_opcode));
+        assert!(bytes2.contains(&r_opcode));
     }
 }

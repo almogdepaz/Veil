@@ -225,8 +225,8 @@ impl ClvmEvaluator {
             None => {
                 // Handle opcodes not in the enum (like SHA-256) using evaluator
                 match opcode {
-                    // SHA-256 using evaluator's injected hasher
-                    2 => self.handle_sha256(args, conditions),
+                    // SHA-256 using evaluator's injected hasher (Chia opcode 11)
+                    11 => self.handle_sha256(args, conditions),
                     _ => Err("unknown opcode"),
                 }
             }
