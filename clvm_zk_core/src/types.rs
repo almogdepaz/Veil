@@ -115,6 +115,34 @@ pub struct Input {
     /// - None: Simple program execution (BLS tests, basic proving)
     /// - Some(...): Full serial commitment protocol (blockchain simulator, real spending)
     pub serial_commitment_data: Option<SerialCommitmentData>,
+
+    /// Asset type identifier (TAIL hash)
+    /// - None: XCH (native currency, equivalent to [0u8; 32])
+    /// - Some(hash): CAT with this TAIL program hash
+    /// Used in commitment v2: hash("clvm_zk_coin_v2.0" || tail_hash || amount || puzzle_hash || serial_commitment)
+    #[serde(default)]
+    pub tail_hash: Option<[u8; 32]>,
+
+    /// Additional coins for multi-coin ring spends (CAT transactions)
+    /// - None: Single coin spend (XCH or single CAT coin)
+    /// - Some(vec): Multi-coin spend where all coins participate in ring
+    /// All coins in ring must share same tail_hash (enforced by guest)
+    #[serde(default)]
+    pub additional_coins: Option<Vec<AdditionalCoinInput>>,
+}
+
+/// Additional coin input for ring spends (CAT transactions)
+/// Each coin in the ring evaluates independently but shares announcement verification
+#[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct AdditionalCoinInput {
+    /// Chialisp source for this coin (typically same CAT puzzle as primary)
+    pub chialisp_source: String,
+    /// Parameters for this coin's puzzle
+    pub program_parameters: Vec<ProgramParameter>,
+    /// Serial commitment data (required for ring coins)
+    pub serial_commitment_data: SerialCommitmentData,
+    /// Asset type (must match primary coin's tail_hash for valid ring)
+    pub tail_hash: [u8; 32],
 }
 
 /// Serial commitment protocol data for nullifier-based spending
@@ -168,8 +196,11 @@ pub struct ClvmResult {
 pub struct ProofOutput {
     /// Program hash for verification (hash of template bytecode)
     pub program_hash: [u8; 32],
-    /// Nullifier for double-spend prevention
-    pub nullifier: Option<[u8; 32]>,
+    /// Nullifiers for double-spend prevention
+    /// - Empty vec: No nullifier (simple program execution)
+    /// - Single element: Standard spend (one coin)
+    /// - Multiple elements: Ring spend (CAT multi-coin transaction)
+    pub nullifiers: Vec<[u8; 32]>,
     /// CLVM execution result
     pub clvm_res: ClvmResult,
 }

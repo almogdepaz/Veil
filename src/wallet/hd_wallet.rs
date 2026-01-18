@@ -179,6 +179,25 @@ impl WalletPrivateCoin {
         }
     }
 
+    /// create CAT coin with specific tail_hash
+    pub fn new_with_tail(
+        puzzle_hash: [u8; 32],
+        amount: u64,
+        account_index: u32,
+        coin_index: u32,
+        tail_hash: [u8; 32],
+    ) -> Self {
+        let (coin, secrets) =
+            crate::protocol::PrivateCoin::new_with_secrets_and_tail(puzzle_hash, amount, tail_hash);
+
+        Self {
+            coin,
+            secrets,
+            account_index,
+            coin_index,
+        }
+    }
+
     pub fn serial_number(&self) -> [u8; 32] {
         self.secrets.serial_number()
     }

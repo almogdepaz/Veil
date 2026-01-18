@@ -150,13 +150,15 @@ fn test_create_coin_transparent_mode() {
     println!("✓ CREATE_COIN transparent mode (backward compatibility) working");
 }
 
-// Helper: compute coin_commitment
+// Helper: compute coin_commitment v2 (with XCH tail_hash)
 fn compute_coin_commitment(
     puzzle_hash: &[u8; 32],
     amount: u64,
     serial_number: &[u8; 32],
     serial_randomness: &[u8; 32],
 ) -> [u8; 32] {
+    use clvm_zk_core::coin_commitment::{build_coin_commitment_preimage, XCH_TAIL};
+
     // Compute serial_commitment
     let serial_domain = b"clvm_zk_serial_v1.0";
     let mut serial_data = [0u8; 83];
@@ -165,13 +167,13 @@ fn compute_coin_commitment(
     serial_data[51..83].copy_from_slice(serial_randomness);
     let serial_commitment = hash_data(&serial_data);
 
-    // Compute coin_commitment
-    let coin_domain = b"clvm_zk_coin_v1.0";
-    let mut coin_data = [0u8; 89];
-    coin_data[..17].copy_from_slice(coin_domain);
-    coin_data[17..25].copy_from_slice(&amount.to_be_bytes());
-    coin_data[25..57].copy_from_slice(puzzle_hash);
-    coin_data[57..89].copy_from_slice(&serial_commitment);
+    // Compute coin_commitment v2 using shared function
+    let coin_data = build_coin_commitment_preimage(
+        &XCH_TAIL,  // XCH (native currency)
+        amount,
+        puzzle_hash,
+        &serial_commitment,
+    );
     hash_data(&coin_data)
 }
 

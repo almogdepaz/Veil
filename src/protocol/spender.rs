@@ -1,6 +1,6 @@
 use crate::protocol::{PrivateCoin, PrivateSpendBundle, ProtocolError};
 use crate::ProgramParameter;
-use clvm_zk_core::coin_commitment::{CoinCommitment, CoinSecrets};
+use clvm_zk_core::coin_commitment::{CoinCommitment, CoinSecrets, XCH_TAIL};
 
 pub struct Spender;
 
@@ -19,11 +19,19 @@ impl Spender {
             .map_err(|e| ProtocolError::ProofGenerationFailed(format!("invalid coin: {e}")))?;
 
         let coin_commitment = CoinCommitment::compute(
+            &coin.tail_hash,
             coin.amount,
             &coin.puzzle_hash,
             &coin.serial_commitment,
             crate::crypto_utils::hash_data_default,
         );
+
+        // pass tail_hash: None for XCH, Some for CATs
+        let tail_hash = if coin.tail_hash == XCH_TAIL {
+            None
+        } else {
+            Some(coin.tail_hash)
+        };
 
         let zkvm_result = crate::ClvmZkProver::prove_with_serial_commitment(
             puzzle_code,
@@ -36,13 +44,16 @@ impl Spender {
             leaf_index,
             coin.puzzle_hash,
             coin.amount,
+            tail_hash,
         )
         .map_err(|e| ProtocolError::ProofGenerationFailed(format!("zk proof failed: {e}")))?;
 
         let actual_nullifier = zkvm_result
             .proof_output
-            .nullifier
-            .ok_or_else(|| ProtocolError::InvalidNullifier("no nullifier in proof".to_string()))?;
+            .nullifiers
+            .first()
+            .ok_or_else(|| ProtocolError::InvalidNullifier("no nullifier in proof".to_string()))?
+            .clone();
 
         let spend_bundle = PrivateSpendBundle::new(
             zkvm_result.proof_bytes,

@@ -1,5 +1,5 @@
 use bincode;
-use clvm_zk_core::{ClvmZkError, ProofOutput};
+use clvm_zk_core::{AggregatedOutput, ClvmZkError, ProofOutput};
 use sp1_sdk::{ProverClient, SP1ProofWithPublicValues, SP1Stdin};
 
 extern crate alloc;
@@ -44,7 +44,7 @@ impl RecursiveAggregator {
 
             child_data.push(BaseProofData {
                 program_hash: output.program_hash,
-                nullifier: output.nullifier,
+                nullifiers: output.nullifiers.clone(),
                 output: output.clvm_res.output,
             });
         }
@@ -94,7 +94,7 @@ struct RecursiveInputData {
 #[derive(serde::Serialize, serde::Deserialize)]
 struct BaseProofData {
     program_hash: [u8; 32],
-    nullifier: Option<[u8; 32]>,
+    nullifiers: alloc::vec::Vec<[u8; 32]>,
     output: alloc::vec::Vec<u8>,
 }
 

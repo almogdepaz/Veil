@@ -1,5 +1,5 @@
 use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
-use clvm_zk_core::coin_commitment::SerialCommitment;
+use clvm_zk_core::coin_commitment::{SerialCommitment, XCH_TAIL};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -31,14 +31,34 @@ pub struct PrivateCoin {
 
     /// commitment that binds this coin to specific spending secrets
     pub serial_commitment: SerialCommitment,
+
+    /// asset type identifier: XCH_TAIL ([0u8; 32]) for native, hash(TAIL) for CATs
+    #[serde(default = "default_tail_hash")]
+    pub tail_hash: [u8; 32],
+}
+
+fn default_tail_hash() -> [u8; 32] {
+    XCH_TAIL
 }
 
 impl PrivateCoin {
+    /// create XCH coin (native currency)
     pub fn new(puzzle_hash: [u8; 32], amount: u64, serial_commitment: SerialCommitment) -> Self {
+        Self::new_with_tail(puzzle_hash, amount, serial_commitment, XCH_TAIL)
+    }
+
+    /// create coin with specific tail_hash (CAT or XCH)
+    pub fn new_with_tail(
+        puzzle_hash: [u8; 32],
+        amount: u64,
+        serial_commitment: SerialCommitment,
+        tail_hash: [u8; 32],
+    ) -> Self {
         Self {
             puzzle_hash,
             amount,
             serial_commitment,
+            tail_hash,
         }
     }
 
@@ -63,6 +83,15 @@ impl PrivateCoin {
         puzzle_hash: [u8; 32],
         amount: u64,
     ) -> (Self, clvm_zk_core::coin_commitment::CoinSecrets) {
+        Self::new_with_secrets_and_tail(puzzle_hash, amount, XCH_TAIL)
+    }
+
+    /// create CAT coin with random secrets
+    pub fn new_with_secrets_and_tail(
+        puzzle_hash: [u8; 32],
+        amount: u64,
+        tail_hash: [u8; 32],
+    ) -> (Self, clvm_zk_core::coin_commitment::CoinSecrets) {
         let mut serial_number = [0u8; 32];
         let mut serial_randomness = [0u8; 32];
 
@@ -76,7 +105,7 @@ impl PrivateCoin {
             crate::crypto_utils::hash_data_default,
         );
 
-        let coin = Self::new(puzzle_hash, amount, serial_commitment);
+        let coin = Self::new_with_tail(puzzle_hash, amount, serial_commitment, tail_hash);
         let secrets =
             clvm_zk_core::coin_commitment::CoinSecrets::new(serial_number, serial_randomness);
 
@@ -100,6 +129,16 @@ impl PrivateCoin {
         Self::from_program(puzzle_code, amount, serial_commitment)
     }
 
+    /// returns true if this is native XCH
+    pub fn is_xch(&self) -> bool {
+        self.tail_hash == XCH_TAIL
+    }
+
+    /// returns true if this is a CAT (non-XCH asset)
+    pub fn is_cat(&self) -> bool {
+        !self.is_xch()
+    }
+
     pub fn validate(&self) -> Result<(), ProtocolError> {
         if self.puzzle_hash == [0u8; 32] {
             return Err(ProtocolError::InvalidSpendSecret(
@@ -119,11 +158,16 @@ impl PrivateCoin {
 
 impl fmt::Display for PrivateCoin {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let asset = if self.is_xch() {
+            "XCH".to_string()
+        } else {
+            format!("CAT:{}", &hex::encode(self.tail_hash)[..8])
+        };
         write!(
             f,
-            "PrivateCoin {{ amount: {}, serial_commitment: {}..., puzzle: {}... }}",
+            "PrivateCoin {{ {}, amount: {}, puzzle: {}... }}",
+            asset,
             self.amount,
-            &hex::encode(self.serial_commitment.as_bytes())[..16],
             &hex::encode(self.puzzle_hash)[..16]
         )
     }

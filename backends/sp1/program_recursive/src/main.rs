@@ -17,7 +17,7 @@ struct RecursiveInput {
 #[derive(serde::Deserialize)]
 struct BaseProofData {
     program_hash: [u8; 32],
-    nullifier: Option<[u8; 32]>,
+    nullifiers: Vec<[u8; 32]>,
     output: Vec<u8>,
 }
 
@@ -39,22 +39,24 @@ pub fn main() {
 
     // aggregate all child proofs (base proofs only)
     for expected_data in input.expected_outputs.iter() {
-        // collect nullifier if present
-        if let Some(n) = expected_data.nullifier {
-            assert!(!all_nullifiers.contains(&n), "duplicate nullifier detected");
-            all_nullifiers.push(n);
+        // collect nullifiers
+        for nullifier in &expected_data.nullifiers {
+            assert!(!all_nullifiers.contains(nullifier), "duplicate nullifier detected");
+            all_nullifiers.push(*nullifier);
         }
 
         // collect conditions
         all_conditions.push(expected_data.output.clone());
 
         // build commitment for base proof
-        // commitment = hash(program_hash || nullifier || output)
+        // commitment = hash(program_hash || [nullifiers...] || output)
         let mut commitment_data = Vec::new();
         commitment_data.extend_from_slice(&expected_data.program_hash);
-        if let Some(n) = expected_data.nullifier {
-            commitment_data.extend_from_slice(&n);
-        } else {
+        for nullifier in &expected_data.nullifiers {
+            commitment_data.extend_from_slice(nullifier);
+        }
+        // pad if no nullifiers (for backward compatibility)
+        if expected_data.nullifiers.is_empty() {
             commitment_data.extend_from_slice(&[0u8; 32]);
         }
         commitment_data.extend_from_slice(&expected_data.output);

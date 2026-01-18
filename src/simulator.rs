@@ -132,6 +132,7 @@ impl CLVMZkSimulator {
         };
 
         let coin_commitment = CoinCommitment::compute(
+            &coin.tail_hash,
             coin.amount,
             &coin.puzzle_hash,
             &coin.serial_commitment,
@@ -302,6 +303,7 @@ impl CLVMZkSimulator {
             // Validate commitments match and add to utxo_set
             for (i, (coin, secrets, metadata)) in output_coins.into_iter().enumerate() {
                 let expected_commitment = CoinCommitment::compute(
+                    &coin.tail_hash,
                     coin.amount,
                     &coin.puzzle_hash,
                     &coin.serial_commitment,
@@ -350,6 +352,7 @@ impl CLVMZkSimulator {
 
     pub fn get_merkle_path_and_index(&self, coin: &PrivateCoin) -> Option<(Vec<[u8; 32]>, usize)> {
         let coin_commitment = CoinCommitment::compute(
+            &coin.tail_hash,
             coin.amount,
             &coin.puzzle_hash,
             &coin.serial_commitment,

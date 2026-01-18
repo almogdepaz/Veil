@@ -40,6 +40,8 @@ impl Risc0Backend {
             chialisp_source: chialisp_source.to_string(),
             program_parameters: program_parameters.to_vec(),
             serial_commitment_data: None,
+            tail_hash: None, // XCH by default
+            additional_coins: None, // single-coin spend
         };
         let env = ExecutorEnv::builder()
             .write(&inputs)

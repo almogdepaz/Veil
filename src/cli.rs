@@ -102,6 +102,9 @@ pub enum SimAction {
         /// Number of coins
         #[arg(long, default_value = "1")]
         count: u32,
+        /// Asset ID (tail_hash) - hex string. Omit for XCH.
+        #[arg(long)]
+        tail: Option<String>,
     },
     /// Wallet operations
     Wallet {
@@ -792,14 +795,33 @@ impl WalletData {
         amount: u64,
         program: String,
     ) -> Result<WalletCoinWrapper, WalletError> {
+        self.create_coin_with_tail(puzzle_hash, amount, program, None)
+    }
+
+    fn create_coin_with_tail(
+        &mut self,
+        puzzle_hash: [u8; 32],
+        amount: u64,
+        program: String,
+        tail_hash: Option<[u8; 32]>,
+    ) -> Result<WalletCoinWrapper, WalletError> {
         let coin_index = self.next_coin_index();
 
-        let wallet_coin = crate::wallet::WalletPrivateCoin::new(
-            puzzle_hash,
-            amount,
-            self.account_index,
-            coin_index,
-        );
+        let wallet_coin = match tail_hash {
+            Some(tail) => crate::wallet::WalletPrivateCoin::new_with_tail(
+                puzzle_hash,
+                amount,
+                self.account_index,
+                coin_index,
+                tail,
+            ),
+            None => crate::wallet::WalletPrivateCoin::new(
+                puzzle_hash,
+                amount,
+                self.account_index,
+                coin_index,
+            ),
+        };
 
         Ok(WalletCoinWrapper {
             wallet_coin,
@@ -932,8 +954,9 @@ fn run_simulator_command(data_dir: &Path, action: SimAction) -> Result<(), ClvmZ
             wallet,
             amount,
             count,
+            tail,
         } => {
-            faucet_command(data_dir, &wallet, amount, count)?;
+            faucet_command(data_dir, &wallet, amount, count, tail)?;
         }
 
         SimAction::Wallet { name, action } => {
@@ -996,8 +1019,28 @@ fn faucet_command(
     wallet_name: &str,
     amount: u64,
     count: u32,
+    tail_hex: Option<String>,
 ) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
+
+    // parse tail_hash if provided
+    let tail_hash: Option<[u8; 32]> = match &tail_hex {
+        Some(hex_str) => {
+            let bytes = hex::decode(hex_str).map_err(|e| {
+                ClvmZkError::InvalidProgram(format!("invalid tail hex: {}", e))
+            })?;
+            if bytes.len() != 32 {
+                return Err(ClvmZkError::InvalidProgram(format!(
+                    "tail must be 32 bytes (64 hex chars), got {} bytes",
+                    bytes.len()
+                )));
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            Some(arr)
+        }
+        None => None,
+    };
 
     // ensure wallet exists
     if !state.wallets.contains_key(wallet_name) {
@@ -1015,21 +1058,29 @@ fn faucet_command(
     let mut total_funded = 0;
 
     for _ in 0..count {
-        // Use HD wallet to create new coin
+        // Use HD wallet to create new coin (with optional tail_hash for CATs)
         let wallet_coin = wallet
-            .create_coin(puzzle_hash, amount, program.clone())
+            .create_coin_with_tail(puzzle_hash, amount, program.clone(), tail_hash)
             .map_err(|e| ClvmZkError::InvalidProgram(format!("HD wallet error: {}", e)))?;
 
         // add coin to global simulator state
         let coin = wallet_coin.to_private_coin();
         let secrets = wallet_coin.secrets();
+        let coin_type = if tail_hash.is_some() {
+            CoinType::Regular // could add CoinType::CAT in future
+        } else {
+            CoinType::Regular
+        };
         state.simulator.add_coin(
             coin,
             secrets,
             CoinMetadata {
                 owner: wallet_name.to_string(),
-                coin_type: CoinType::Regular,
-                notes: "faucet".to_string(),
+                coin_type,
+                notes: match &tail_hex {
+                    Some(t) => format!("faucet CAT:{}", &t[..8]),
+                    None => "faucet".to_string(),
+                },
             },
         );
 
@@ -1040,9 +1091,13 @@ fn faucet_command(
     state.faucet_nonce += count as u64;
     state.save(data_dir)?;
 
+    let asset_str = match &tail_hex {
+        Some(t) => format!("CAT:{}", &t[..8.min(t.len())]),
+        None => "XCH".to_string(),
+    };
     println!(
-        "funded wallet '{}' with {} coins of {} each (total: {})",
-        wallet_name, count, amount, total_funded
+        "funded wallet '{}' with {} {} coins of {} each (total: {})",
+        wallet_name, count, asset_str, amount, total_funded
     );
 
     Ok(())

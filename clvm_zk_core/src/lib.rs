@@ -22,6 +22,9 @@ pub use clvm_parser::*;
 pub use operators::*;
 pub use types::*;
 
+// re-export coin_commitment items for guest programs
+pub use coin_commitment::{build_coin_commitment_preimage, XCH_TAIL, CoinCommitment, SerialCommitment, CoinSecrets};
+
 // re-export AggregatedOutput for guest programs
 pub use types::AggregatedOutput;
 
@@ -1562,6 +1565,118 @@ fn extract_args_from_list(value: &ClvmValue) -> Result<Vec<Vec<u8>>, &'static st
     }
 
     Ok(args)
+}
+
+// Announcement condition opcodes
+pub const CREATE_COIN_ANNOUNCEMENT: u8 = 60;
+pub const ASSERT_COIN_ANNOUNCEMENT: u8 = 61;
+pub const CREATE_PUZZLE_ANNOUNCEMENT: u8 = 62;
+pub const ASSERT_PUZZLE_ANNOUNCEMENT: u8 = 63;
+
+/// Process announcement conditions for privacy
+///
+/// This function:
+/// 1. Collects all CREATE_*_ANNOUNCEMENT conditions (60, 62)
+/// 2. Collects all ASSERT_*_ANNOUNCEMENT conditions (61, 63)
+/// 3. Verifies every assertion has a matching announcement
+/// 4. Returns filtered conditions with announcements removed
+///
+/// Announcements are verified in-circuit and suppressed from output
+/// to preserve privacy. This is essential for CATs, atomic swaps,
+/// and any cross-coin validation protocol.
+///
+/// # Arguments
+/// * `conditions` - all conditions from CLVM execution
+/// * `puzzle_hash` - the puzzle hash of the coin being spent (for puzzle announcements)
+/// * `coin_id` - optional coin ID for coin announcements (None if not available)
+/// * `hasher` - hash function for computing announcement hashes
+///
+/// # Returns
+/// * Ok(filtered_conditions) - conditions with announcements removed
+/// * Err - if any assertion doesn't have a matching announcement
+pub fn process_announcements(
+    conditions: Vec<Condition>,
+    puzzle_hash: &[u8; 32],
+    coin_id: Option<&[u8; 32]>,
+    hasher: fn(&[u8]) -> [u8; 32],
+) -> Result<Vec<Condition>, &'static str> {
+    // Collect announcements: hash -> original message (for debugging)
+    let mut announcement_hashes: Vec<[u8; 32]> = Vec::new();
+
+    // Collect assertions to verify
+    let mut assertion_hashes: Vec<[u8; 32]> = Vec::new();
+
+    // First pass: collect all announcements and assertions
+    for condition in &conditions {
+        match condition.opcode {
+            CREATE_PUZZLE_ANNOUNCEMENT => {
+                // CREATE_PUZZLE_ANNOUNCEMENT(message)
+                // hash = sha256(puzzle_hash || message)
+                if condition.args.is_empty() {
+                    return Err("CREATE_PUZZLE_ANNOUNCEMENT requires message argument");
+                }
+                let message = &condition.args[0];
+                let mut data = Vec::with_capacity(32 + message.len());
+                data.extend_from_slice(puzzle_hash);
+                data.extend_from_slice(message);
+                let hash = hasher(&data);
+                announcement_hashes.push(hash);
+            }
+            CREATE_COIN_ANNOUNCEMENT => {
+                // CREATE_COIN_ANNOUNCEMENT(message)
+                // hash = sha256(coin_id || message)
+                if condition.args.is_empty() {
+                    return Err("CREATE_COIN_ANNOUNCEMENT requires message argument");
+                }
+                let message = &condition.args[0];
+                if let Some(cid) = coin_id {
+                    let mut data = Vec::with_capacity(32 + message.len());
+                    data.extend_from_slice(cid);
+                    data.extend_from_slice(message);
+                    let hash = hasher(&data);
+                    announcement_hashes.push(hash);
+                }
+                // If no coin_id provided, skip coin announcements
+                // (puzzle announcements still work)
+            }
+            ASSERT_PUZZLE_ANNOUNCEMENT | ASSERT_COIN_ANNOUNCEMENT => {
+                // ASSERT_*_ANNOUNCEMENT(announcement_hash)
+                if condition.args.is_empty() {
+                    return Err("ASSERT_*_ANNOUNCEMENT requires hash argument");
+                }
+                if condition.args[0].len() != 32 {
+                    return Err("announcement hash must be 32 bytes");
+                }
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(&condition.args[0]);
+                assertion_hashes.push(hash);
+            }
+            _ => {}
+        }
+    }
+
+    // Verify all assertions are satisfied
+    for assertion in &assertion_hashes {
+        if !announcement_hashes.contains(assertion) {
+            return Err("announcement assertion not satisfied");
+        }
+    }
+
+    // Filter out announcement conditions from output
+    let filtered: Vec<Condition> = conditions
+        .into_iter()
+        .filter(|c| {
+            !matches!(
+                c.opcode,
+                CREATE_COIN_ANNOUNCEMENT
+                    | ASSERT_COIN_ANNOUNCEMENT
+                    | CREATE_PUZZLE_ANNOUNCEMENT
+                    | ASSERT_PUZZLE_ANNOUNCEMENT
+            )
+        })
+        .collect();
+
+    Ok(filtered)
 }
 
 /// Convert Vec<Condition> to ClvmValue list representation

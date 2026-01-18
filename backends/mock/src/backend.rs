@@ -1,3 +1,4 @@
+use clvm_zk_core::coin_commitment::{build_coin_commitment_preimage, XCH_TAIL};
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
     compile_chialisp_to_bytecode_with_table, ClvmEvaluator, ClvmResult, ClvmZkError,
@@ -130,13 +131,15 @@ impl MockBackend {
                         serial_data[51..83].copy_from_slice(serial_randomness);
                         let serial_commitment = hash_data(&serial_data);
 
-                        // Compute coin_commitment
-                        let coin_domain = b"clvm_zk_coin_v1.0";
-                        let mut coin_data = [0u8; 89];
-                        coin_data[..17].copy_from_slice(coin_domain);
-                        coin_data[17..25].copy_from_slice(&amount.to_be_bytes());
-                        coin_data[25..57].copy_from_slice(puzzle_hash);
-                        coin_data[57..89].copy_from_slice(&serial_commitment);
+                        // Compute coin_commitment v2 using shared function
+                        let mut puzzle_hash_arr = [0u8; 32];
+                        puzzle_hash_arr.copy_from_slice(puzzle_hash);
+                        let coin_data = build_coin_commitment_preimage(
+                            &XCH_TAIL, // TODO: use actual tail_hash when CAT support added
+                            amount,
+                            &puzzle_hash_arr,
+                            &serial_commitment,
+                        );
                         let coin_commitment = hash_data(&coin_data);
 
                         // Replace args: [puzzle, amount, serial, rand] → [commitment]
@@ -271,13 +274,16 @@ impl MockBackend {
                         serial_data[51..83].copy_from_slice(serial_randomness);
                         let serial_commitment = hash_data(&serial_data);
 
-                        // Compute coin_commitment
-                        let coin_domain = b"clvm_zk_coin_v1.0";
-                        let mut coin_data = [0u8; 89];
-                        coin_data[..17].copy_from_slice(coin_domain);
-                        coin_data[17..25].copy_from_slice(&amount.to_be_bytes());
-                        coin_data[25..57].copy_from_slice(puzzle_hash);
-                        coin_data[57..89].copy_from_slice(&serial_commitment);
+                        // Compute coin_commitment v2 using shared function
+                        let mut puzzle_hash_arr = [0u8; 32];
+                        puzzle_hash_arr.copy_from_slice(puzzle_hash);
+                        let tail_hash_for_output = inputs.tail_hash.unwrap_or(XCH_TAIL);
+                        let coin_data = build_coin_commitment_preimage(
+                            &tail_hash_for_output,
+                            amount,
+                            &puzzle_hash_arr,
+                            &serial_commitment,
+                        );
                         let coin_commitment = hash_data(&coin_data);
 
                         // Replace args: [puzzle, amount, serial, rand] → [commitment]
@@ -333,13 +339,15 @@ impl MockBackend {
                     ));
                 }
 
-                let coin_domain = b"clvm_zk_coin_v1.0";
+                // Compute coin_commitment v2 using shared function
                 let amount = commitment_data.amount;
-                let mut coin_data = [0u8; 17 + 8 + 32 + 32];
-                coin_data[..17].copy_from_slice(coin_domain);
-                coin_data[17..25].copy_from_slice(&amount.to_be_bytes());
-                coin_data[25..57].copy_from_slice(&program_hash);
-                coin_data[57..89].copy_from_slice(&computed_serial_commitment);
+                let tail_hash = inputs.tail_hash.unwrap_or(XCH_TAIL);
+                let coin_data = build_coin_commitment_preimage(
+                    &tail_hash,
+                    amount,
+                    &program_hash,
+                    &computed_serial_commitment,
+                );
                 let computed_coin_commitment = hash_data(&coin_data);
 
                 let coin_commitment_provided = commitment_data.coin_commitment;

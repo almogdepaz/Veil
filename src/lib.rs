@@ -156,6 +156,7 @@ impl ClvmZkProver {
         leaf_index: usize,
         program_hash: [u8; 32],
         amount: u64,
+        tail_hash: Option<[u8; 32]>,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         if parameters.len() > 10 {
             return Err(ClvmZkError::InvalidProgram(
@@ -179,6 +180,8 @@ impl ClvmZkProver {
                 program_hash,
                 amount,
             }),
+            tail_hash,
+            additional_coins: None, // single-coin spend (for now)
         };
 
         #[cfg(feature = "risc0")]

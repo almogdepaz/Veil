@@ -44,24 +44,26 @@ fn main() {
         let proof_output: clvm_zk_core::ProofOutput = risc0_zkvm::serde::from_slice(journal_bytes)
             .expect(&alloc::format!("failed to deserialize journal {}", i));
 
-        // collect nullifier if present
-        if let Some(n) = proof_output.nullifier {
-            if all_nullifiers.contains(&n) {
-                panic!("duplicate nullifier detected: {:?}", n);
+        // collect nullifiers
+        for nullifier in &proof_output.nullifiers {
+            if all_nullifiers.contains(nullifier) {
+                panic!("duplicate nullifier detected: {:?}", nullifier);
             }
-            all_nullifiers.push(n);
+            all_nullifiers.push(*nullifier);
         }
 
         // collect conditions
         all_conditions.push(proof_output.clvm_res.output.clone());
 
         // build commitment for base proof
-        // commitment = hash(program_hash || nullifier || output)
+        // commitment = hash(program_hash || [nullifiers...] || output)
         let mut commitment_data = Vec::new();
         commitment_data.extend_from_slice(&proof_output.program_hash);
-        if let Some(n) = proof_output.nullifier {
-            commitment_data.extend_from_slice(&n);
-        } else {
+        for nullifier in &proof_output.nullifiers {
+            commitment_data.extend_from_slice(nullifier);
+        }
+        // pad if no nullifiers (for backward compatibility with simple proofs)
+        if proof_output.nullifiers.is_empty() {
             commitment_data.extend_from_slice(&[0u8; 32]);
         }
         commitment_data.extend_from_slice(&proof_output.clvm_res.output);

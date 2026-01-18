@@ -39,19 +39,29 @@ pub fn validate_nullifier_proof_output(
     backend_name: &str,
 ) -> Result<(), ClvmZkError> {
     // Make sure the program actually committed values
-    if output.clvm_res.output.is_empty() && output.nullifier.is_none() {
+    if output.clvm_res.output.is_empty() && output.nullifiers.is_empty() {
         return Err(ClvmZkError::ProofGenerationFailed(format!(
             "{} proof appears to have exited before commit - no outputs generated",
             backend_name
         )));
     }
 
-    // Make sure nullifier was actually generated (required for spend proofs)
-    if output.nullifier.is_none() || output.nullifier == Some([0u8; 32]) {
+    // Make sure nullifiers were actually generated (required for spend proofs)
+    if output.nullifiers.is_empty() {
         return Err(ClvmZkError::ProofGenerationFailed(format!(
-            "{} proof missing valid nullifier - execution may have failed",
+            "{} proof missing valid nullifiers - execution may have failed",
             backend_name
         )));
+    }
+
+    // Check for invalid null nullifiers
+    for nullifier in &output.nullifiers {
+        if nullifier == &[0u8; 32] {
+            return Err(ClvmZkError::ProofGenerationFailed(format!(
+                "{} proof contains invalid null nullifier",
+                backend_name
+            )));
+        }
     }
 
     Ok(())

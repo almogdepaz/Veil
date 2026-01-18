@@ -2,7 +2,7 @@
 use clvm_zk::protocol::PrivateCoin;
 use clvm_zk::simulator::*;
 use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
-use clvm_zk_core::coin_commitment::{CoinSecrets, SerialCommitment};
+use clvm_zk_core::coin_commitment::{CoinSecrets, SerialCommitment, XCH_TAIL};
 
 #[test]
 #[cfg(feature = "mock")]
@@ -55,6 +55,7 @@ fn test_create_and_spend_coins() {
         puzzle_hash: bob_puzzle,
         amount: 600,
         serial_commitment: bob_serial_commitment,
+        tail_hash: XCH_TAIL,
     };
 
     let charlie_serial: [u8; 32] = rand::random();
@@ -69,6 +70,7 @@ fn test_create_and_spend_coins() {
         puzzle_hash: charlie_puzzle,
         amount: 300,
         serial_commitment: charlie_serial_commitment,
+        tail_hash: XCH_TAIL,
     };
 
     let params = vec![
