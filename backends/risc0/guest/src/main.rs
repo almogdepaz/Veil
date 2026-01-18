@@ -8,7 +8,7 @@ use risc0_zkvm::sha::{Impl, Sha256 as RiscSha256};
 
 use clvm_zk_core::{
     coin_commitment::build_coin_commitment_preimage,
-    compile_chialisp_to_bytecode_with_table, process_announcements, ClvmEvaluator, ClvmResult,
+    compile_chialisp_to_bytecode_with_table, ClvmEvaluator, ClvmResult,
     Input, ProofOutput, BLS_DST,
 };
 
@@ -22,6 +22,12 @@ struct CoinEvaluation {
     conditions: Vec<clvm_zk_core::Condition>,
     nullifier: Option<[u8; 32]>,
     program_hash: [u8; 32],
+    /// coin_commitment of the coin being spent (used for coin announcements)
+    coin_commitment: Option<[u8; 32]>,
+    /// puzzle announcement hashes created by this coin (computed with correct program_hash)
+    puzzle_announcement_hashes: Vec<[u8; 32]>,
+    /// coin announcement hashes created by this coin (computed with correct coin_commitment)
+    coin_announcement_hashes: Vec<[u8; 32]>,
 }
 
 /// Process a single coin: compile, execute, verify commitment, compute nullifier
@@ -85,8 +91,8 @@ fn process_coin(
         }
     }
 
-    // Compute nullifier if serial commitment data provided
-    let nullifier = serial_commitment_data.map(|commitment_data| {
+    // Compute nullifier and coin_commitment if serial commitment data provided
+    let (nullifier, coin_commitment) = if let Some(commitment_data) = serial_commitment_data {
         let expected_program_hash = commitment_data.program_hash;
         assert_eq!(
             program_hash, expected_program_hash,
@@ -153,13 +159,55 @@ fn process_coin(
         nullifier_data.extend_from_slice(&serial_number);
         nullifier_data.extend_from_slice(&program_hash);
         nullifier_data.extend_from_slice(&amount.to_be_bytes());
-        risc0_hasher(&nullifier_data)
-    });
+        let nullifier = risc0_hasher(&nullifier_data);
+
+        (Some(nullifier), Some(computed_coin_commitment))
+    } else {
+        (None, None)
+    };
+
+    // Compute announcement hashes using THIS coin's identifiers
+    // This is critical for ring verification - each coin's announcements use its own identifiers
+    let mut puzzle_announcement_hashes = Vec::new();
+    let mut coin_announcement_hashes = Vec::new();
+    for condition in &conditions {
+        match condition.opcode {
+            62 => {
+                // CREATE_PUZZLE_ANNOUNCEMENT(message)
+                // hash = sha256(program_hash || message)
+                if !condition.args.is_empty() {
+                    let message = &condition.args[0];
+                    let mut data = Vec::with_capacity(32 + message.len());
+                    data.extend_from_slice(&program_hash);
+                    data.extend_from_slice(message);
+                    puzzle_announcement_hashes.push(risc0_hasher(&data));
+                }
+            }
+            60 => {
+                // CREATE_COIN_ANNOUNCEMENT(message)
+                // hash = sha256(coin_commitment || message)
+                // Only compute if we have coin_commitment (i.e., we're spending a coin)
+                if !condition.args.is_empty() {
+                    if let Some(cc) = coin_commitment {
+                        let message = &condition.args[0];
+                        let mut data = Vec::with_capacity(32 + message.len());
+                        data.extend_from_slice(&cc);
+                        data.extend_from_slice(message);
+                        coin_announcement_hashes.push(risc0_hasher(&data));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 
     CoinEvaluation {
         conditions,
         nullifier,
         program_hash,
+        coin_commitment,
+        puzzle_announcement_hashes,
+        coin_announcement_hashes,
     }
 }
 
@@ -256,6 +304,10 @@ fn main() {
         all_nullifiers.push(n);
     }
 
+    // Collect announcement hashes from primary coin (computed with correct identifiers)
+    let mut all_puzzle_announcement_hashes: Vec<[u8; 32]> = primary_eval.puzzle_announcement_hashes;
+    let mut all_coin_announcement_hashes: Vec<[u8; 32]> = primary_eval.coin_announcement_hashes;
+
     // Process additional coins (ring spend)
     if let Some(additional_coins) = &private_inputs.additional_coins {
         for additional_coin in additional_coins {
@@ -269,12 +321,16 @@ fn main() {
                 &additional_coin.chialisp_source,
                 &additional_coin.program_parameters,
                 Some(&additional_coin.serial_commitment_data),
-                &tail_hash,
+                &additional_coin.tail_hash,
                 &mut evaluator,
             );
 
             // Merge conditions from this coin
             all_conditions.extend(coin_eval.conditions);
+
+            // Collect announcement hashes from this coin (computed with ITS identifiers)
+            all_puzzle_announcement_hashes.extend(coin_eval.puzzle_announcement_hashes);
+            all_coin_announcement_hashes.extend(coin_eval.coin_announcement_hashes);
 
             // Add nullifier (additional coins always have serial commitment data)
             if let Some(n) = coin_eval.nullifier {
@@ -283,15 +339,52 @@ fn main() {
         }
     }
 
-    // Process announcements across ALL coins: verify assertions, suppress from output
-    // This is critical for CAT ring verification - all coins' announcements must match
-    let all_conditions = process_announcements(
-        all_conditions,
-        &primary_program_hash,  // puzzle_hash for puzzle announcements
-        None,                   // coin_id not available in this context
-        risc0_hasher,
-    )
-    .expect("announcement verification failed");
+    // Collect assertion hashes from all conditions
+    let mut puzzle_assertion_hashes: Vec<[u8; 32]> = Vec::new();
+    let mut coin_assertion_hashes: Vec<[u8; 32]> = Vec::new();
+    for condition in &all_conditions {
+        match condition.opcode {
+            63 => {
+                // ASSERT_PUZZLE_ANNOUNCEMENT
+                if !condition.args.is_empty() && condition.args[0].len() == 32 {
+                    let mut hash = [0u8; 32];
+                    hash.copy_from_slice(&condition.args[0]);
+                    puzzle_assertion_hashes.push(hash);
+                }
+            }
+            61 => {
+                // ASSERT_COIN_ANNOUNCEMENT
+                if !condition.args.is_empty() && condition.args[0].len() == 32 {
+                    let mut hash = [0u8; 32];
+                    hash.copy_from_slice(&condition.args[0]);
+                    coin_assertion_hashes.push(hash);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Verify all puzzle assertions are satisfied
+    for assertion in &puzzle_assertion_hashes {
+        assert!(
+            all_puzzle_announcement_hashes.contains(assertion),
+            "puzzle announcement assertion not satisfied"
+        );
+    }
+
+    // Verify all coin assertions are satisfied
+    for assertion in &coin_assertion_hashes {
+        assert!(
+            all_coin_announcement_hashes.contains(assertion),
+            "coin announcement assertion not satisfied"
+        );
+    }
+
+    // Filter out announcement conditions from output (opcodes 60, 61, 62, 63)
+    let all_conditions: Vec<clvm_zk_core::Condition> = all_conditions
+        .into_iter()
+        .filter(|c| !matches!(c.opcode, 60 | 61 | 62 | 63))
+        .collect();
 
     // Serialize final conditions (CREATE_COIN transformed, announcements removed)
     let final_output = clvm_zk_core::serialize_conditions_to_bytes(&all_conditions);

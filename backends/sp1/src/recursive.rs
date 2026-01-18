@@ -1,5 +1,5 @@
 use bincode;
-use clvm_zk_core::{AggregatedOutput, ClvmZkError, ProofOutput};
+use clvm_zk_core::{ClvmZkError, ProofOutput};
 use sp1_sdk::{ProverClient, SP1ProofWithPublicValues, SP1Stdin};
 
 extern crate alloc;

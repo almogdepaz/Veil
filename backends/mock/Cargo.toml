@@ -8,3 +8,4 @@ clvm-zk-core = { path = "../../clvm_zk_core" }
 borsh = "1.5.7"
 blst = "0.3"
 sha2 = "0.10"
+hex = "0.4"

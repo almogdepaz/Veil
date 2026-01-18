@@ -200,37 +200,72 @@ impl CLVMZkSimulator {
         let mut spend_bundles = Vec::new();
         let mut spent_serial_numbers = Vec::new();
 
-        for (coin, program, params, secrets) in spends {
-            let (merkle_path, leaf_index) =
-                self.get_merkle_path_and_index(&coin).ok_or_else(|| {
-                    SimulatorError::TestFailed("coin not found in merkle tree".to_string())
-                })?;
+        // check if all coins have same tail_hash for ring spend optimization
+        let can_use_ring = if spends.len() > 1 {
+            let first_tail = spends[0].0.tail_hash;
+            spends.iter().all(|(coin, _, _, _)| coin.tail_hash == first_tail)
+        } else {
+            false
+        };
 
-            match Spender::create_spend_with_serial(
-                &coin,
-                &program,
-                &params,
-                &secrets,
-                merkle_path,
-                merkle_root,
-                leaf_index,
-            ) {
+        if can_use_ring {
+            // multi-coin ring spend (single proof for all coins)
+            let coin_data: Vec<_> = spends
+                .iter()
+                .map(|(coin, program, params, secrets)| {
+                    let (merkle_path, leaf_index) =
+                        self.get_merkle_path_and_index(coin).ok_or_else(|| {
+                            SimulatorError::TestFailed("coin not found in merkle tree".to_string())
+                        })?;
+                    Ok((coin, program.as_str(), params.as_slice(), secrets, merkle_path, leaf_index))
+                })
+                .collect::<Result<Vec<_>, SimulatorError>>()?;
+
+            match Spender::create_ring_spend(coin_data, merkle_root) {
                 Ok(bundle) => {
                     spend_bundles.push(bundle);
-                    spent_serial_numbers.push(secrets.serial_number);
+                    for (_, _, _, secrets) in &spends {
+                        spent_serial_numbers.push(secrets.serial_number);
+                    }
                 }
                 Err(e) => return Err(SimulatorError::ProofGeneration(format!("{:?}", e))),
+            }
+        } else {
+            // separate proofs for each coin (different tail_hash or single coin)
+            for (coin, program, params, secrets) in spends {
+                let (merkle_path, leaf_index) =
+                    self.get_merkle_path_and_index(&coin).ok_or_else(|| {
+                        SimulatorError::TestFailed("coin not found in merkle tree".to_string())
+                    })?;
+
+                match Spender::create_spend_with_serial(
+                    &coin,
+                    &program,
+                    &params,
+                    &secrets,
+                    merkle_path,
+                    merkle_root,
+                    leaf_index,
+                ) {
+                    Ok(bundle) => {
+                        spend_bundles.push(bundle);
+                        spent_serial_numbers.push(secrets.serial_number);
+                    }
+                    Err(e) => return Err(SimulatorError::ProofGeneration(format!("{:?}", e))),
+                }
             }
         }
 
         // Extract nullifiers from proof outputs (not pre-computed)
+        // each bundle may have multiple nullifiers (ring spends)
         let mut new_nullifiers = Vec::new();
         for bundle in &spend_bundles {
-            let nullifier = bundle.nullifier;
-            if self.nullifier_set.contains(&nullifier) {
-                return Err(SimulatorError::DoubleSpend(hex::encode(nullifier)));
+            for nullifier in &bundle.nullifiers {
+                if self.nullifier_set.contains(nullifier) {
+                    return Err(SimulatorError::DoubleSpend(hex::encode(nullifier)));
+                }
+                new_nullifiers.push(*nullifier);
             }
-            new_nullifiers.push(nullifier);
         }
 
         // Extract coin_commitments from CREATE_COIN conditions in proof outputs
@@ -373,6 +408,114 @@ impl CLVMZkSimulator {
             .collect();
 
         Some((path, leaf_index))
+    }
+
+    /// Debug helper: verify a merkle path manually and print diagnostic info
+    pub fn debug_verify_merkle_path(
+        &self,
+        coin: &PrivateCoin,
+        label: &str,
+    ) -> Result<(), String> {
+        eprintln!("\n=== MERKLE DEBUG: {} ===", label);
+
+        // Compute coin commitment
+        let coin_commitment = CoinCommitment::compute(
+            &coin.tail_hash,
+            coin.amount,
+            &coin.puzzle_hash,
+            &coin.serial_commitment,
+            crate::crypto_utils::hash_data_default,
+        );
+        eprintln!("  coin_commitment: {}", hex::encode(coin_commitment.0));
+        eprintln!("  tail_hash: {}", hex::encode(coin.tail_hash));
+        eprintln!("  amount: {}", coin.amount);
+        eprintln!("  puzzle_hash: {}", hex::encode(coin.puzzle_hash));
+        eprintln!("  serial_commitment: {}", hex::encode(coin.serial_commitment.as_bytes()));
+
+        // Check if commitment is in the index
+        let leaf_index = match self.commitment_to_index.get(&coin_commitment.0) {
+            Some(&idx) => {
+                eprintln!("  leaf_index: {} (found in commitment_to_index)", idx);
+                idx
+            }
+            None => {
+                eprintln!("  ERROR: coin_commitment NOT FOUND in commitment_to_index!");
+                eprintln!("  Known commitments:");
+                for (comm, idx) in &self.commitment_to_index {
+                    eprintln!("    idx {}: {}", idx, hex::encode(comm));
+                }
+                return Err("coin_commitment not found in tree".to_string());
+            }
+        };
+
+        // Get the merkle proof
+        let proof = self.coin_tree.proof(&[leaf_index]);
+        let proof_hashes = proof.proof_hashes();
+        eprintln!("  merkle_path length: {}", proof_hashes.len());
+        for (i, hash) in proof_hashes.iter().enumerate() {
+            eprintln!("    path[{}]: {}", i, hex::encode(hash));
+        }
+
+        // Get the expected root
+        let expected_root = self.coin_tree.root();
+        eprintln!("  expected_root: {:?}", expected_root.map(hex::encode));
+
+        // Manually verify the path (same logic as guest)
+        let mut current_hash = coin_commitment.0;
+        let mut current_index = leaf_index;
+        eprintln!("  === PATH TRAVERSAL ===");
+        for (i, sibling) in proof_hashes.iter().enumerate() {
+            let mut combined = [0u8; 64];
+            let position = if current_index % 2 == 0 { "LEFT" } else { "RIGHT" };
+            if current_index % 2 == 0 {
+                combined[..32].copy_from_slice(&current_hash);
+                combined[32..].copy_from_slice(sibling);
+            } else {
+                combined[..32].copy_from_slice(sibling);
+                combined[32..].copy_from_slice(&current_hash);
+            }
+            let new_hash = crate::crypto_utils::hash_data_default(&combined);
+            eprintln!(
+                "    step {}: idx={} ({}) hash={} -> {}",
+                i,
+                current_index,
+                position,
+                hex::encode(&current_hash[..8]),
+                hex::encode(&new_hash[..8])
+            );
+            current_hash = new_hash;
+            current_index /= 2;
+        }
+
+        let computed_root = current_hash;
+        eprintln!("  computed_root: {}", hex::encode(computed_root));
+
+        if Some(computed_root) == expected_root {
+            eprintln!("  RESULT: ✓ MERKLE PROOF VALID");
+            Ok(())
+        } else {
+            eprintln!("  RESULT: ✗ MERKLE PROOF INVALID!");
+            Err(format!(
+                "root mismatch: computed={}, expected={:?}",
+                hex::encode(computed_root),
+                expected_root.map(hex::encode)
+            ))
+        }
+    }
+
+    /// Debug helper: dump entire merkle tree state
+    pub fn debug_dump_tree_state(&self) {
+        eprintln!("\n=== MERKLE TREE STATE ===");
+        eprintln!("  leaves_len: {}", self.coin_tree.leaves_len());
+        eprintln!("  root: {:?}", self.coin_tree.root().map(hex::encode));
+        eprintln!("  merkle_leaves ({}):", self.merkle_leaves.len());
+        for (i, leaf) in self.merkle_leaves.iter().enumerate() {
+            eprintln!("    [{}]: {}", i, hex::encode(leaf));
+        }
+        eprintln!("  commitment_to_index ({}):", self.commitment_to_index.len());
+        for (comm, idx) in &self.commitment_to_index {
+            eprintln!("    {} -> idx {}", hex::encode(comm), idx);
+        }
     }
 
     pub fn get_merkle_root(&self) -> Option<[u8; 32]> {

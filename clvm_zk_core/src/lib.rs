@@ -22,6 +22,9 @@ pub use clvm_parser::*;
 pub use operators::*;
 pub use types::*;
 
+// re-export for convenience
+pub use types::AdditionalCoinInput;
+
 // re-export coin_commitment items for guest programs
 pub use coin_commitment::{build_coin_commitment_preimage, XCH_TAIL, CoinCommitment, SerialCommitment, CoinSecrets};
 

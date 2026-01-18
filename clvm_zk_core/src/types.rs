@@ -123,16 +123,16 @@ pub struct Input {
     #[serde(default)]
     pub tail_hash: Option<[u8; 32]>,
 
-    /// Additional coins for multi-coin ring spends (CAT transactions)
-    /// - None: Single coin spend (XCH or single CAT coin)
-    /// - Some(vec): Multi-coin spend where all coins participate in ring
-    /// All coins in ring must share same tail_hash (enforced by guest)
+    /// additional coins for multi-coin ring spends
+    /// - None: single coin spend
+    /// - Some(vec): multi-coin ring spend (all coins share same tail_hash)
+    /// guest enforces tail_hash matching across all ring coins
     #[serde(default)]
     pub additional_coins: Option<Vec<AdditionalCoinInput>>,
 }
 
-/// Additional coin input for ring spends (CAT transactions)
-/// Each coin in the ring evaluates independently but shares announcement verification
+/// additional coin input for ring spends
+/// each coin evaluates independently but shares announcement verification
 #[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct AdditionalCoinInput {
     /// Chialisp source for this coin (typically same CAT puzzle as primary)

@@ -179,24 +179,34 @@ pub struct PrivateSpendBundle {
     /// zk proof that validates the spend
     pub zk_proof: Vec<u8>,
 
-    /// nullifier for the coin being spent (prevents double-spending)
-    pub nullifier: [u8; 32],
+    /// nullifiers for the coin(s) being spent (prevents double-spending)
+    /// for single-coin spends: vec with 1 nullifier
+    /// for ring spends: vec with N nullifiers (one per coin)
+    pub nullifiers: Vec<[u8; 32]>,
 
     /// public output conditions from running the puzzle (clvm-encoded)
     pub public_conditions: Vec<u8>,
 }
 
 impl PrivateSpendBundle {
-    pub fn new(zk_proof: Vec<u8>, nullifier: [u8; 32], public_conditions: Vec<u8>) -> Self {
+    pub fn new(zk_proof: Vec<u8>, nullifiers: Vec<[u8; 32]>, public_conditions: Vec<u8>) -> Self {
         Self {
             zk_proof,
-            nullifier,
+            nullifiers,
             public_conditions,
         }
     }
 
     pub fn nullifier_hex(&self) -> String {
-        hex::encode(self.nullifier)
+        // for backward compat, return first nullifier
+        self.nullifiers
+            .first()
+            .map(|n| hex::encode(n))
+            .unwrap_or_else(|| "no-nullifier".to_string())
+    }
+
+    pub fn nullifiers_hex(&self) -> Vec<String> {
+        self.nullifiers.iter().map(|n| hex::encode(n)).collect()
     }
 
     pub fn proof_size(&self) -> usize {
@@ -214,10 +224,18 @@ impl PrivateSpendBundle {
             ));
         }
 
-        if self.nullifier == [0u8; 32] {
+        if self.nullifiers.is_empty() {
             return Err(ProtocolError::InvalidNullifier(
-                "Nullifier cannot be all zeros".to_string(),
+                "Bundle must have at least one nullifier".to_string(),
             ));
+        }
+
+        for nullifier in &self.nullifiers {
+            if nullifier == &[0u8; 32] {
+                return Err(ProtocolError::InvalidNullifier(
+                    "Nullifier cannot be all zeros".to_string(),
+                ));
+            }
         }
 
         Ok(())
@@ -309,25 +327,28 @@ mod tests {
     #[test]
     fn test_spend_bundle_creation() {
         let proof = vec![0x01, 0x02, 0x03];
-        let nullifier = [0x42; 32];
+        let nullifiers = vec![[0x42; 32]];
         let conditions = vec![0x04, 0x05, 0x06];
 
-        let bundle = PrivateSpendBundle::new(proof.clone(), nullifier, conditions.clone());
+        let bundle = PrivateSpendBundle::new(proof.clone(), nullifiers.clone(), conditions.clone());
 
         assert_eq!(bundle.zk_proof, proof);
-        assert_eq!(bundle.nullifier, nullifier);
+        assert_eq!(bundle.nullifiers, nullifiers);
         assert_eq!(bundle.public_conditions, conditions);
     }
 
     #[test]
     fn test_spend_bundle_validation() {
-        let valid_bundle = PrivateSpendBundle::new(vec![0x01, 0x02], [0x42; 32], vec![0x03]);
+        let valid_bundle = PrivateSpendBundle::new(vec![0x01, 0x02], vec![[0x42; 32]], vec![0x03]);
         assert!(valid_bundle.validate().is_ok());
 
-        let invalid_bundle = PrivateSpendBundle::new(vec![], [0x42; 32], vec![0x03]);
+        let invalid_bundle = PrivateSpendBundle::new(vec![], vec![[0x42; 32]], vec![0x03]);
         assert!(invalid_bundle.validate().is_err());
 
-        let invalid_bundle = PrivateSpendBundle::new(vec![0x01], [0x00; 32], vec![0x03]);
+        let invalid_bundle = PrivateSpendBundle::new(vec![0x01], vec![[0x00; 32]], vec![0x03]);
         assert!(invalid_bundle.validate().is_err());
+
+        let empty_nullifiers_bundle = PrivateSpendBundle::new(vec![0x01], vec![], vec![0x03]);
+        assert!(empty_nullifiers_bundle.validate().is_err());
     }
 }
