@@ -1,4 +1,5 @@
 /// Test CREATE_COIN transformation for output privacy
+#[cfg(feature = "mock")]
 use clvm_zk_core::{extract_coin_commitments, hash_data, ProgramParameter};
 
 #[cfg(feature = "mock")]
@@ -151,6 +152,7 @@ fn test_create_coin_transparent_mode() {
 }
 
 // Helper: compute coin_commitment v2 (with XCH tail_hash)
+#[cfg(feature = "mock")]
 fn compute_coin_commitment(
     puzzle_hash: &[u8; 32],
     amount: u64,
@@ -178,6 +180,7 @@ fn compute_coin_commitment(
 }
 
 // Helper: deserialize conditions for transparent mode test
+#[cfg(feature = "mock")]
 fn deserialize_output_conditions(
     output: &[u8],
 ) -> Result<Vec<clvm_zk_core::Condition>, &'static str> {

@@ -46,6 +46,8 @@ pub struct StealthCoinData {
 pub struct StealthPayment {
     pub puzzle_hash: [u8; 32],
     pub ephemeral_pubkey: [u8; 33],
+    /// Shared secret - use to derive coin secrets deterministically
+    pub shared_secret: [u8; 32],
 }
 
 impl StealthKeys {
@@ -182,7 +184,21 @@ pub fn create_stealth_payment(recipient: &StealthAddress) -> StealthPayment {
     StealthPayment {
         puzzle_hash,
         ephemeral_pubkey,
+        shared_secret,
     }
+}
+
+/// Derive coin secrets (serial_number, serial_randomness) from stealth shared_secret
+///
+/// This allows receiver to reconstruct the same secrets as sender:
+/// - sender: creates payment, derives secrets from shared_secret, creates coin
+/// - receiver: scans, recovers shared_secret via ECDH, derives same secrets
+pub fn derive_coin_secrets_from_shared_secret(
+    shared_secret: &[u8; 32],
+) -> clvm_zk_core::coin_commitment::CoinSecrets {
+    let serial_number = derive_key(shared_secret, b"serial_number");
+    let serial_randomness = derive_key(shared_secret, b"serial_randomness");
+    clvm_zk_core::coin_commitment::CoinSecrets::new(serial_number, serial_randomness)
 }
 
 /// Derive the stealth puzzle_hash from spend_pubkey and shared_secret
@@ -261,18 +277,29 @@ fn pubkey_to_point(pubkey: &[u8; 33]) -> Option<ProjectivePoint> {
 }
 
 fn bytes_to_scalar(bytes: &[u8; 32]) -> Scalar {
+    bytes_to_scalar_with_depth(bytes, 0)
+}
+
+fn bytes_to_scalar_with_depth(bytes: &[u8; 32], depth: u8) -> Scalar {
     use k256::elliptic_curve::PrimeField;
-    // Try direct conversion first (valid if bytes < curve order)
+
+    // max depth guard - sha256 output >= curve order is ~1/2^128 probability
+    // so hitting this more than twice is effectively impossible
+    if depth > 3 {
+        panic!("bytes_to_scalar: exceeded max reduction depth (should never happen)");
+    }
+
+    // try direct conversion first (valid if bytes < curve order)
     let opt: Option<Scalar> = Scalar::from_repr((*bytes).into()).into();
     match opt {
         Some(scalar) => scalar,
         None => {
-            // If bytes >= curve order, hash to reduce and retry
+            // if bytes >= curve order, hash to reduce and retry
             let mut hasher = Sha256::new();
             hasher.update(b"scalar_reduce");
             hasher.update(bytes);
             let reduced: [u8; 32] = hasher.finalize().into();
-            bytes_to_scalar(&reduced)
+            bytes_to_scalar_with_depth(&reduced, depth + 1)
         }
     }
 }

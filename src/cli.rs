@@ -1524,22 +1524,20 @@ fn send_command(
                 // Create stealth payment - derives unique puzzle_hash via ECDH
                 let stealth_payment = crate::wallet::create_stealth_payment(&recipient_stealth);
 
-                // Use the stealth-derived puzzle_hash
+                // Derive coin secrets deterministically from shared_secret
+                // This allows receiver to reconstruct the same secrets during scan
+                let secrets =
+                    crate::wallet::derive_coin_secrets_from_shared_secret(&stealth_payment.shared_secret);
+
+                // Create coin with stealth-derived puzzle_hash and deterministic secrets
                 let puzzle_hash = stealth_payment.puzzle_hash;
-                let (program, _) = create_faucet_puzzle(amount);
-
-                // Use HD wallet to create new coin for recipient with stealth puzzle_hash
-                let wallet_coin = to_wallet
-                    .create_coin(puzzle_hash, amount, program)
-                    .map_err(|e| ClvmZkError::InvalidProgram(format!("HD wallet error: {}", e)))?;
-
-                let secrets = wallet_coin.secrets();
+                let serial_commitment = secrets.serial_commitment(crate::crypto_utils::hash_data_default);
+                let coin = crate::protocol::PrivateCoin::new(puzzle_hash, amount, serial_commitment);
 
                 // add coin to global simulator state with ephemeral_pubkey
-                let coin = wallet_coin.to_private_coin();
                 state.simulator.add_coin_with_ephemeral(
                     coin,
-                    secrets,
+                    &secrets,
                     stealth_payment.ephemeral_pubkey,
                     CoinMetadata {
                         owner: to.to_string(),
@@ -1665,49 +1663,33 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
         if let Some(info) = coin_info {
             println!("  found stealth coin: {} mojos", info.coin.amount);
 
-            // Get secrets from simulator (for simulation purposes)
-            // In production, receiver would derive spend_key from stealth_data.shared_secret
-            let serial_number = {
-                // Find the serial_number for this coin in the utxo_set
-                // The coin is stored by serial_number, so we need to search
-                state
-                    .simulator
-                    .utxo_iter()
-                    .find(|(_, ci)| ci.coin.puzzle_hash == puzzle_hash)
-                    .map(|(sn, _)| *sn)
+            // Derive secrets from shared_secret - same derivation sender used
+            let secrets = crate::wallet::derive_coin_secrets_from_shared_secret(
+                &stealth_data.shared_secret,
+            );
+
+            // Reconstruct the coin for the wallet
+            let coin = info.coin.clone();
+            let (program, _) = create_faucet_puzzle(coin.amount);
+
+            let wallet_coin = crate::wallet::WalletPrivateCoin {
+                coin,
+                secrets,
+                account_index: 0, // stealth coins don't have HD derivation path
+                coin_index: 0,
             };
 
-            if let Some(sn) = serial_number {
-                // For simulation, we reconstruct the coin
-                // In production, secrets would be derived differently
-                let coin = info.coin.clone();
-                let (program, _) = create_faucet_puzzle(coin.amount);
+            let wrapper = WalletCoinWrapper {
+                wallet_coin,
+                program,
+                spent: false,
+            };
 
-                // Create placeholder secrets (in real system these would be derived)
-                let secrets = clvm_zk_core::coin_commitment::CoinSecrets {
-                    serial_number: sn,
-                    serial_randomness: [0u8; 32], // placeholder - would need to store this
-                };
-
-                let wallet_coin = crate::wallet::WalletPrivateCoin {
-                    coin,
-                    secrets,
-                    account_index: 0,
-                    coin_index: 0,
-                };
-
-                let wrapper = WalletCoinWrapper {
-                    wallet_coin,
-                    program,
-                    spent: false,
-                };
-
-                // Add to wallet
-                let wallet = state.wallets.get_mut(wallet_name).unwrap();
-                wallet.coins.push(wrapper);
-                found_count += 1;
-                total_amount += info.coin.amount;
-            }
+            // Add to wallet
+            let wallet = state.wallets.get_mut(wallet_name).unwrap();
+            wallet.coins.push(wrapper);
+            found_count += 1;
+            total_amount += info.coin.amount;
         }
     }
 
