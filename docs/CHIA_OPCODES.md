@@ -61,11 +61,16 @@ These are Chia condition opcodes used in puzzle outputs, not CLVM operators:
 | CREATE_COIN | 51 | Create new coin |
 | RESERVE_FEE | 52 | Reserve transaction fee |
 
-### Veil-Specific Opcodes
+### Function Handling
 
-| Operator | Opcode | Description |
-|----------|--------|-------------|
-| CallFunction | 150 | Runtime function call (for defun support) |
+With this update, Veil now uses **function inlining** instead of the previous `CallFunction` opcode (150). This means:
+
+- Functions defined with `defun` are inlined at the call site during compilation
+- The standard CLVM `apply` operator (opcode 2) is used: `(a (q . <body>) <args>)`
+- Function names no longer affect the bytecode - only the function body matters
+- This is fully compatible with clvmr and standard Chialisp
+
+**Note:** Recursive functions are not yet supported with inlining.
 
 ## Files Modified
 

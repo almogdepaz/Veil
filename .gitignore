@@ -61,3 +61,5 @@ output.bin
 *.log
 debug/
 test_real_zk.py
+# Large simulator state files
+simulator_data/state.json
