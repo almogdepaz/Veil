@@ -169,7 +169,7 @@ fn compute_coin_commitment(
 
     // Compute coin_commitment v2 using shared function
     let coin_data = build_coin_commitment_preimage(
-        &XCH_TAIL,  // XCH (native currency)
+        &XCH_TAIL, // XCH (native currency)
         amount,
         puzzle_hash,
         &serial_commitment,

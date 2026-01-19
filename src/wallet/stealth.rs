@@ -173,8 +173,8 @@ pub fn create_stealth_payment(recipient: &StealthAddress) -> StealthPayment {
     let ephemeral_pubkey = privkey_to_pubkey(&ephemeral_privkey);
 
     // Compute shared secret: ephemeral_priv * view_pub
-    let shared_secret = ecdh(&ephemeral_privkey, &recipient.view_pubkey)
-        .expect("valid pubkey from StealthAddress");
+    let shared_secret =
+        ecdh(&ephemeral_privkey, &recipient.view_pubkey).expect("valid pubkey from StealthAddress");
 
     // Derive puzzle_hash
     let puzzle_hash = derive_stealth_puzzle_hash(&recipient.spend_pubkey, &shared_secret);
@@ -294,7 +294,7 @@ fn ecdh(privkey: &[u8; 32], pubkey: &[u8; 33]) -> Option<[u8; 32]> {
     let mut hasher = Sha256::new();
     hasher.update(STEALTH_DOMAIN);
     hasher.update(b"ecdh");
-    hasher.update(&shared_pubkey);
+    hasher.update(shared_pubkey);
     Some(hasher.finalize().into())
 }
 

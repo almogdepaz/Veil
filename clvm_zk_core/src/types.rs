@@ -119,14 +119,14 @@ pub struct Input {
     /// Asset type identifier (TAIL hash)
     /// - None: XCH (native currency, equivalent to [0u8; 32])
     /// - Some(hash): CAT with this TAIL program hash
-    /// Used in commitment v2: hash("clvm_zk_coin_v2.0" || tail_hash || amount || puzzle_hash || serial_commitment)
+    ///   Used in commitment v2: hash("clvm_zk_coin_v2.0" || tail_hash || amount || puzzle_hash || serial_commitment)
     #[serde(default)]
     pub tail_hash: Option<[u8; 32]>,
 
     /// additional coins for multi-coin ring spends
     /// - None: single coin spend
     /// - Some(vec): multi-coin ring spend (all coins share same tail_hash)
-    /// guest enforces tail_hash matching across all ring coins
+    ///   guest enforces tail_hash matching across all ring coins
     #[serde(default)]
     pub additional_coins: Option<Vec<AdditionalCoinInput>>,
 }

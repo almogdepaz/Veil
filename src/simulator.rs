@@ -239,7 +239,9 @@ impl CLVMZkSimulator {
         // check if all coins have same tail_hash for ring spend optimization
         let can_use_ring = if spends.len() > 1 {
             let first_tail = spends[0].0.tail_hash;
-            spends.iter().all(|(coin, _, _, _)| coin.tail_hash == first_tail)
+            spends
+                .iter()
+                .all(|(coin, _, _, _)| coin.tail_hash == first_tail)
         } else {
             false
         };
@@ -253,7 +255,14 @@ impl CLVMZkSimulator {
                         self.get_merkle_path_and_index(coin).ok_or_else(|| {
                             SimulatorError::TestFailed("coin not found in merkle tree".to_string())
                         })?;
-                    Ok((coin, program.as_str(), params.as_slice(), secrets, merkle_path, leaf_index))
+                    Ok((
+                        coin,
+                        program.as_str(),
+                        params.as_slice(),
+                        secrets,
+                        merkle_path,
+                        leaf_index,
+                    ))
                 })
                 .collect::<Result<Vec<_>, SimulatorError>>()?;
 
@@ -472,11 +481,7 @@ impl CLVMZkSimulator {
     }
 
     /// Debug helper: verify a merkle path manually and print diagnostic info
-    pub fn debug_verify_merkle_path(
-        &self,
-        coin: &PrivateCoin,
-        label: &str,
-    ) -> Result<(), String> {
+    pub fn debug_verify_merkle_path(&self, coin: &PrivateCoin, label: &str) -> Result<(), String> {
         eprintln!("\n=== MERKLE DEBUG: {} ===", label);
 
         // Compute coin commitment
@@ -491,7 +496,10 @@ impl CLVMZkSimulator {
         eprintln!("  tail_hash: {}", hex::encode(coin.tail_hash));
         eprintln!("  amount: {}", coin.amount);
         eprintln!("  puzzle_hash: {}", hex::encode(coin.puzzle_hash));
-        eprintln!("  serial_commitment: {}", hex::encode(coin.serial_commitment.as_bytes()));
+        eprintln!(
+            "  serial_commitment: {}",
+            hex::encode(coin.serial_commitment.as_bytes())
+        );
 
         // Check if commitment is in the index
         let leaf_index = match self.commitment_to_index.get(&coin_commitment.0) {
@@ -527,7 +535,11 @@ impl CLVMZkSimulator {
         eprintln!("  === PATH TRAVERSAL ===");
         for (i, sibling) in proof_hashes.iter().enumerate() {
             let mut combined = [0u8; 64];
-            let position = if current_index % 2 == 0 { "LEFT" } else { "RIGHT" };
+            let position = if current_index % 2 == 0 {
+                "LEFT"
+            } else {
+                "RIGHT"
+            };
             if current_index % 2 == 0 {
                 combined[..32].copy_from_slice(&current_hash);
                 combined[32..].copy_from_slice(sibling);
@@ -573,7 +585,10 @@ impl CLVMZkSimulator {
         for (i, leaf) in self.merkle_leaves.iter().enumerate() {
             eprintln!("    [{}]: {}", i, hex::encode(leaf));
         }
-        eprintln!("  commitment_to_index ({}):", self.commitment_to_index.len());
+        eprintln!(
+            "  commitment_to_index ({}):",
+            self.commitment_to_index.len()
+        );
         for (comm, idx) in &self.commitment_to_index {
             eprintln!("    {} -> idx {}", hex::encode(comm), idx);
         }

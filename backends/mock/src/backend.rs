@@ -201,13 +201,18 @@ impl MockBackend {
         let tail_hash = inputs.tail_hash.unwrap_or(XCH_TAIL);
 
         // Process primary coin
-        let (primary_conditions, primary_program_hash, primary_nullifier, primary_puzzle_announcements, primary_coin_announcements) =
-            self.process_single_coin(
-                &inputs.chialisp_source,
-                &inputs.program_parameters,
-                inputs.serial_commitment_data.as_ref(),
-                &tail_hash,
-            )?;
+        let (
+            primary_conditions,
+            primary_program_hash,
+            primary_nullifier,
+            primary_puzzle_announcements,
+            primary_coin_announcements,
+        ) = self.process_single_coin(
+            &inputs.chialisp_source,
+            &inputs.program_parameters,
+            inputs.serial_commitment_data.as_ref(),
+            &tail_hash,
+        )?;
 
         let mut all_conditions = primary_conditions;
         let mut all_nullifiers = Vec::new();
@@ -228,13 +233,18 @@ impl MockBackend {
                     ));
                 }
 
-                let (coin_conditions, _coin_program_hash, coin_nullifier, coin_puzzle_announcements, coin_coin_announcements) =
-                    self.process_single_coin(
-                        &additional_coin.chialisp_source,
-                        &additional_coin.program_parameters,
-                        Some(&additional_coin.serial_commitment_data),
-                        &additional_coin.tail_hash,
-                    )?;
+                let (
+                    coin_conditions,
+                    _coin_program_hash,
+                    coin_nullifier,
+                    coin_puzzle_announcements,
+                    coin_coin_announcements,
+                ) = self.process_single_coin(
+                    &additional_coin.chialisp_source,
+                    &additional_coin.program_parameters,
+                    Some(&additional_coin.serial_commitment_data),
+                    &additional_coin.tail_hash,
+                )?;
 
                 all_conditions.extend(coin_conditions);
                 all_puzzle_announcement_hashes.extend(coin_puzzle_announcements);
@@ -326,7 +336,16 @@ impl MockBackend {
         program_parameters: &[ProgramParameter],
         serial_commitment_data: Option<&clvm_zk_core::SerialCommitmentData>,
         tail_hash: &[u8; 32],
-    ) -> Result<(Vec<clvm_zk_core::Condition>, [u8; 32], Option<[u8; 32]>, Vec<[u8; 32]>, Vec<[u8; 32]>), ClvmZkError> {
+    ) -> Result<
+        (
+            Vec<clvm_zk_core::Condition>,
+            [u8; 32],
+            Option<[u8; 32]>,
+            Vec<[u8; 32]>,
+            Vec<[u8; 32]>,
+        ),
+        ClvmZkError,
+    > {
         let (instance_bytecode, program_hash, function_table) =
             compile_chialisp_to_bytecode_with_table(hash_data, chialisp_source, program_parameters)
                 .map_err(|e| {
@@ -461,12 +480,16 @@ impl MockBackend {
 
                 eprintln!("\n=== MOCK BACKEND: VERIFYING COIN ===");
                 eprintln!("  program_hash (compiled): {}", hex::encode(program_hash));
-                eprintln!("  expected_program_hash:   {}", hex::encode(expected_program_hash));
+                eprintln!(
+                    "  expected_program_hash:   {}",
+                    hex::encode(expected_program_hash)
+                );
 
                 if program_hash != expected_program_hash {
                     eprintln!("  ERROR: program_hash mismatch!");
                     return Err(ClvmZkError::ProofGenerationFailed(
-                        "program_hash mismatch: cannot spend coin with different puzzle".to_string(),
+                        "program_hash mismatch: cannot spend coin with different puzzle"
+                            .to_string(),
                     ));
                 }
 
@@ -478,8 +501,14 @@ impl MockBackend {
                 let computed_serial_commitment = hash_data(&serial_commit_data);
 
                 eprintln!("  serial_number: {}", hex::encode(serial_number));
-                eprintln!("  computed_serial_commitment: {}", hex::encode(computed_serial_commitment));
-                eprintln!("  expected_serial_commitment: {}", hex::encode(commitment_data.serial_commitment));
+                eprintln!(
+                    "  computed_serial_commitment: {}",
+                    hex::encode(computed_serial_commitment)
+                );
+                eprintln!(
+                    "  expected_serial_commitment: {}",
+                    hex::encode(commitment_data.serial_commitment)
+                );
 
                 if computed_serial_commitment != commitment_data.serial_commitment {
                     eprintln!("  ERROR: serial commitment mismatch!");
@@ -500,12 +529,22 @@ impl MockBackend {
                 );
                 let computed_coin_commitment = hash_data(&coin_data);
 
-                eprintln!("  computed_coin_commitment: {}", hex::encode(computed_coin_commitment));
-                eprintln!("  expected_coin_commitment: {}", hex::encode(commitment_data.coin_commitment));
+                eprintln!(
+                    "  computed_coin_commitment: {}",
+                    hex::encode(computed_coin_commitment)
+                );
+                eprintln!(
+                    "  expected_coin_commitment: {}",
+                    hex::encode(commitment_data.coin_commitment)
+                );
 
                 if computed_coin_commitment != commitment_data.coin_commitment {
                     eprintln!("  ERROR: coin commitment mismatch!");
-                    eprintln!("  coin_data preimage ({} bytes): {}", coin_data.len(), hex::encode(&coin_data));
+                    eprintln!(
+                        "  coin_data preimage ({} bytes): {}",
+                        coin_data.len(),
+                        hex::encode(&coin_data)
+                    );
                     return Err(ClvmZkError::ProofGenerationFailed(
                         "coin commitment verification failed".to_string(),
                     ));
@@ -525,7 +564,11 @@ impl MockBackend {
                 eprintln!("  === PATH TRAVERSAL ===");
                 for (i, sibling) in merkle_path.iter().enumerate() {
                     let mut combined = [0u8; 64];
-                    let position = if current_index % 2 == 0 { "LEFT" } else { "RIGHT" };
+                    let position = if current_index % 2 == 0 {
+                        "LEFT"
+                    } else {
+                        "RIGHT"
+                    };
                     if current_index % 2 == 0 {
                         combined[..32].copy_from_slice(&current_hash);
                         combined[32..].copy_from_slice(sibling);
@@ -566,7 +609,13 @@ impl MockBackend {
             None => None,
         };
 
-        Ok((conditions, program_hash, nullifier, puzzle_announcement_hashes, coin_announcement_hashes))
+        Ok((
+            conditions,
+            program_hash,
+            nullifier,
+            puzzle_announcement_hashes,
+            coin_announcement_hashes,
+        ))
     }
 
     pub fn verify_proof_and_extract(

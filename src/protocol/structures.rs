@@ -201,12 +201,12 @@ impl PrivateSpendBundle {
         // for backward compat, return first nullifier
         self.nullifiers
             .first()
-            .map(|n| hex::encode(n))
+            .map(hex::encode)
             .unwrap_or_else(|| "no-nullifier".to_string())
     }
 
     pub fn nullifiers_hex(&self) -> Vec<String> {
-        self.nullifiers.iter().map(|n| hex::encode(n)).collect()
+        self.nullifiers.iter().map(hex::encode).collect()
     }
 
     pub fn proof_size(&self) -> usize {

@@ -144,7 +144,7 @@ impl ClvmZkProver {
     }
 
     /// prove spending with serial commitment verification and merkle membership
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::needless_return)]
     pub fn prove_with_serial_commitment(
         expression: &str,
         parameters: &[ProgramParameter],
@@ -207,20 +207,12 @@ impl ClvmZkProver {
     ///
     /// generates a single proof that spends multiple coins atomically
     /// all coins must have the same tail_hash (enforced in guest)
+    #[allow(clippy::needless_return)]
     pub fn prove_ring_spend(
-        // primary coin
         expression: &str,
         parameters: &[ProgramParameter],
-        coin_secrets: &clvm_zk_core::coin_commitment::CoinSecrets,
-        merkle_path: Vec<[u8; 32]>,
-        coin_commitment: [u8; 32],
-        serial_commitment: [u8; 32],
-        merkle_root: [u8; 32],
-        leaf_index: usize,
-        program_hash: [u8; 32],
-        amount: u64,
+        serial_data: SerialCommitmentData,
         tail_hash: Option<[u8; 32]>,
-        // additional coins in ring
         additional_coins: Vec<clvm_zk_core::AdditionalCoinInput>,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         if parameters.len() > 10 {
@@ -234,17 +226,7 @@ impl ClvmZkProver {
         let input = Input {
             chialisp_source: expression.to_string(),
             program_parameters: parameters.to_vec(),
-            serial_commitment_data: Some(SerialCommitmentData {
-                serial_number: coin_secrets.serial_number,
-                serial_randomness: coin_secrets.serial_randomness,
-                merkle_path,
-                coin_commitment,
-                serial_commitment,
-                merkle_root,
-                leaf_index,
-                program_hash,
-                amount,
-            }),
+            serial_commitment_data: Some(serial_data),
             tail_hash,
             additional_coins: Some(additional_coins),
         };

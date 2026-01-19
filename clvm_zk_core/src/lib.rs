@@ -26,7 +26,9 @@ pub use types::*;
 pub use types::AdditionalCoinInput;
 
 // re-export coin_commitment items for guest programs
-pub use coin_commitment::{build_coin_commitment_preimage, XCH_TAIL, CoinCommitment, SerialCommitment, CoinSecrets};
+pub use coin_commitment::{
+    build_coin_commitment_preimage, CoinCommitment, CoinSecrets, SerialCommitment, XCH_TAIL,
+};
 
 // re-export AggregatedOutput for guest programs
 pub use types::AggregatedOutput;

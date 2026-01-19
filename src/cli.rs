@@ -1024,9 +1024,8 @@ fn faucet_command(
     // parse tail_hash if provided
     let tail_hash: Option<[u8; 32]> = match &tail_hex {
         Some(hex_str) => {
-            let bytes = hex::decode(hex_str).map_err(|e| {
-                ClvmZkError::InvalidProgram(format!("invalid tail hex: {}", e))
-            })?;
+            let bytes = hex::decode(hex_str)
+                .map_err(|e| ClvmZkError::InvalidProgram(format!("invalid tail hex: {}", e)))?;
             if bytes.len() != 32 {
                 return Err(ClvmZkError::InvalidProgram(format!(
                     "tail must be 32 bytes (64 hex chars), got {} bytes",
@@ -1064,11 +1063,8 @@ fn faucet_command(
         // add coin to global simulator state
         let coin = wallet_coin.to_private_coin();
         let secrets = wallet_coin.secrets();
-        let coin_type = if tail_hash.is_some() {
-            CoinType::Regular // could add CoinType::CAT in future
-        } else {
-            CoinType::Regular
-        };
+        // TODO: add CoinType::CAT when tail_hash.is_some()
+        let coin_type = CoinType::Regular;
         state.simulator.add_coin(
             coin,
             secrets,
@@ -1616,7 +1612,7 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
 
         // Derive stealth keys from seed
         let hd_wallet =
-            crate::wallet::CLVMHDWallet::from_seed(&wallet.seed, wallet.network.clone())
+            crate::wallet::CLVMHDWallet::from_seed(&wallet.seed, wallet.network)
                 .map_err(|e| ClvmZkError::InvalidProgram(format!("wallet error: {}", e)))?;
         let account_keys = hd_wallet
             .derive_account(wallet.account_index)
@@ -1654,7 +1650,10 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     for (puzzle_hash, stealth_data) in found {
         // Skip if already in wallet
         if existing_puzzle_hashes.contains(&puzzle_hash) {
-            println!("  found coin {} (already in wallet, skipping)", hex::encode(&puzzle_hash[..4]));
+            println!(
+                "  found coin {} (already in wallet, skipping)",
+                hex::encode(&puzzle_hash[..4])
+            );
             continue;
         }
 

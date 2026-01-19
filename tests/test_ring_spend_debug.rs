@@ -30,8 +30,8 @@ fn test_ring_spend_merkle_debug() {
     eprintln!("Using CAT tail_hash: {}", hex::encode(tail_hash));
 
     let puzzle_code = simple_puzzle();
-    let puzzle_hash = compile_chialisp_template_hash_default(puzzle_code)
-        .expect("failed to compile puzzle");
+    let puzzle_hash =
+        compile_chialisp_template_hash_default(puzzle_code).expect("failed to compile puzzle");
     eprintln!("Puzzle code: {}", puzzle_code);
     eprintln!("Puzzle hash: {}", hex::encode(puzzle_hash));
 
@@ -42,16 +42,28 @@ fn test_ring_spend_merkle_debug() {
     eprintln!("\n--- COIN 1 ---");
     eprintln!("  amount: {}", coin1.amount);
     eprintln!("  puzzle_hash: {}", hex::encode(coin1.puzzle_hash));
-    eprintln!("  serial_commitment: {}", hex::encode(coin1.serial_commitment.as_bytes()));
+    eprintln!(
+        "  serial_commitment: {}",
+        hex::encode(coin1.serial_commitment.as_bytes())
+    );
     eprintln!("  tail_hash: {}", hex::encode(coin1.tail_hash));
-    eprintln!("  secrets1.serial_number: {}", hex::encode(secrets1.serial_number));
+    eprintln!(
+        "  secrets1.serial_number: {}",
+        hex::encode(secrets1.serial_number)
+    );
 
     eprintln!("\n--- COIN 2 ---");
     eprintln!("  amount: {}", coin2.amount);
     eprintln!("  puzzle_hash: {}", hex::encode(coin2.puzzle_hash));
-    eprintln!("  serial_commitment: {}", hex::encode(coin2.serial_commitment.as_bytes()));
+    eprintln!(
+        "  serial_commitment: {}",
+        hex::encode(coin2.serial_commitment.as_bytes())
+    );
     eprintln!("  tail_hash: {}", hex::encode(coin2.tail_hash));
-    eprintln!("  secrets2.serial_number: {}", hex::encode(secrets2.serial_number));
+    eprintln!(
+        "  secrets2.serial_number: {}",
+        hex::encode(secrets2.serial_number)
+    );
 
     // Add coins to simulator
     eprintln!("\n--- ADDING COINS TO SIMULATOR ---");
@@ -98,8 +110,12 @@ fn test_ring_spend_merkle_debug() {
     eprintln!("\n--- PREPARING RING SPEND ---");
     eprintln!("merkle_root: {}", hex::encode(merkle_root));
 
-    let (path1, idx1) = sim.get_merkle_path_and_index(&coin1).expect("no path for coin1");
-    let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path for coin2");
+    let (path1, idx1) = sim
+        .get_merkle_path_and_index(&coin1)
+        .expect("no path for coin1");
+    let (path2, idx2) = sim
+        .get_merkle_path_and_index(&coin2)
+        .expect("no path for coin2");
 
     eprintln!("coin1: leaf_index={}, path_len={}", idx1, path1.len());
     eprintln!("coin2: leaf_index={}, path_len={}", idx2, path2.len());
@@ -144,8 +160,8 @@ fn test_ring_spend_xch_debug() {
     eprintln!("Using XCH tail_hash: {}", hex::encode(tail_hash));
 
     let puzzle_code = simple_puzzle();
-    let puzzle_hash = compile_chialisp_template_hash_default(puzzle_code)
-        .expect("failed to compile puzzle");
+    let puzzle_hash =
+        compile_chialisp_template_hash_default(puzzle_code).expect("failed to compile puzzle");
 
     // Create 2 XCH coins
     let (coin1, secrets1) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
@@ -184,8 +200,12 @@ fn test_ring_spend_xch_debug() {
 
     // Get merkle paths and root
     let merkle_root = sim.get_merkle_root().expect("no merkle root");
-    let (path1, idx1) = sim.get_merkle_path_and_index(&coin1).expect("no path for coin1");
-    let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path for coin2");
+    let (path1, idx1) = sim
+        .get_merkle_path_and_index(&coin1)
+        .expect("no path for coin1");
+    let (path2, idx2) = sim
+        .get_merkle_path_and_index(&coin2)
+        .expect("no path for coin2");
 
     // Execute ring spend
     eprintln!("\n--- EXECUTING XCH RING SPEND ---");
@@ -215,8 +235,8 @@ fn test_single_coin_vs_ring_merkle() {
     let mut sim = CLVMZkSimulator::new();
 
     let puzzle_code = simple_puzzle();
-    let puzzle_hash = compile_chialisp_template_hash_default(puzzle_code)
-        .expect("failed to compile puzzle");
+    let puzzle_hash =
+        compile_chialisp_template_hash_default(puzzle_code).expect("failed to compile puzzle");
 
     // Create 3 coins
     let (coin1, secrets1) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
@@ -224,33 +244,50 @@ fn test_single_coin_vs_ring_merkle() {
     let (coin3, secrets3) = PrivateCoin::new_with_secrets(puzzle_hash, 300);
 
     // Add all coins
-    sim.add_coin(coin1.clone(), &secrets1, CoinMetadata {
-        owner: "test".to_string(),
-        coin_type: CoinType::Regular,
-        notes: "coin1".to_string(),
-    });
-    sim.add_coin(coin2.clone(), &secrets2, CoinMetadata {
-        owner: "test".to_string(),
-        coin_type: CoinType::Regular,
-        notes: "coin2".to_string(),
-    });
-    sim.add_coin(coin3.clone(), &secrets3, CoinMetadata {
-        owner: "test".to_string(),
-        coin_type: CoinType::Regular,
-        notes: "coin3".to_string(),
-    });
+    sim.add_coin(
+        coin1.clone(),
+        &secrets1,
+        CoinMetadata {
+            owner: "test".to_string(),
+            coin_type: CoinType::Regular,
+            notes: "coin1".to_string(),
+        },
+    );
+    sim.add_coin(
+        coin2.clone(),
+        &secrets2,
+        CoinMetadata {
+            owner: "test".to_string(),
+            coin_type: CoinType::Regular,
+            notes: "coin2".to_string(),
+        },
+    );
+    sim.add_coin(
+        coin3.clone(),
+        &secrets3,
+        CoinMetadata {
+            owner: "test".to_string(),
+            coin_type: CoinType::Regular,
+            notes: "coin3".to_string(),
+        },
+    );
 
     sim.debug_dump_tree_state();
 
     // Test single-coin spend first
     eprintln!("\n--- SINGLE COIN SPEND (coin1) ---");
-    let single_result = sim.spend_coins(vec![
-        (coin1.clone(), puzzle_code.to_string(), secrets1.clone()),
-    ]);
+    let single_result = sim.spend_coins(vec![(
+        coin1.clone(),
+        puzzle_code.to_string(),
+        secrets1.clone(),
+    )]);
 
     match single_result {
         Ok(tx) => {
-            eprintln!("✓ Single spend succeeded, nullifier: {}", hex::encode(&tx.nullifiers[0]));
+            eprintln!(
+                "✓ Single spend succeeded, nullifier: {}",
+                hex::encode(&tx.nullifiers[0])
+            );
         }
         Err(e) => {
             eprintln!("✗ Single spend failed: {:?}", e);
@@ -260,8 +297,12 @@ fn test_single_coin_vs_ring_merkle() {
     // Now test ring spend with remaining coins
     eprintln!("\n--- RING SPEND (coin2 + coin3) ---");
     let merkle_root = sim.get_merkle_root().expect("no merkle root");
-    let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path for coin2");
-    let (path3, idx3) = sim.get_merkle_path_and_index(&coin3).expect("no path for coin3");
+    let (path2, idx2) = sim
+        .get_merkle_path_and_index(&coin2)
+        .expect("no path for coin2");
+    let (path3, idx3) = sim
+        .get_merkle_path_and_index(&coin3)
+        .expect("no path for coin3");
 
     eprintln!("After single spend:");
     eprintln!("  coin2: idx={}, path_len={}", idx2, path2.len());

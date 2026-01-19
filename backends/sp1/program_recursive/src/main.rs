@@ -41,7 +41,10 @@ pub fn main() {
     for expected_data in input.expected_outputs.iter() {
         // collect nullifiers
         for nullifier in &expected_data.nullifiers {
-            assert!(!all_nullifiers.contains(nullifier), "duplicate nullifier detected");
+            assert!(
+                !all_nullifiers.contains(nullifier),
+                "duplicate nullifier detected"
+            );
             all_nullifiers.push(*nullifier);
         }
 

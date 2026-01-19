@@ -7,9 +7,8 @@ use risc0_zkvm::guest::env;
 use risc0_zkvm::sha::{Impl, Sha256 as RiscSha256};
 
 use clvm_zk_core::{
-    coin_commitment::build_coin_commitment_preimage,
-    compile_chialisp_to_bytecode_with_table, ClvmEvaluator, ClvmResult,
-    Input, ProofOutput, BLS_DST,
+    coin_commitment::build_coin_commitment_preimage, compile_chialisp_to_bytecode_with_table,
+    ClvmEvaluator, ClvmResult, Input, ProofOutput, BLS_DST,
 };
 
 use bls12_381::hash_to_curve::{ExpandMsgXmd, HashToCurve};
@@ -39,12 +38,8 @@ fn process_coin(
     evaluator: &mut ClvmEvaluator,
 ) -> CoinEvaluation {
     let (instance_bytecode, program_hash, function_table) =
-        compile_chialisp_to_bytecode_with_table(
-            risc0_hasher,
-            chialisp_source,
-            program_parameters,
-        )
-        .expect("Chialisp compilation failed");
+        compile_chialisp_to_bytecode_with_table(risc0_hasher, chialisp_source, program_parameters)
+            .expect("Chialisp compilation failed");
 
     evaluator.function_table = function_table;
     let (_, mut conditions) = evaluator
@@ -63,7 +58,11 @@ fn process_coin(
             assert_eq!(puzzle_hash.len(), 32, "puzzle_hash must be 32 bytes");
             assert_eq!(amount_bytes.len(), 8, "amount must be 8 bytes");
             assert_eq!(serial_number.len(), 32, "serial_number must be 32 bytes");
-            assert_eq!(serial_randomness.len(), 32, "serial_randomness must be 32 bytes");
+            assert_eq!(
+                serial_randomness.len(),
+                32,
+                "serial_randomness must be 32 bytes"
+            );
 
             let amount = u64::from_be_bytes(amount_bytes.as_slice().try_into().unwrap());
 

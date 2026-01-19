@@ -36,8 +36,13 @@ fn generate_test_proof(
 
     // compute commitments
     let serial_commitment = coin_secrets.serial_commitment(hash_data);
-    let coin_commitment =
-        CoinCommitment::compute(&XCH_TAIL, amount, &program_hash, &serial_commitment, hash_data);
+    let coin_commitment = CoinCommitment::compute(
+        &XCH_TAIL,
+        amount,
+        &program_hash,
+        &serial_commitment,
+        hash_data,
+    );
 
     // create merkle tree with single coin
     let mut merkle_tree = SparseMerkleTree::new(20, hash_data);

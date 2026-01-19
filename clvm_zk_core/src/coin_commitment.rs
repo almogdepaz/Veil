@@ -246,15 +246,33 @@ mod tests {
         let program_hash = [5u8; 32];
         let serial_commitment = SerialCommitment([6u8; 32]);
 
-        let commitment = CoinCommitment::compute(&tail_hash, amount, &program_hash, &serial_commitment, test_hasher);
+        let commitment = CoinCommitment::compute(
+            &tail_hash,
+            amount,
+            &program_hash,
+            &serial_commitment,
+            test_hasher,
+        );
 
         // verify consistent
-        let commitment2 = CoinCommitment::compute(&tail_hash, amount, &program_hash, &serial_commitment, test_hasher);
+        let commitment2 = CoinCommitment::compute(
+            &tail_hash,
+            amount,
+            &program_hash,
+            &serial_commitment,
+            test_hasher,
+        );
         assert_eq!(commitment, commitment2);
 
         // different tail_hash produces different commitment
         let cat_tail = [1u8; 32];
-        let commitment3 = CoinCommitment::compute(&cat_tail, amount, &program_hash, &serial_commitment, test_hasher);
+        let commitment3 = CoinCommitment::compute(
+            &cat_tail,
+            amount,
+            &program_hash,
+            &serial_commitment,
+            test_hasher,
+        );
         assert_ne!(commitment, commitment3);
     }
 
@@ -308,12 +326,8 @@ mod tests {
         let puzzle_hash = [0xBBu8; 32];
         let serial_commitment = [0xCCu8; 32];
 
-        let preimage = build_coin_commitment_preimage(
-            &tail_hash,
-            amount,
-            &puzzle_hash,
-            &serial_commitment,
-        );
+        let preimage =
+            build_coin_commitment_preimage(&tail_hash, amount, &puzzle_hash, &serial_commitment);
 
         // verify total size
         assert_eq!(preimage.len(), COIN_COMMITMENT_PREIMAGE_SIZE);

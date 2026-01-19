@@ -51,7 +51,9 @@ impl Spender {
 
         // single-coin spend should have exactly one nullifier
         if zkvm_result.proof_output.nullifiers.is_empty() {
-            return Err(ProtocolError::InvalidNullifier("no nullifier in proof".to_string()));
+            return Err(ProtocolError::InvalidNullifier(
+                "no nullifier in proof".to_string(),
+            ));
         }
 
         let spend_bundle = PrivateSpendBundle::new(
@@ -71,14 +73,15 @@ impl Spender {
     ///
     /// all coins must have the same tail_hash
     /// returns a single spend bundle with multiple nullifiers
+    #[allow(clippy::type_complexity)]
     pub fn create_ring_spend(
         coins: Vec<(
             &PrivateCoin,
-            &str,              // puzzle_code
+            &str,                // puzzle_code
             &[ProgramParameter], // solution_params
             &CoinSecrets,
-            Vec<[u8; 32]>,     // merkle_path
-            usize,             // leaf_index
+            Vec<[u8; 32]>, // merkle_path
+            usize,         // leaf_index
         )>,
         merkle_root: [u8; 32],
     ) -> Result<PrivateSpendBundle, ProtocolError> {
@@ -103,12 +106,18 @@ impl Spender {
         }
 
         // primary coin (first one)
-        let (primary_coin, primary_puzzle, primary_params, primary_secrets, primary_path, primary_leaf_idx) =
-            &coins[0];
+        let (
+            primary_coin,
+            primary_puzzle,
+            primary_params,
+            primary_secrets,
+            primary_path,
+            primary_leaf_idx,
+        ) = &coins[0];
 
-        primary_coin
-            .validate()
-            .map_err(|e| ProtocolError::ProofGenerationFailed(format!("invalid primary coin: {e}")))?;
+        primary_coin.validate().map_err(|e| {
+            ProtocolError::ProofGenerationFailed(format!("invalid primary coin: {e}"))
+        })?;
 
         let primary_coin_commitment = CoinCommitment::compute(
             &primary_coin.tail_hash,
@@ -122,8 +131,14 @@ impl Spender {
         eprintln!("    tail_hash: {}", hex::encode(primary_coin.tail_hash));
         eprintln!("    amount: {}", primary_coin.amount);
         eprintln!("    puzzle_hash: {}", hex::encode(primary_coin.puzzle_hash));
-        eprintln!("    serial_commitment: {}", hex::encode(primary_coin.serial_commitment.as_bytes()));
-        eprintln!("    coin_commitment: {}", hex::encode(primary_coin_commitment.0));
+        eprintln!(
+            "    serial_commitment: {}",
+            hex::encode(primary_coin.serial_commitment.as_bytes())
+        );
+        eprintln!(
+            "    coin_commitment: {}",
+            hex::encode(primary_coin_commitment.0)
+        );
         eprintln!("    leaf_index: {}", primary_leaf_idx);
         eprintln!("    merkle_path length: {}", primary_path.len());
 
@@ -136,9 +151,12 @@ impl Spender {
 
         // construct additional_coins for ring
         let mut additional_coins = Vec::new();
-        for (i, (coin, puzzle_code, params, secrets, merkle_path, leaf_index)) in coins.iter().skip(1).enumerate() {
-            coin.validate()
-                .map_err(|e| ProtocolError::ProofGenerationFailed(format!("invalid coin in ring: {e}")))?;
+        for (i, (coin, puzzle_code, params, secrets, merkle_path, leaf_index)) in
+            coins.iter().skip(1).enumerate()
+        {
+            coin.validate().map_err(|e| {
+                ProtocolError::ProofGenerationFailed(format!("invalid coin in ring: {e}"))
+            })?;
 
             let coin_commitment = CoinCommitment::compute(
                 &coin.tail_hash,
@@ -152,11 +170,17 @@ impl Spender {
             eprintln!("    tail_hash: {}", hex::encode(coin.tail_hash));
             eprintln!("    amount: {}", coin.amount);
             eprintln!("    puzzle_hash: {}", hex::encode(coin.puzzle_hash));
-            eprintln!("    serial_commitment: {}", hex::encode(coin.serial_commitment.as_bytes()));
+            eprintln!(
+                "    serial_commitment: {}",
+                hex::encode(coin.serial_commitment.as_bytes())
+            );
             eprintln!("    coin_commitment: {}", hex::encode(coin_commitment.0));
             eprintln!("    leaf_index: {}", leaf_index);
             eprintln!("    merkle_path length: {}", merkle_path.len());
-            eprintln!("    secrets.serial_number: {}", hex::encode(secrets.serial_number));
+            eprintln!(
+                "    secrets.serial_number: {}",
+                hex::encode(secrets.serial_number)
+            );
 
             additional_coins.push(AdditionalCoinInput {
                 chialisp_source: puzzle_code.to_string(),
@@ -176,17 +200,22 @@ impl Spender {
             });
         }
 
+        let primary_serial_data = SerialCommitmentData {
+            serial_number: primary_secrets.serial_number,
+            serial_randomness: primary_secrets.serial_randomness,
+            merkle_path: primary_path.clone(),
+            coin_commitment: primary_coin_commitment.0,
+            serial_commitment: primary_coin.serial_commitment.0,
+            merkle_root,
+            leaf_index: *primary_leaf_idx,
+            program_hash: primary_coin.puzzle_hash,
+            amount: primary_coin.amount,
+        };
+
         let zkvm_result = crate::ClvmZkProver::prove_ring_spend(
             primary_puzzle,
             primary_params,
-            primary_secrets,
-            primary_path.clone(),
-            primary_coin_commitment.0,
-            primary_coin.serial_commitment.0,
-            merkle_root,
-            *primary_leaf_idx,
-            primary_coin.puzzle_hash,
-            primary_coin.amount,
+            primary_serial_data,
             tail_hash,
             additional_coins,
         )
@@ -207,9 +236,9 @@ impl Spender {
             zkvm_result.proof_output.clvm_res.output.clone(),
         );
 
-        spend_bundle
-            .validate()
-            .map_err(|e| ProtocolError::ProofGenerationFailed(format!("invalid ring bundle: {e}")))?;
+        spend_bundle.validate().map_err(|e| {
+            ProtocolError::ProofGenerationFailed(format!("invalid ring bundle: {e}"))
+        })?;
 
         Ok(spend_bundle)
     }

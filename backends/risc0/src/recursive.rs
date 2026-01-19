@@ -106,8 +106,8 @@ fn image_id_to_bytes(id: [u32; 8]) -> [u8; 32] {
 mod tests {
     use super::*;
     use crate::{Risc0Backend, RECURSIVE_ID};
-    use clvm_zk_core::{CoinCommitment, CoinSecrets, XCH_TAIL};
     use clvm_zk_core::merkle::SparseMerkleTree;
+    use clvm_zk_core::{CoinCommitment, CoinSecrets, XCH_TAIL};
     use clvm_zk_core::{Input, ProgramParameter, SerialCommitmentData};
     use sha2::{Digest, Sha256};
 
@@ -134,8 +134,13 @@ mod tests {
         // compute commitments
         let amount = 100;
         let serial_commitment = secrets.serial_commitment(hash_data);
-        let coin_commitment =
-            CoinCommitment::compute(&XCH_TAIL, amount, &program_hash, &serial_commitment, hash_data);
+        let coin_commitment = CoinCommitment::compute(
+            &XCH_TAIL,
+            amount,
+            &program_hash,
+            &serial_commitment,
+            hash_data,
+        );
 
         // create merkle tree
         let mut merkle_tree = SparseMerkleTree::new(20, hash_data);
@@ -158,6 +163,7 @@ mod tests {
                 amount,
             }),
             tail_hash: None, // XCH by default
+            additional_coins: None,
         };
 
         backend
