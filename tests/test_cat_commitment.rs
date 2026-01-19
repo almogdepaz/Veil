@@ -23,10 +23,11 @@ fn main() {
     );
 
     // CAT commitment with tail hash
-    let cat_tail = [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
-                    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
-                    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
-                    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef];
+    let cat_tail = [
+        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd,
+        0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab,
+        0xcd, 0xef,
+    ];
 
     let cat_commitment = CoinCommitment::compute(
         &cat_tail,
@@ -36,17 +37,21 @@ fn main() {
         hash_data,
     );
 
-    println!("XCH commitment: {:02x}{:02x}{:02x}{:02x}...",
+    println!(
+        "XCH commitment: {:02x}{:02x}{:02x}{:02x}...",
         xch_commitment.as_bytes()[0],
         xch_commitment.as_bytes()[1],
         xch_commitment.as_bytes()[2],
-        xch_commitment.as_bytes()[3]);
+        xch_commitment.as_bytes()[3]
+    );
 
-    println!("CAT commitment: {:02x}{:02x}{:02x}{:02x}...",
+    println!(
+        "CAT commitment: {:02x}{:02x}{:02x}{:02x}...",
         cat_commitment.as_bytes()[0],
         cat_commitment.as_bytes()[1],
         cat_commitment.as_bytes()[2],
-        cat_commitment.as_bytes()[3]);
+        cat_commitment.as_bytes()[3]
+    );
 
     if xch_commitment == cat_commitment {
         println!("\n❌ FAILED: commitments are identical (should differ!)");

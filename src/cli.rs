@@ -1611,9 +1611,8 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
         })?;
 
         // Derive stealth keys from seed
-        let hd_wallet =
-            crate::wallet::CLVMHDWallet::from_seed(&wallet.seed, wallet.network)
-                .map_err(|e| ClvmZkError::InvalidProgram(format!("wallet error: {}", e)))?;
+        let hd_wallet = crate::wallet::CLVMHDWallet::from_seed(&wallet.seed, wallet.network)
+            .map_err(|e| ClvmZkError::InvalidProgram(format!("wallet error: {}", e)))?;
         let account_keys = hd_wallet
             .derive_account(wallet.account_index)
             .map_err(|e| ClvmZkError::InvalidProgram(format!("key derivation error: {}", e)))?;
