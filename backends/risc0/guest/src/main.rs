@@ -21,8 +21,6 @@ struct CoinEvaluation {
     conditions: Vec<clvm_zk_core::Condition>,
     nullifier: Option<[u8; 32]>,
     program_hash: [u8; 32],
-    /// coin_commitment of the coin being spent (used for coin announcements)
-    coin_commitment: Option<[u8; 32]>,
     /// puzzle announcement hashes created by this coin (computed with correct program_hash)
     puzzle_announcement_hashes: Vec<[u8; 32]>,
     /// coin announcement hashes created by this coin (computed with correct coin_commitment)
@@ -204,7 +202,6 @@ fn process_coin(
         conditions,
         nullifier,
         program_hash,
-        coin_commitment,
         puzzle_announcement_hashes,
         coin_announcement_hashes,
     }
