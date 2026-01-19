@@ -40,6 +40,8 @@ pub struct StealthViewKey {
 pub struct StealthCoinData {
     pub shared_secret: [u8; 32],
     pub ephemeral_pubkey: [u8; 33],
+    /// chialisp source for the puzzle (needed for spending)
+    pub puzzle_source: String,
 }
 
 /// Result of creating a stealth payment
@@ -48,6 +50,8 @@ pub struct StealthPayment {
     pub ephemeral_pubkey: [u8; 33],
     /// Shared secret - use to derive coin secrets deterministically
     pub shared_secret: [u8; 32],
+    /// chialisp source for the puzzle (needed for spending)
+    pub puzzle_source: String,
 }
 
 impl StealthKeys {
@@ -148,13 +152,15 @@ impl StealthViewKey {
         // Compute shared secret: view_priv * ephemeral_pub
         let shared_secret = ecdh(&self.view_privkey, ephemeral_pubkey)?;
 
-        // Derive expected puzzle_hash
-        let expected_puzzle = derive_stealth_puzzle_hash(&self.spend_pubkey, &shared_secret);
+        // Derive expected puzzle (source and hash)
+        let (puzzle_source, expected_puzzle) =
+            derive_stealth_puzzle(&self.spend_pubkey, &shared_secret);
 
         if &expected_puzzle == puzzle_hash {
             Some(StealthCoinData {
                 shared_secret,
                 ephemeral_pubkey: *ephemeral_pubkey,
+                puzzle_source,
             })
         } else {
             None
@@ -178,13 +184,15 @@ pub fn create_stealth_payment(recipient: &StealthAddress) -> StealthPayment {
     let shared_secret =
         ecdh(&ephemeral_privkey, &recipient.view_pubkey).expect("valid pubkey from StealthAddress");
 
-    // Derive puzzle_hash
-    let puzzle_hash = derive_stealth_puzzle_hash(&recipient.spend_pubkey, &shared_secret);
+    // Derive puzzle (source and hash)
+    let (puzzle_source, puzzle_hash) =
+        derive_stealth_puzzle(&recipient.spend_pubkey, &shared_secret);
 
     StealthPayment {
         puzzle_hash,
         ephemeral_pubkey,
         shared_secret,
+        puzzle_source,
     }
 }
 
@@ -201,11 +209,36 @@ pub fn derive_coin_secrets_from_shared_secret(
     clvm_zk_core::coin_commitment::CoinSecrets::new(serial_number, serial_randomness)
 }
 
-/// Derive the stealth puzzle_hash from spend_pubkey and shared_secret
+/// Generate a unique chialisp puzzle for a derived pubkey
 ///
-/// puzzle_hash = hash(derived_pubkey) where:
+/// Returns (puzzle_source, puzzle_hash) where puzzle is a unique constant module
+fn generate_stealth_puzzle(pubkey: &[u8; 33]) -> (String, [u8; 32]) {
+    // derive a unique identifier from the pubkey
+    let mut hasher = Sha256::new();
+    hasher.update(b"stealth_puzzle_id");
+    hasher.update(pubkey);
+    let hash: [u8; 32] = hasher.finalize().into();
+
+    // take 7 bytes to ensure value fits in i64 (chialisp parser limitation)
+    let mut id_bytes = [0u8; 8];
+    id_bytes[1..8].copy_from_slice(&hash[..7]);
+    let id = i64::from_be_bytes(id_bytes);
+
+    // create a simple puzzle that returns a unique constant
+    let puzzle_source = format!("(mod () {})", id);
+
+    // compute puzzle_hash via actual chialisp compilation
+    let puzzle_hash = clvm_zk_core::compile_chialisp_template_hash_default(&puzzle_source)
+        .expect("stealth puzzle compilation failed");
+
+    (puzzle_source, puzzle_hash)
+}
+
+/// Derive the stealth puzzle from spend_pubkey and shared_secret
+///
+/// Returns (puzzle_source, puzzle_hash) where:
 /// derived_pubkey = spend_pubkey + hash(domain || shared_secret || "spend") * G
-fn derive_stealth_puzzle_hash(spend_pubkey: &[u8; 33], shared_secret: &[u8; 32]) -> [u8; 32] {
+fn derive_stealth_puzzle(spend_pubkey: &[u8; 33], shared_secret: &[u8; 32]) -> (String, [u8; 32]) {
     // Derive scalar from shared secret
     let derive_scalar = derive_scalar_from_secret(shared_secret);
 
@@ -214,10 +247,8 @@ fn derive_stealth_puzzle_hash(spend_pubkey: &[u8; 33], shared_secret: &[u8; 32])
     let derived_point = spend_point + (ProjectivePoint::GENERATOR * derive_scalar);
     let derived_pubkey = point_to_pubkey(&derived_point);
 
-    // puzzle_hash = hash(derived_pubkey)
-    // In practice this would be hash of the actual puzzle using derived_pubkey
-    // For now, simplified to just hash the pubkey
-    hash_puzzle(&derived_pubkey)
+    // Generate unique puzzle for this derived pubkey
+    generate_stealth_puzzle(&derived_pubkey)
 }
 
 /// Derive the spending private key for a stealth payment
@@ -322,15 +353,6 @@ fn ecdh(privkey: &[u8; 32], pubkey: &[u8; 33]) -> Option<[u8; 32]> {
     Some(hasher.finalize().into())
 }
 
-fn hash_puzzle(pubkey: &[u8; 33]) -> [u8; 32] {
-    // Simplified: in reality would hash the actual chialisp puzzle
-    // For stealth, we use a standard pay-to-pubkey puzzle
-    let mut hasher = Sha256::new();
-    hasher.update(b"veil_pay_to_pubkey_v1");
-    hasher.update(pubkey);
-    hasher.finalize().into()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,10 +378,13 @@ mod tests {
         // Receiver derives spending key
         let spend_key = receiver_keys.derive_spend_key(&stealth_data.shared_secret);
 
-        // Verify spend key matches expected derived pubkey
+        // Verify derived pubkey produces same puzzle
         let derived_pubkey = privkey_to_pubkey(&spend_key);
-        let expected_puzzle = hash_puzzle(&derived_pubkey);
+        let (_, expected_puzzle) = generate_stealth_puzzle(&derived_pubkey);
         assert_eq!(expected_puzzle, payment.puzzle_hash);
+
+        // Verify puzzle_source is returned correctly
+        assert_eq!(stealth_data.puzzle_source, payment.puzzle_source);
     }
 
     #[test]

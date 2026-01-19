@@ -17,6 +17,7 @@ pub mod backends;
 pub mod cli;
 pub mod crypto_utils;
 pub mod internal;
+pub mod payment_keys;
 pub mod protocol;
 pub mod simulator;
 #[cfg(any(test, feature = "testing"))]

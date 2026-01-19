@@ -130,6 +130,7 @@ impl CLVMZkSimulator {
             metadata,
             created_at_height: self.block_height,
             ephemeral_pubkey: None,
+            puzzle_source: None,
         };
 
         let coin_commitment = CoinCommitment::compute(
@@ -157,6 +158,7 @@ impl CLVMZkSimulator {
         coin: PrivateCoin,
         secrets: &clvm_zk_core::coin_commitment::CoinSecrets,
         ephemeral_pubkey: [u8; 33],
+        puzzle_source: String,
         metadata: CoinMetadata,
     ) -> [u8; 32] {
         let serial_number = secrets.serial_number();
@@ -165,6 +167,7 @@ impl CLVMZkSimulator {
             metadata,
             created_at_height: self.block_height,
             ephemeral_pubkey: Some(ephemeral_pubkey.to_vec()),
+            puzzle_source: Some(puzzle_source),
         };
 
         let coin_commitment = CoinCommitment::compute(
@@ -407,6 +410,7 @@ impl CLVMZkSimulator {
                         metadata,
                         created_at_height: self.block_height,
                         ephemeral_pubkey: None, // TODO: support stealth outputs in spends
+                        puzzle_source: None,    // TODO: support stealth outputs in spends
                     },
                 );
             }
@@ -629,6 +633,31 @@ impl CLVMZkSimulator {
         self.transactions.clear();
         self.block_height = 0;
     }
+
+    /// process settlement output: add nullifiers and commitments to simulator state
+    pub fn process_settlement(&mut self, output: &crate::protocol::SettlementOutput) {
+        // add nullifiers to nullifier set
+        self.nullifier_set.insert(output.maker_nullifier);
+        self.nullifier_set.insert(output.taker_nullifier);
+
+        // add all 4 coin commitments to merkle tree
+        let commitments = [
+            output.maker_change_commitment,
+            output.payment_commitment,
+            output.taker_goods_commitment,
+            output.taker_change_commitment,
+        ];
+
+        for commitment in &commitments {
+            let leaf_index = self.coin_tree.leaves_len();
+            self.coin_tree.insert(*commitment);
+            self.commitment_to_index.insert(*commitment, leaf_index);
+            self.merkle_leaves.push(*commitment);
+        }
+
+        // commit tree after adding all commitments
+        self.coin_tree.commit();
+    }
 }
 
 /// coin info in simulator
@@ -640,6 +669,9 @@ pub struct CoinInfo {
     /// ephemeral pubkey for stealth address scanning (33 bytes compressed secp256k1)
     #[serde(default)]
     pub ephemeral_pubkey: Option<Vec<u8>>,
+    /// chialisp source for stealth coins (needed for spending)
+    #[serde(default)]
+    pub puzzle_source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

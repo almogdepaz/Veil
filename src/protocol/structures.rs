@@ -4,6 +4,17 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// proof type discriminator for different proof purposes
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProofType {
+    /// standard transaction proof - directly submittable to blockchain
+    Transaction = 0,
+    /// conditional spend proof - locked until wrapped in settlement proof
+    ConditionalSpend = 1,
+    /// settlement proof - combines conditional proof with payment
+    Settlement = 2,
+}
+
 /// errors that can happen in the protocol
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolError {
@@ -15,6 +26,10 @@ pub enum ProtocolError {
     InvalidNullifier(String),
     #[error("Serialization error: {0}")]
     SerializationError(String),
+    #[error("Invalid proof type: {0}")]
+    InvalidProofType(String),
+    #[error("Proof extraction failed: {0}")]
+    ProofExtractionFailed(String),
 }
 
 /// a private coin that can be spent with zk proofs
@@ -186,6 +201,14 @@ pub struct PrivateSpendBundle {
 
     /// public output conditions from running the puzzle (clvm-encoded)
     pub public_conditions: Vec<u8>,
+
+    /// proof type - determines if proof is submittable or locked
+    #[serde(default = "default_proof_type")]
+    pub proof_type: ProofType,
+}
+
+fn default_proof_type() -> ProofType {
+    ProofType::Transaction
 }
 
 impl PrivateSpendBundle {
@@ -194,6 +217,21 @@ impl PrivateSpendBundle {
             zk_proof,
             nullifiers,
             public_conditions,
+            proof_type: ProofType::Transaction,
+        }
+    }
+
+    pub fn new_with_type(
+        zk_proof: Vec<u8>,
+        nullifier: [u8; 32],
+        public_conditions: Vec<u8>,
+        proof_type: ProofType,
+    ) -> Self {
+        Self {
+            zk_proof,
+            nullifiers: vec![nullifier],
+            public_conditions,
+            proof_type,
         }
     }
 
@@ -239,6 +277,26 @@ impl PrivateSpendBundle {
         }
 
         Ok(())
+    }
+
+    /// check if this proof can be directly submitted to blockchain
+    pub fn is_submittable(&self) -> bool {
+        matches!(
+            self.proof_type,
+            ProofType::Transaction | ProofType::Settlement
+        )
+    }
+
+    /// check if this is a conditional spend proof (locked)
+    pub fn is_conditional(&self) -> bool {
+        self.proof_type == ProofType::ConditionalSpend
+    }
+
+    /// extract public outputs from proof (implementation depends on proof format)
+    pub fn extract_public_outputs(&self) -> Result<Vec<Vec<u8>>, ProtocolError> {
+        // for now, return empty vec - this will be implemented when we add
+        // structured proof output format
+        Ok(vec![])
     }
 }
 

@@ -36,13 +36,15 @@ fn test_condition_transformation_logic() {
     serial_data[51..83].copy_from_slice(serial_rand);
     let serial_commitment = hash_data(&serial_data);
 
-    // Compute coin_commitment
-    let coin_domain = b"clvm_zk_coin_v1.0";
-    let mut coin_data = [0u8; 89];
+    // Compute coin_commitment (v2.0 format with tail_hash)
+    let coin_domain = b"clvm_zk_coin_v2.0";
+    let tail_hash = [0u8; 32]; // XCH default
+    let mut coin_data = [0u8; 121];
     coin_data[..17].copy_from_slice(coin_domain);
-    coin_data[17..25].copy_from_slice(amount_bytes);
-    coin_data[25..57].copy_from_slice(puzzle_hash_ref);
-    coin_data[57..89].copy_from_slice(&serial_commitment);
+    coin_data[17..49].copy_from_slice(&tail_hash);
+    coin_data[49..57].copy_from_slice(amount_bytes);
+    coin_data[57..89].copy_from_slice(puzzle_hash_ref);
+    coin_data[89..121].copy_from_slice(&serial_commitment);
     let coin_commitment = hash_data(&coin_data);
 
     // Transform: replace 4 args with 1 arg (commitment)
@@ -149,12 +151,14 @@ fn compute_coin_commitment(
     serial_data[51..83].copy_from_slice(serial_randomness);
     let serial_commitment = hash_data(&serial_data);
 
-    // Compute coin_commitment
-    let coin_domain = b"clvm_zk_coin_v1.0";
-    let mut coin_data = [0u8; 89];
+    // Compute coin_commitment (v2.0 format with tail_hash)
+    let coin_domain = b"clvm_zk_coin_v2.0";
+    let tail_hash = [0u8; 32]; // XCH default
+    let mut coin_data = [0u8; 121];
     coin_data[..17].copy_from_slice(coin_domain);
-    coin_data[17..25].copy_from_slice(&amount.to_be_bytes());
-    coin_data[25..57].copy_from_slice(puzzle_hash);
-    coin_data[57..89].copy_from_slice(&serial_commitment);
+    coin_data[17..49].copy_from_slice(&tail_hash);
+    coin_data[49..57].copy_from_slice(&amount.to_be_bytes());
+    coin_data[57..89].copy_from_slice(puzzle_hash);
+    coin_data[89..121].copy_from_slice(&serial_commitment);
     hash_data(&coin_data)
 }
