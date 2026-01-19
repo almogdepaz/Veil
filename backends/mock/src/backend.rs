@@ -302,7 +302,7 @@ impl MockBackend {
         // Filter out announcement conditions (opcodes 60, 61, 62, 63)
         let filtered_conditions: Vec<clvm_zk_core::Condition> = all_conditions
             .into_iter()
-            .filter(|c| !matches!(c.opcode, 60 | 61 | 62 | 63))
+            .filter(|c| !matches!(c.opcode, 60..=63))
             .collect();
 
         let final_output = clvm_zk_core::serialize_conditions_to_bytes(&filtered_conditions);
@@ -330,6 +330,7 @@ impl MockBackend {
 
     /// Process a single coin: compile, execute, transform CREATE_COIN, verify commitment, compute nullifier
     /// Returns (conditions, program_hash, optional_nullifier, puzzle_announcement_hashes, coin_announcement_hashes)
+    #[allow(clippy::type_complexity)]
     fn process_single_coin(
         &self,
         chialisp_source: &str,

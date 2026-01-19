@@ -374,7 +374,7 @@ fn main() {
     // Filter out announcement conditions from output (opcodes 60, 61, 62, 63)
     let all_conditions: Vec<clvm_zk_core::Condition> = all_conditions
         .into_iter()
-        .filter(|c| !matches!(c.opcode, 60 | 61 | 62 | 63))
+        .filter(|c| !matches!(c.opcode, 60..=63))
         .collect();
 
     // Serialize final conditions (CREATE_COIN transformed, announcements removed)
