@@ -478,15 +478,7 @@ impl MockBackend {
                 let serial_number = commitment_data.serial_number;
                 let expected_program_hash = commitment_data.program_hash;
 
-                eprintln!("\n=== MOCK BACKEND: VERIFYING COIN ===");
-                eprintln!("  program_hash (compiled): {}", hex::encode(program_hash));
-                eprintln!(
-                    "  expected_program_hash:   {}",
-                    hex::encode(expected_program_hash)
-                );
-
                 if program_hash != expected_program_hash {
-                    eprintln!("  ERROR: program_hash mismatch!");
                     return Err(ClvmZkError::ProofGenerationFailed(
                         "program_hash mismatch: cannot spend coin with different puzzle"
                             .to_string(),
@@ -500,26 +492,13 @@ impl MockBackend {
                 serial_commit_data[51..83].copy_from_slice(&serial_randomness);
                 let computed_serial_commitment = hash_data(&serial_commit_data);
 
-                eprintln!("  serial_number: {}", hex::encode(serial_number));
-                eprintln!(
-                    "  computed_serial_commitment: {}",
-                    hex::encode(computed_serial_commitment)
-                );
-                eprintln!(
-                    "  expected_serial_commitment: {}",
-                    hex::encode(commitment_data.serial_commitment)
-                );
-
                 if computed_serial_commitment != commitment_data.serial_commitment {
-                    eprintln!("  ERROR: serial commitment mismatch!");
                     return Err(ClvmZkError::ProofGenerationFailed(
                         "serial commitment verification failed".to_string(),
                     ));
                 }
 
                 let amount = commitment_data.amount;
-                eprintln!("  amount: {}", amount);
-                eprintln!("  tail_hash: {}", hex::encode(tail_hash));
 
                 let coin_data = build_coin_commitment_preimage(
                     tail_hash,
@@ -529,22 +508,7 @@ impl MockBackend {
                 );
                 let computed_coin_commitment = hash_data(&coin_data);
 
-                eprintln!(
-                    "  computed_coin_commitment: {}",
-                    hex::encode(computed_coin_commitment)
-                );
-                eprintln!(
-                    "  expected_coin_commitment: {}",
-                    hex::encode(commitment_data.coin_commitment)
-                );
-
                 if computed_coin_commitment != commitment_data.coin_commitment {
-                    eprintln!("  ERROR: coin commitment mismatch!");
-                    eprintln!(
-                        "  coin_data preimage ({} bytes): {}",
-                        coin_data.len(),
-                        hex::encode(&coin_data)
-                    );
                     return Err(ClvmZkError::ProofGenerationFailed(
                         "coin commitment verification failed".to_string(),
                     ));
@@ -555,20 +519,10 @@ impl MockBackend {
                 let expected_root = commitment_data.merkle_root;
                 let leaf_index = commitment_data.leaf_index;
 
-                eprintln!("  leaf_index: {}", leaf_index);
-                eprintln!("  merkle_path length: {}", merkle_path.len());
-                eprintln!("  expected_root: {}", hex::encode(expected_root));
-
                 let mut current_hash = computed_coin_commitment;
                 let mut current_index = leaf_index;
-                eprintln!("  === PATH TRAVERSAL ===");
-                for (i, sibling) in merkle_path.iter().enumerate() {
+                for sibling in merkle_path.iter() {
                     let mut combined = [0u8; 64];
-                    let position = if current_index % 2 == 0 {
-                        "LEFT"
-                    } else {
-                        "RIGHT"
-                    };
                     if current_index % 2 == 0 {
                         combined[..32].copy_from_slice(&current_hash);
                         combined[32..].copy_from_slice(sibling);
@@ -576,29 +530,15 @@ impl MockBackend {
                         combined[..32].copy_from_slice(sibling);
                         combined[32..].copy_from_slice(&current_hash);
                     }
-                    let new_hash = hash_data(&combined);
-                    eprintln!(
-                        "    step {}: idx={} ({}) sibling={} -> {}",
-                        i,
-                        current_index,
-                        position,
-                        hex::encode(&sibling[..8]),
-                        hex::encode(&new_hash[..8])
-                    );
-                    current_hash = new_hash;
+                    current_hash = hash_data(&combined);
                     current_index /= 2;
                 }
 
-                eprintln!("  computed_root: {}", hex::encode(current_hash));
-
                 if current_hash != expected_root {
-                    eprintln!("  ERROR: merkle root mismatch!");
                     return Err(ClvmZkError::ProofGenerationFailed(
                         "merkle root mismatch: coin not in current tree state".to_string(),
                     ));
                 }
-
-                eprintln!("  RESULT: ✓ COIN VERIFICATION PASSED");
 
                 let mut nullifier_data = Vec::with_capacity(72);
                 nullifier_data.extend_from_slice(&serial_number);

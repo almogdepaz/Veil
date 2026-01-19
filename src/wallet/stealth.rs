@@ -256,27 +256,24 @@ fn point_to_pubkey(point: &ProjectivePoint) -> [u8; 33] {
 }
 
 fn pubkey_to_point(pubkey: &[u8; 33]) -> Option<ProjectivePoint> {
-    let affine = AffinePoint::from_bytes(pubkey.into());
-    if affine.is_some().into() {
-        Some(ProjectivePoint::from(affine.unwrap()))
-    } else {
-        None
-    }
+    let affine: Option<AffinePoint> = AffinePoint::from_bytes(pubkey.into()).into();
+    affine.map(ProjectivePoint::from)
 }
 
 fn bytes_to_scalar(bytes: &[u8; 32]) -> Scalar {
     use k256::elliptic_curve::PrimeField;
     // Try direct conversion first (valid if bytes < curve order)
-    let opt = Scalar::from_repr((*bytes).into());
-    if opt.is_some().into() {
-        opt.unwrap()
-    } else {
-        // If bytes >= curve order, hash to reduce and retry
-        let mut hasher = Sha256::new();
-        hasher.update(b"scalar_reduce");
-        hasher.update(bytes);
-        let reduced: [u8; 32] = hasher.finalize().into();
-        bytes_to_scalar(&reduced)
+    let opt: Option<Scalar> = Scalar::from_repr((*bytes).into()).into();
+    match opt {
+        Some(scalar) => scalar,
+        None => {
+            // If bytes >= curve order, hash to reduce and retry
+            let mut hasher = Sha256::new();
+            hasher.update(b"scalar_reduce");
+            hasher.update(bytes);
+            let reduced: [u8; 32] = hasher.finalize().into();
+            bytes_to_scalar(&reduced)
+        }
     }
 }
 
