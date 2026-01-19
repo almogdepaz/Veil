@@ -55,13 +55,13 @@ nullifier = hash(serial_number || program_hash)
 - double-spend impossible: same nullifier can only be revealed once
 - merkle membership proves coin exists without revealing which coin
 
-**critical:** losing serial_number or serial_randomness = permanent coin loss. see [ENCRYPTED_NOTES.md](ENCRYPTED_NOTES.md) for backup procedures.
+**critical:** losing serial_number or serial_randomness = permanent coin loss. wallets derive keys deterministically from seed - backup your seed.
 
 ## Quick start
 
 ### Demo script
 
-Run the full encrypted payment notes demo:
+Run the full stealth payment demo:
 
 ```bash
 ./sim_demo.sh         # RISC0 backend (default)
@@ -71,15 +71,14 @@ Run the full encrypted payment notes demo:
 **What it does:**
 1. Builds backend if needed (`target/risc0/` or `target/sp1/`)
 2. Resets simulator state
-3. Creates alice and bob wallets with HD keys
+3. Creates alice and bob wallets with stealth addresses
 4. Funds alice from faucet
-5. Alice sends to bob (bob offline, doesn't receive yet)
-6. Bob scans blockchain and discovers payments via encrypted notes
+5. Alice sends to bob via stealth payment (bob offline, doesn't receive yet)
+6. Bob scans blockchain and discovers payments via stealth address scanning
 7. Bob sends back to alice
 8. Shows timing and final balances
 
-
-- Scan operations: instant (decryption only, no zkVM)
+- Scan operations: instant (ECDH computation only, no zkVM)
 
 **Output:** Persistent state in `simulator_data/state.json` with all ZK proofs.
 
@@ -172,18 +171,29 @@ cargo run-sp1 -- sim wallet alice unspent       # Show unspent coins
 cargo run-sp1 -- sim wallet alice balance       # Show balance only
 ```
 
-## encrypted payment notes
+## stealth addresses
 
-- alice sends to bob → creates encrypted note (bob doesn't receive coin yet)
-- bob runs `sim scan bob` → decrypts notes, discovers payments
-- uses x25519 ecdh + chacha20-poly1305 authenticated encryption
-- supports memos (e.g., "payment from alice")
+dual-key stealth address protocol for unlinkable payments:
 
-see [ENCRYPTED_NOTES.md](ENCRYPTED_NOTES.md) for full documentation.
+- each wallet has a **stealth address** (66 bytes = view_pubkey + spend_pubkey)
+- alice sends to bob → derives unique puzzle_hash via ECDH, stores ephemeral_pubkey on-chain
+- bob runs `sim scan bob` → uses view key to find payments belonging to him
+- each payment creates a unique puzzle_hash (unlinkable to stealth address)
+
+**view/spend separation:**
+- **view key**: can scan for payments, see amounts (give to auditors)
+- **spend key**: required to actually spend coins
+
+see [STEALTH_ADDRESSES.md](STEALTH_ADDRESSES.md) for full protocol documentation.
 
 **quick test:**
 ```bash
-./TEST_ENCRYPTED_NOTES.sh
+cargo run-mock -- sim init --reset
+cargo run-mock -- sim wallet alice create    # shows stealth address
+cargo run-mock -- sim wallet bob create
+cargo run-mock -- sim faucet alice
+cargo run-mock -- sim send alice bob 5000 --coins 0
+cargo run-mock -- sim scan bob               # bob finds the payment
 ```
 
 ## Features

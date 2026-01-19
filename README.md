@@ -18,7 +18,7 @@ Supports arbitrary Chialisp programs instead of hardcoded circuits.
 
 ### Simulator demo
 
-Run encrypted payment notes demo:
+Run stealth payment demo:
 
 ```bash
 # install dependencies
@@ -288,33 +288,28 @@ See `tests/test_create_coin_privacy.rs` and `tests/test_condition_transformation
 
 ### Recovery protocol
 
-Encrypted payment notes enable offline receiving and backup recovery:
+Stealth addresses enable unlinkable offline receiving:
 
 **Sending:**
-- Alice generates coin with random serial_number and serial_randomness
-- Alice encrypts `(serial_number, serial_randomness)` to Bob's x25519 viewing key
-- Alice publishes encrypted note on-chain alongside transaction
+- Alice derives unique puzzle_hash from Bob's stealth address via ECDH
+- Each payment creates a unique puzzle_hash (unlinkable to stealth address)
+- Alice stores ephemeral_pubkey on-chain with coin
 
 **Receiving:**
-- Bob scans blockchain with x25519 decryption key
-- Bob decrypts notes to discover coins sent to him
-- Bob stores coin secrets locally
-
-**Recovery:**
-- Bob re-scans blockchain with viewing key
-- Recovers all coins from encrypted notes
-- Works offline - no interaction with sender needed
+- Bob scans blockchain using view key
+- Bob computes expected puzzle_hash from each ephemeral_pubkey
+- Matching puzzle_hash = coin belongs to Bob
 
 **Privacy:**
+- Each payment has unique puzzle_hash (receiver unlinkability)
 - Alice cannot track Bob's spending after sending
-- Encrypted notes unlinkable to coin commitments
-- Viewing key enables read-only access
+- View key enables scanning without spending
 
-See **[ENCRYPTED_NOTES.md](ENCRYPTED_NOTES.md)** and **[nullifier.md](nullifier.md)** for detailed specifications.
+See **[STEALTH_ADDRESSES.md](STEALTH_ADDRESSES.md)** and **[nullifier.md](nullifier.md)** for detailed specifications.
 
 ## Blockchain simulator
 
-Local privacy-preserving blockchain simulator with encrypted payment notes, HD wallets, persistent state, and real ZK proofs.
+Local privacy-preserving blockchain simulator with stealth addresses, HD wallets, persistent state, and real ZK proofs.
 
 ```bash
 # run the full demo

@@ -714,8 +714,6 @@ struct SimulatorState {
     #[serde(default)]
     observer_wallets: HashMap<String, ObserverWalletData>,
     #[serde(default)]
-    encrypted_notes: Vec<crate::protocol::EncryptedNote>,
-    #[serde(default)]
     spend_bundles: Vec<crate::protocol::PrivateSpendBundle>,
     #[serde(default)]
     simulator: CLVMZkSimulator,
@@ -729,11 +727,12 @@ struct WalletData {
     account_index: u32,
     next_coin_index: u32, // Track next coin index for HD derivation
     coins: Vec<WalletCoinWrapper>,
-    // Encryption keys for receiving payments
+    // Stealth address pubkeys for receiving payments (33 bytes compressed secp256k1 each)
+    // Private keys are derived from seed via StealthKeys
     #[serde(default)]
-    note_encryption_public: Option<[u8; 32]>,
+    stealth_view_pubkey: Option<Vec<u8>>,
     #[serde(default)]
-    note_encryption_private: Option<[u8; 32]>,
+    stealth_spend_pubkey: Option<Vec<u8>>,
 }
 
 /// wrapper around WalletPrivateCoin with additional CLI-specific state
@@ -896,7 +895,6 @@ impl SimulatorState {
             faucet_nonce: 0,
             puzzle_coins: None,
             observer_wallets: HashMap::new(),
-            encrypted_notes: Vec::new(),
             spend_bundles: Vec::new(),
             simulator: CLVMZkSimulator::new(),
         }
@@ -1127,6 +1125,9 @@ fn wallet_command(data_dir: &Path, name: &str, action: WalletAction) -> Result<(
                 ClvmZkError::InvalidProgram(format!("Account derivation error: {}", e))
             })?;
 
+            // Get stealth address from account keys
+            let stealth_address = account_keys.stealth_keys.stealth_address();
+
             let wallet = WalletData {
                 name: name.to_string(),
                 seed,
@@ -1134,8 +1135,8 @@ fn wallet_command(data_dir: &Path, name: &str, action: WalletAction) -> Result<(
                 account_index: 0,          // Use account 0 for simplicity
                 next_coin_index: 0,        // Start from coin index 0
                 coins: Vec::new(),
-                note_encryption_public: Some(account_keys.note_encryption_public),
-                note_encryption_private: Some(account_keys.note_encryption_private),
+                stealth_view_pubkey: Some(stealth_address.view_pubkey.to_vec()),
+                stealth_spend_pubkey: Some(stealth_address.spend_pubkey.to_vec()),
             };
 
             state.wallets.insert(name.to_string(), wallet);
@@ -1143,8 +1144,8 @@ fn wallet_command(data_dir: &Path, name: &str, action: WalletAction) -> Result<(
 
             println!("created wallet '{}'", name);
             println!(
-                "payment address (viewing public key): {}",
-                hex::encode(account_keys.note_encryption_public)
+                "stealth address: {}",
+                hex::encode(stealth_address.to_bytes())
             );
         }
 
@@ -1303,7 +1304,6 @@ fn status_command(data_dir: &Path) -> Result<(), ClvmZkError> {
         .count();
 
     println!("total coins: {} ({} unspent)", total_coins, total_unspent);
-    println!("encrypted notes: {}", state.encrypted_notes.len());
     println!("saved proofs: {}", state.spend_bundles.len());
 
     Ok(())
@@ -1500,57 +1500,61 @@ fn send_command(
             // create new coin for recipient if amount > 0
             if amount > 0 {
                 let to_wallet = state.wallets.get_mut(to).unwrap();
-                let (program, puzzle_hash) = create_faucet_puzzle(amount);
 
-                // Get recipient's encryption public key
-                let recipient_public_key = to_wallet.note_encryption_public.ok_or_else(|| {
-                    ClvmZkError::InvalidProgram(format!(
-                        "recipient wallet '{}' has no encryption key (old wallet, recreate it)",
-                        to
-                    ))
-                })?;
+                // Get recipient's stealth address
+                let recipient_stealth = {
+                    let view_pub = to_wallet.stealth_view_pubkey.as_ref().ok_or_else(|| {
+                        ClvmZkError::InvalidProgram(format!(
+                            "recipient wallet '{}' has no stealth address (old wallet, recreate it)",
+                            to
+                        ))
+                    })?;
+                    let spend_pub = to_wallet.stealth_spend_pubkey.as_ref().ok_or_else(|| {
+                        ClvmZkError::InvalidProgram(format!(
+                            "recipient wallet '{}' has no stealth address",
+                            to
+                        ))
+                    })?;
+                    let mut view_arr = [0u8; 33];
+                    let mut spend_arr = [0u8; 33];
+                    view_arr.copy_from_slice(view_pub);
+                    spend_arr.copy_from_slice(spend_pub);
+                    crate::wallet::StealthAddress {
+                        view_pubkey: view_arr,
+                        spend_pubkey: spend_arr,
+                    }
+                };
 
-                // Use HD wallet to create new coin for recipient
+                // Create stealth payment - derives unique puzzle_hash via ECDH
+                let stealth_payment = crate::wallet::create_stealth_payment(&recipient_stealth);
+
+                // Use the stealth-derived puzzle_hash
+                let puzzle_hash = stealth_payment.puzzle_hash;
+                let (program, _) = create_faucet_puzzle(amount);
+
+                // Use HD wallet to create new coin for recipient with stealth puzzle_hash
                 let wallet_coin = to_wallet
                     .create_coin(puzzle_hash, amount, program)
                     .map_err(|e| ClvmZkError::InvalidProgram(format!("HD wallet error: {}", e)))?;
 
-                // Extract coin secrets for encryption
                 let secrets = wallet_coin.secrets();
 
-                // add coin to global simulator state
+                // add coin to global simulator state with ephemeral_pubkey
                 let coin = wallet_coin.to_private_coin();
-                state.simulator.add_coin(
+                state.simulator.add_coin_with_ephemeral(
                     coin,
                     secrets,
+                    stealth_payment.ephemeral_pubkey,
                     CoinMetadata {
                         owner: to.to_string(),
                         coin_type: CoinType::Regular,
-                        notes: format!("payment from {}", from),
+                        notes: format!("stealth payment from {}", from),
                     },
                 );
 
-                // Create encrypted payment note
-                let payment_note = crate::protocol::PaymentNote {
-                    serial_number: secrets.serial_number,
-                    serial_randomness: secrets.serial_randomness,
-                    amount,
-                    puzzle_hash,
-                    memo: format!("payment from {}", from).into_bytes(),
-                };
-
-                let encrypted_note =
-                    crate::protocol::EncryptedNote::encrypt(&recipient_public_key, &payment_note)
-                        .map_err(|e| {
-                        ClvmZkError::InvalidProgram(format!("failed to encrypt note: {}", e))
-                    })?;
-
-                // Add note to global pool
-                state.encrypted_notes.push(encrypted_note);
-
                 // NOTE: coin is NOT added to recipient's wallet directly
-                // recipient must run 'sim scan' to discover and decrypt the note
-                println!("created encrypted note for '{}' with amount {} (recipient must scan to receive)", to, amount);
+                // recipient must run 'sim scan' to discover via stealth scanning
+                println!("created stealth payment for '{}' with amount {} (recipient must scan to receive)", to, amount);
             }
 
             // handle change if any
@@ -1604,85 +1608,107 @@ fn send_command(
 fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
-    // Get wallet
-    let wallet = state.wallets.get_mut(wallet_name).ok_or_else(|| {
-        ClvmZkError::InvalidProgram(format!("wallet '{}' not found", wallet_name))
-    })?;
+    // Get wallet and derive stealth view key
+    let (view_key, existing_puzzle_hashes) = {
+        let wallet = state.wallets.get(wallet_name).ok_or_else(|| {
+            ClvmZkError::InvalidProgram(format!("wallet '{}' not found", wallet_name))
+        })?;
 
-    // Get decryption key
-    let decryption_key = wallet.note_encryption_private.ok_or_else(|| {
-        ClvmZkError::InvalidProgram(format!(
-            "wallet '{}' has no encryption key (old wallet, recreate it)",
-            wallet_name
-        ))
-    })?;
+        // Derive stealth keys from seed
+        let hd_wallet =
+            crate::wallet::CLVMHDWallet::from_seed(&wallet.seed, wallet.network.clone())
+                .map_err(|e| ClvmZkError::InvalidProgram(format!("wallet error: {}", e)))?;
+        let account_keys = hd_wallet
+            .derive_account(wallet.account_index)
+            .map_err(|e| ClvmZkError::InvalidProgram(format!("key derivation error: {}", e)))?;
 
+        let view_key = account_keys.stealth_keys.view_only();
+
+        // Get existing puzzle hashes to avoid duplicates
+        let existing: std::collections::HashSet<[u8; 32]> =
+            wallet.coins.iter().map(|c| c.puzzle_hash()).collect();
+
+        (view_key, existing)
+    };
+
+    // Get stealth-scannable coins from simulator
+    let scannable_coins = state.simulator.get_stealth_scannable_coins();
     println!(
-        "scanning {} encrypted notes for wallet '{}'...",
-        state.encrypted_notes.len(),
+        "scanning {} stealth coins for wallet '{}'...",
+        scannable_coins.len(),
         wallet_name
     );
+
+    // Prepare coins for scanning
+    let scan_input: Vec<([u8; 32], [u8; 33])> = scannable_coins
+        .iter()
+        .map(|(puzzle_hash, eph, _info)| (**puzzle_hash, *eph))
+        .collect();
+
+    // Scan using stealth view key
+    let found = view_key.scan_coins(&scan_input);
 
     let mut found_count = 0;
     let mut total_amount = 0u64;
 
-    // Try to decrypt each note
-    for (i, note) in state.encrypted_notes.iter().enumerate() {
-        if let Ok(payment_note) = note.decrypt(&decryption_key) {
-            // This note is for us!
-            println!("  found payment note #{}: {} mojos", i, payment_note.amount);
+    for (puzzle_hash, stealth_data) in found {
+        // Skip if already in wallet
+        if existing_puzzle_hashes.contains(&puzzle_hash) {
+            println!("  found coin {} (already in wallet, skipping)", hex::encode(&puzzle_hash[..4]));
+            continue;
+        }
 
-            // Check if we already have this coin
-            let nullifier = payment_note.serial_number;
-            let already_have = wallet.coins.iter().any(|c| c.serial_number() == nullifier);
+        // Find the matching coin info in scannable_coins
+        let coin_info = scannable_coins
+            .iter()
+            .find(|(ph, eph, _)| **ph == puzzle_hash && *eph == stealth_data.ephemeral_pubkey)
+            .map(|(_, _, info)| *info);
 
-            if already_have {
-                println!("    (already in wallet, skipping)");
-                continue;
-            }
+        if let Some(info) = coin_info {
+            println!("  found stealth coin: {} mojos", info.coin.amount);
 
-            // Reconstruct the coin
-            let serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
-                &payment_note.serial_number,
-                &payment_note.serial_randomness,
-                crate::crypto_utils::hash_data_default,
-            );
-
-            let coin = crate::protocol::PrivateCoin::new(
-                payment_note.puzzle_hash,
-                payment_note.amount,
-                serial_commitment,
-            );
-
-            let secrets = clvm_zk_core::coin_commitment::CoinSecrets {
-                serial_number: payment_note.serial_number,
-                serial_randomness: payment_note.serial_randomness,
+            // Get secrets from simulator (for simulation purposes)
+            // In production, receiver would derive spend_key from stealth_data.shared_secret
+            let serial_number = {
+                // Find the serial_number for this coin in the utxo_set
+                // The coin is stored by serial_number, so we need to search
+                state
+                    .simulator
+                    .utxo_iter()
+                    .find(|(_, ci)| ci.coin.puzzle_hash == puzzle_hash)
+                    .map(|(sn, _)| *sn)
             };
 
-            // Create wallet coin wrapper (using dummy indices for scanned coins)
-            let (program, _) = create_faucet_puzzle(payment_note.amount);
-            let wallet_coin = crate::wallet::WalletPrivateCoin {
-                coin,
-                secrets,
-                account_index: 0, // scanned coins don't have HD derivation path
-                coin_index: 0,
-            };
+            if let Some(sn) = serial_number {
+                // For simulation, we reconstruct the coin
+                // In production, secrets would be derived differently
+                let coin = info.coin.clone();
+                let (program, _) = create_faucet_puzzle(coin.amount);
 
-            let wrapper = WalletCoinWrapper {
-                wallet_coin,
-                program,
-                spent: false,
-            };
+                // Create placeholder secrets (in real system these would be derived)
+                let secrets = clvm_zk_core::coin_commitment::CoinSecrets {
+                    serial_number: sn,
+                    serial_randomness: [0u8; 32], // placeholder - would need to store this
+                };
 
-            wallet.coins.push(wrapper);
-            found_count += 1;
-            total_amount += payment_note.amount;
+                let wallet_coin = crate::wallet::WalletPrivateCoin {
+                    coin,
+                    secrets,
+                    account_index: 0,
+                    coin_index: 0,
+                };
 
-            // Show memo if present
-            if !payment_note.memo.is_empty() {
-                if let Ok(memo_str) = String::from_utf8(payment_note.memo.clone()) {
-                    println!("    memo: \"{}\"", memo_str);
-                }
+                let wrapper = WalletCoinWrapper {
+                    wallet_coin,
+                    program,
+                    spent: false,
+                };
+
+                // Add to wallet
+                let wallet = state.wallets.get_mut(wallet_name).unwrap();
+                wallet.coins.push(wrapper);
+                found_count += 1;
+                total_amount += info.coin.amount;
             }
         }
     }
@@ -1690,7 +1716,7 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     state.save(data_dir)?;
 
     println!("\nscan complete:");
-    println!("  found {} new coins", found_count);
+    println!("  found {} new stealth coins", found_count);
     println!("  total value: {} mojos", total_amount);
 
     Ok(())

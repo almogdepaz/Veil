@@ -129,6 +129,7 @@ impl CLVMZkSimulator {
             coin: coin.clone(),
             metadata,
             created_at_height: self.block_height,
+            ephemeral_pubkey: None,
         };
 
         let coin_commitment = CoinCommitment::compute(
@@ -143,6 +144,41 @@ impl CLVMZkSimulator {
         self.coin_tree.insert(coin_commitment.0);
         self.coin_tree.commit();
         self.merkle_leaves.push(coin_commitment.0); // track leaf for persistence
+        self.commitment_to_index
+            .insert(coin_commitment.0, leaf_index);
+
+        self.utxo_set.insert(serial_number, info);
+        serial_number
+    }
+
+    /// Add coin with ephemeral pubkey for stealth address scanning
+    pub fn add_coin_with_ephemeral(
+        &mut self,
+        coin: PrivateCoin,
+        secrets: &clvm_zk_core::coin_commitment::CoinSecrets,
+        ephemeral_pubkey: [u8; 33],
+        metadata: CoinMetadata,
+    ) -> [u8; 32] {
+        let serial_number = secrets.serial_number();
+        let info = CoinInfo {
+            coin: coin.clone(),
+            metadata,
+            created_at_height: self.block_height,
+            ephemeral_pubkey: Some(ephemeral_pubkey.to_vec()),
+        };
+
+        let coin_commitment = CoinCommitment::compute(
+            &coin.tail_hash,
+            coin.amount,
+            &coin.puzzle_hash,
+            &coin.serial_commitment,
+            crate::crypto_utils::hash_data_default,
+        );
+
+        let leaf_index = self.coin_tree.leaves_len();
+        self.coin_tree.insert(coin_commitment.0);
+        self.coin_tree.commit();
+        self.merkle_leaves.push(coin_commitment.0);
         self.commitment_to_index
             .insert(coin_commitment.0, leaf_index);
 
@@ -361,6 +397,7 @@ impl CLVMZkSimulator {
                         coin,
                         metadata,
                         created_at_height: self.block_height,
+                        ephemeral_pubkey: None, // TODO: support stealth outputs in spends
                     },
                 );
             }
@@ -383,6 +420,30 @@ impl CLVMZkSimulator {
 
     pub fn get_coin_info(&self, serial_number: &[u8; 32]) -> Option<&CoinInfo> {
         self.utxo_set.get(serial_number)
+    }
+
+    /// Iterate over all UTXOs (serial_number, CoinInfo)
+    pub fn utxo_iter(&self) -> impl Iterator<Item = (&[u8; 32], &CoinInfo)> {
+        self.utxo_set.iter()
+    }
+
+    /// Get all coins with ephemeral pubkeys for stealth scanning
+    /// Returns (puzzle_hash, ephemeral_pubkey, coin_info) for each stealth coin
+    pub fn get_stealth_scannable_coins(&self) -> Vec<(&[u8; 32], [u8; 33], &CoinInfo)> {
+        self.utxo_set
+            .iter()
+            .filter_map(|(_serial, info)| {
+                info.ephemeral_pubkey.as_ref().and_then(|eph| {
+                    if eph.len() == 33 {
+                        let mut arr = [0u8; 33];
+                        arr.copy_from_slice(eph);
+                        Some((&info.coin.puzzle_hash, arr, info))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect()
     }
 
     pub fn get_merkle_path_and_index(&self, coin: &PrivateCoin) -> Option<(Vec<[u8; 32]>, usize)> {
@@ -522,10 +583,6 @@ impl CLVMZkSimulator {
         self.coin_tree.root()
     }
 
-    pub fn utxo_iter(&self) -> impl Iterator<Item = (&[u8; 32], &CoinInfo)> {
-        self.utxo_set.iter()
-    }
-
     fn generate_tx_id(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(b"clvm_zk_tx_id");
@@ -565,6 +622,9 @@ pub struct CoinInfo {
     pub coin: PrivateCoin,
     pub metadata: CoinMetadata,
     pub created_at_height: u64,
+    /// ephemeral pubkey for stealth address scanning (33 bytes compressed secp256k1)
+    #[serde(default)]
+    pub ephemeral_pubkey: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
