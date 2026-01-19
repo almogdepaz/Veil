@@ -145,6 +145,31 @@ impl ClvmOperator {
         }
     }
 
+    /// Check if this operator is a Chia condition (should be compiled as data, not operator call)
+    /// Condition operators create condition values that are returned as program output
+    pub fn is_condition_operator(&self) -> bool {
+        matches!(
+            self,
+            ClvmOperator::Remark
+                | ClvmOperator::AggSigUnsafe
+                | ClvmOperator::AggSigMe
+                | ClvmOperator::CreateCoin
+                | ClvmOperator::ReserveFee
+                | ClvmOperator::CreateCoinAnnouncement
+                | ClvmOperator::AssertCoinAnnouncement
+                | ClvmOperator::CreatePuzzleAnnouncement
+                | ClvmOperator::AssertPuzzleAnnouncement
+                | ClvmOperator::AssertConcurrentSpend
+                | ClvmOperator::AssertConcurrentPuzzle
+                | ClvmOperator::SendMessage
+                | ClvmOperator::ReceiveMessage
+                | ClvmOperator::AssertMyCoinId
+                | ClvmOperator::AssertMyParentId
+                | ClvmOperator::AssertMyPuzzleHash
+                | ClvmOperator::AssertMyAmount
+        )
+    }
+
     /// Parse operator from string (used by host for Chialisp parsing)
     pub fn parse_operator(s: &str) -> Option<Self> {
         match s {

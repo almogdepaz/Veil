@@ -1,7 +1,8 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode_with_table, ClvmEvaluator, ClvmResult, ClvmZkError,
-    ProgramParameter, ProofOutput, ZKClvmResult, BLS_DST,
+    compile_chialisp_to_bytecode, run_clvm_with_conditions, create_veil_evaluator,
+    serialize_params_to_clvm,
+    ClvmResult, ClvmZkError, ProgramParameter, ProofOutput, ZKClvmResult, BLS_DST,
 };
 use sha2::{Digest, Sha256};
 
@@ -55,8 +56,9 @@ impl MockBackend {
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        let (instance_bytecode, program_hash, function_table) =
-            compile_chialisp_to_bytecode_with_table(hash_data, chialisp_source, program_parameters)
+        // Compile chialisp to bytecode
+        let (instance_bytecode, program_hash) =
+            compile_chialisp_to_bytecode(hash_data, chialisp_source)
                 .map_err(|e| {
                     ClvmZkError::ProofGenerationFailed(format!(
                         "chialisp compilation failed: {:?}",
@@ -64,18 +66,51 @@ impl MockBackend {
                     ))
                 })?;
 
-        let mut evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
-        evaluator.function_table = function_table;
+        // Create VeilEvaluator with mock crypto functions
+        let evaluator = create_veil_evaluator(hash_data, default_bls_verifier, ecdsa_verifier);
 
-        let (output_bytes, _runtime_conditions) = evaluator
-            .evaluate_clvm_program(&instance_bytecode)
+        // Serialize parameters to CLVM args format
+        let args = serialize_params_to_clvm(program_parameters);
+
+        // Run CLVM bytecode and parse conditions from output
+        let max_cost = 1_000_000_000;
+        let (output_bytes, mut conditions) = run_clvm_with_conditions(&evaluator, &instance_bytecode, &args, max_cost)
             .map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
             })?;
 
-        // Parse conditions from output (list-based programs return condition structures)
-        let mut conditions = clvm_zk_core::deserialize_clvm_output_to_conditions(&output_bytes)
-            .unwrap_or(_runtime_conditions); // fallback to runtime conditions if parsing fails
+        // Validate signature conditions (AGG_SIG_UNSAFE=49, AGG_SIG_ME=50)
+        // These must be verified inside the ZK proof, not just output as conditions
+        for condition in &conditions {
+            if condition.opcode == 49 || condition.opcode == 50 {
+                // AGG_SIG_UNSAFE / AGG_SIG_ME: (pubkey, message, signature)
+                if condition.args.len() != 3 {
+                    return Err(ClvmZkError::ProofGenerationFailed(format!(
+                        "AGG_SIG condition requires 3 args, got {}",
+                        condition.args.len()
+                    )));
+                }
+                let pubkey = &condition.args[0];
+                let message = &condition.args[1];
+                let signature = &condition.args[2];
+
+                // Verify signature using ECDSA (for our protocol)
+                match ecdsa_verifier(pubkey, message, signature) {
+                    Ok(true) => {} // Signature valid
+                    Ok(false) => {
+                        return Err(ClvmZkError::ProofGenerationFailed(
+                            "AGG_SIG condition: signature verification failed".to_string(),
+                        ));
+                    }
+                    Err(e) => {
+                        return Err(ClvmZkError::ProofGenerationFailed(format!(
+                            "AGG_SIG condition: verification error: {}",
+                            e
+                        )));
+                    }
+                }
+            }
+        }
 
         // Transform CREATE_COIN conditions for output privacy
         let mut has_transformations = false;
@@ -197,28 +232,61 @@ impl MockBackend {
         &self,
         inputs: clvm_zk_core::Input,
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        let (instance_bytecode, program_hash, function_table) =
-            compile_chialisp_to_bytecode_with_table(
+        // Compile chialisp to bytecode
+        let (instance_bytecode, program_hash) =
+            compile_chialisp_to_bytecode(
                 hash_data,
                 &inputs.chialisp_source,
-                &inputs.program_parameters,
             )
             .map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
             })?;
 
-        let mut evaluator = ClvmEvaluator::new(hash_data, default_bls_verifier, ecdsa_verifier);
-        evaluator.function_table = function_table;
+        // Create VeilEvaluator with mock crypto functions
+        let evaluator = create_veil_evaluator(hash_data, default_bls_verifier, ecdsa_verifier);
 
-        let (output_bytes, _runtime_conditions) = evaluator
-            .evaluate_clvm_program(&instance_bytecode)
+        // Serialize parameters to CLVM args format
+        let args = serialize_params_to_clvm(&inputs.program_parameters);
+
+        // Run CLVM bytecode and parse conditions from output
+        let max_cost = 1_000_000_000;
+        let (output_bytes, mut conditions) = run_clvm_with_conditions(&evaluator, &instance_bytecode, &args, max_cost)
             .map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
             })?;
 
-        // Parse conditions from output (list-based programs return condition structures)
-        let mut conditions = clvm_zk_core::deserialize_clvm_output_to_conditions(&output_bytes)
-            .unwrap_or(_runtime_conditions); // fallback to runtime conditions if parsing fails
+        // Validate signature conditions (AGG_SIG_UNSAFE=49, AGG_SIG_ME=50)
+        // These must be verified inside the ZK proof, not just output as conditions
+        for condition in &conditions {
+            if condition.opcode == 49 || condition.opcode == 50 {
+                // AGG_SIG_UNSAFE / AGG_SIG_ME: (pubkey, message, signature)
+                if condition.args.len() != 3 {
+                    return Err(ClvmZkError::ProofGenerationFailed(format!(
+                        "AGG_SIG condition requires 3 args, got {}",
+                        condition.args.len()
+                    )));
+                }
+                let pubkey = &condition.args[0];
+                let message = &condition.args[1];
+                let signature = &condition.args[2];
+
+                // Verify signature using ECDSA (for our protocol)
+                match ecdsa_verifier(pubkey, message, signature) {
+                    Ok(true) => {} // Signature valid
+                    Ok(false) => {
+                        return Err(ClvmZkError::ProofGenerationFailed(
+                            "AGG_SIG condition: signature verification failed".to_string(),
+                        ));
+                    }
+                    Err(e) => {
+                        return Err(ClvmZkError::ProofGenerationFailed(format!(
+                            "AGG_SIG condition: verification error: {}",
+                            e
+                        )));
+                    }
+                }
+            }
+        }
 
         // Transform CREATE_COIN conditions for output privacy
         let mut has_transformations = false;

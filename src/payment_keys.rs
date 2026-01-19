@@ -1,11 +1,11 @@
-/// ECDH payment keys for unlinkable offers
-///
-/// Payment keys enable receiver-derived addresses:
-/// - maker publishes ephemeral payment pubkey
-/// - taker derives shared secret via ECDH
-/// - payment address unlinkable to maker's identity
-///
-/// Uses x25519 (Curve25519) for ECDH, consistent with encrypted note infrastructure
+//! ECDH payment keys for unlinkable offers
+//!
+//! Payment keys enable receiver-derived addresses:
+//! - maker publishes ephemeral payment pubkey
+//! - taker derives shared secret via ECDH
+//! - payment address unlinkable to maker's identity
+//!
+//! Uses x25519 (Curve25519) for ECDH, consistent with encrypted note infrastructure
 
 use sha2::{Digest, Sha256};
 use x25519_dalek::{PublicKey, StaticSecret};

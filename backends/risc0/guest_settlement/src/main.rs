@@ -293,7 +293,7 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32]) {
     // (don't recompute it - use coin.serial_commitment which we just verified)
     let mut coin_commit_data = Vec::new();
     coin_commit_data.extend_from_slice(b"clvm_zk_coin_v1.0");
-    coin_commit_data.extend_from_slice(&coin.amount.to_le_bytes());
+    coin_commit_data.extend_from_slice(&coin.amount.to_be_bytes());  // BIG-ENDIAN (matches core lib)
     coin_commit_data.extend_from_slice(&coin.puzzle_hash);
     coin_commit_data.extend_from_slice(&coin.serial_commitment);  // use verified commitment!
     let coin_commitment_hash = Impl::hash_bytes(&coin_commit_data);
@@ -332,7 +332,7 @@ fn create_coin_commitment(amount: u64, puzzle: &[u8; 32], serial: &[u8; 32], ran
     // then create coin commitment
     let mut coin_commit_data = Vec::new();
     coin_commit_data.extend_from_slice(b"clvm_zk_coin_v1.0");
-    coin_commit_data.extend_from_slice(&amount.to_le_bytes());
+    coin_commit_data.extend_from_slice(&amount.to_be_bytes());  // BIG-ENDIAN (matches core lib)
     coin_commit_data.extend_from_slice(puzzle);
     coin_commit_data.extend_from_slice(serial_commitment.as_bytes());
 

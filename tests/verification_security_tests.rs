@@ -3,6 +3,11 @@
 //! These tests ensure that critical security bugs don't regress,
 //! particularly the program hash and output validation issues
 //! that were accidentally removed during the backend refactor.
+//!
+//! These tests require a real zkVM backend (sp1 or risc0), not mock.
+
+#![cfg(any(feature = "sp1", feature = "risc0"))]
+
 use clvm_zk::{ClvmZkProver, ProgramParameter};
 use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 

@@ -69,7 +69,7 @@ fn fuzz_mixed_parameters() -> Result<(), Box<dyn std::error::Error>> {
 
         // Verify the proof
         let (verified, _) = ClvmZkProver::verify_proof(
-            compile_chialisp_template_hash_default(&expression).unwrap(),
+            compile_chialisp_template_hash_default(expression).unwrap(),
             &proof,
             Some(&output.output),
         )

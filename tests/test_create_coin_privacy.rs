@@ -1,4 +1,5 @@
-/// Test CREATE_COIN transformation for output privacy
+/// Test 51 transformation for output privacy
+#[cfg(feature = "mock")]
 use clvm_zk_core::{extract_coin_commitments, hash_data, ProgramParameter};
 
 #[cfg(feature = "mock")]
@@ -15,10 +16,10 @@ fn test_create_coin_private_mode() {
     let recipient_puzzle = [0x42u8; 32];
     let amount: u64 = 1000;
 
-    // Chialisp program with 4-arg CREATE_COIN (private mode)
+    // Chialisp program with 4-arg 51 (private mode)
     let program = r#"
         (mod (recipient amount serial_num serial_rand)
-            (list (list CREATE_COIN recipient amount serial_num serial_rand)))
+            (list (list 51 recipient amount serial_num serial_rand)))
     "#;
 
     // Parameters: recipient, amount, serial_number, serial_randomness
@@ -52,7 +53,7 @@ fn test_create_coin_private_mode() {
 
     assert_eq!(commitments[0], expected_commitment, "commitment mismatch");
 
-    println!("✓ CREATE_COIN private mode working");
+    println!("✓ 51 private mode working");
     println!("  coin_commitment: {}", hex::encode(commitments[0]));
 }
 
@@ -74,8 +75,8 @@ fn test_create_coin_multiple_outputs() {
     let program = r#"
         (mod (r1 a1 s1 sr1 r2 a2 s2 sr2)
             (list
-                (list CREATE_COIN r1 a1 s1 sr1)
-                (list CREATE_COIN r2 a2 s2 sr2)))
+                (list 51 r1 a1 s1 sr1)
+                (list 51 r2 a2 s2 sr2)))
     "#;
 
     let params = vec![
@@ -107,7 +108,7 @@ fn test_create_coin_multiple_outputs() {
     assert_eq!(commitments[0], expected1, "commitment 1 mismatch");
     assert_eq!(commitments[1], expected2, "commitment 2 mismatch");
 
-    println!("✓ CREATE_COIN multiple outputs working");
+    println!("✓ 51 multiple outputs working");
     println!("  commitment 1: {}", hex::encode(commitments[0]));
     println!("  commitment 2: {}", hex::encode(commitments[1]));
 }
@@ -115,13 +116,13 @@ fn test_create_coin_multiple_outputs() {
 #[test]
 #[cfg(feature = "mock")]
 fn test_create_coin_transparent_mode() {
-    // Test backward compatibility: 2-arg CREATE_COIN should pass through unchanged
+    // Test backward compatibility: 2-arg 51 should pass through unchanged
     let recipient = [0x33u8; 32];
     let amount: u64 = 777;
 
     let program = r#"
         (mod (recipient amount)
-            (list (list CREATE_COIN recipient amount)))
+            (list (list 51 recipient amount)))
     "#;
 
     let params = vec![
@@ -139,7 +140,7 @@ fn test_create_coin_transparent_mode() {
         .expect("failed to parse conditions");
 
     assert_eq!(conditions.len(), 1, "expected 1 condition");
-    assert_eq!(conditions[0].opcode, 51, "expected CREATE_COIN opcode");
+    assert_eq!(conditions[0].opcode, 51, "expected 51 opcode");
     assert_eq!(
         conditions[0].args.len(),
         2,
@@ -147,10 +148,11 @@ fn test_create_coin_transparent_mode() {
     );
     assert_eq!(&conditions[0].args[0], &recipient.to_vec());
 
-    println!("✓ CREATE_COIN transparent mode (backward compatibility) working");
+    println!("✓ 51 transparent mode (backward compatibility) working");
 }
 
 // Helper: compute coin_commitment
+#[cfg(feature = "mock")]
 fn compute_coin_commitment(
     puzzle_hash: &[u8; 32],
     amount: u64,
@@ -176,6 +178,7 @@ fn compute_coin_commitment(
 }
 
 // Helper: deserialize conditions for transparent mode test
+#[cfg(feature = "mock")]
 fn deserialize_output_conditions(
     output: &[u8],
 ) -> Result<Vec<clvm_zk_core::Condition>, &'static str> {

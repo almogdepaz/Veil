@@ -12,14 +12,21 @@ use alloc::{
 use super::{ast::*, CompileError};
 use crate::{operators::ClvmOperator, ClvmValue};
 
-/// Convert i64 to ClvmValue using consistent encoding
+/// Convert i64 to ClvmValue using consistent CLVM encoding
+///
+/// CLVM uses signed big-endian encoding where the high bit indicates sign.
+/// - 0 encodes as empty atom
+/// - 1-127 encode as single byte (0x01-0x7F)
+/// - 128-255 need leading 0x00 to avoid sign bit (0x0080-0x00FF)
+/// - Negative numbers have high bit set
 pub fn number_to_clvm_value(num: i64) -> ClvmValue {
     if num == 0 {
         ClvmValue::Atom(vec![])
-    } else if num > 0 && num <= 255 {
+    } else if num > 0 && num <= 127 {
+        // Single byte encoding only for 1-127 (0x01-0x7F)
         ClvmValue::Atom(vec![num as u8])
     } else {
-        // For larger numbers, use big endian encoding
+        // For larger numbers or numbers requiring sign handling, use big endian encoding
         let mut bytes = Vec::new();
         let mut n = num.unsigned_abs();
         while n > 0 {
@@ -28,8 +35,13 @@ pub fn number_to_clvm_value(num: i64) -> ClvmValue {
         }
         bytes.reverse();
 
+        // For positive numbers where high bit is set, add leading 0x00
+        // to prevent sign bit interpretation (e.g., 128 = 0x0080, not 0x80)
+        if num > 0 && !bytes.is_empty() && (bytes[0] & 0x80) != 0 {
+            bytes.insert(0, 0x00);
+        }
         // Handle negative numbers by setting high bit
-        if num < 0 {
+        else if num < 0 {
             if let Some(first) = bytes.first_mut() {
                 *first |= 0x80;
             }
@@ -145,7 +157,11 @@ mod tests {
     fn test_number_encoding() {
         assert_eq!(number_to_clvm_value(0), ClvmValue::Atom(vec![]));
         assert_eq!(number_to_clvm_value(42), ClvmValue::Atom(vec![42]));
-        assert_eq!(number_to_clvm_value(255), ClvmValue::Atom(vec![255]));
+        assert_eq!(number_to_clvm_value(127), ClvmValue::Atom(vec![127])); // Max single-byte positive
+
+        // 128+ need leading 0x00 to avoid sign bit interpretation
+        assert_eq!(number_to_clvm_value(128), ClvmValue::Atom(vec![0, 128]));
+        assert_eq!(number_to_clvm_value(255), ClvmValue::Atom(vec![0, 255]));
 
         // Larger numbers should be multi-byte
         let large_num = number_to_clvm_value(1000);

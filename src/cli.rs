@@ -759,6 +759,11 @@ struct StoredOffer {
     maker_pubkey: [u8; 32],  // maker's encryption public key for payment
     maker_bundle: crate::protocol::PrivateSpendBundle,
     created_at: u64,
+    // maker's change coin data (for tracking after settlement)
+    change_amount: u64,
+    change_puzzle: [u8; 32],
+    change_serial: [u8; 32],
+    change_rand: [u8; 32],
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -2218,7 +2223,7 @@ fn offer_create_command(
         &spend_coin.to_private_coin(),
         &delegated_code,
         &delegated_params,
-        &spend_coin.secrets(),
+        spend_coin.secrets(),
         merkle_path,
         merkle_root,
         leaf_index,
@@ -2249,6 +2254,10 @@ fn offer_create_command(
         maker_pubkey,
         maker_bundle: conditional_proof.clone(),
         created_at: 0,
+        change_amount,
+        change_puzzle,
+        change_serial,
+        change_rand,
     });
 
     state.save(data_dir)?;
@@ -2306,9 +2315,6 @@ fn offer_take_command(
     }
 
     println!("generating settlement proof (this may take a moment)...");
-    println!("⚠️  NOTE: settlement prover not yet fully implemented");
-    println!("    this will fail with 'not implemented' error");
-    println!("    phases 1-3 complete, phase 6 (guest impl) still needed");
 
     // generate ephemeral keypair for ECDH
     let mut taker_ephemeral_privkey = [0u8; 32];
@@ -2362,21 +2368,124 @@ fn offer_take_command(
         change_rand,
     };
 
-    // call settlement prover (will fail with "not implemented" for now)
-    let _settlement_proof = crate::protocol::prove_settlement(settlement_params)
+    // generate settlement proof
+    let settlement_proof = crate::protocol::prove_settlement(settlement_params)
         .map_err(|e| ClvmZkError::InvalidProgram(format!("settlement proof failed: {:?}", e)))?;
 
-    // TODO: once settlement prover works:
-    // 1. submit settlement_proof to simulator
-    // 2. mark taker's coin as spent
-    // 3. add all 5 commitments to tree (maker_change, payment, taker_change)
-    // 4. create encrypted notes for payment discovery
+    println!("✅ settlement proof generated");
+
+    // process settlement output: add nullifiers and commitments to simulator state
+    state.simulator.process_settlement(&settlement_proof.output);
+
+    println!("   added 2 nullifiers and 4 commitments to state");
+
+    // 3. create taker's 3 coins with full secrets (payment, goods, change)
+
+    // compute payment_puzzle via ECDH (same as guest does)
+    use x25519_dalek::{PublicKey, StaticSecret};
+    let taker_secret = StaticSecret::from(taker_ephemeral_privkey);
+    let maker_public = PublicKey::from(offer.maker_pubkey);
+    let shared_secret = taker_secret.diffie_hellman(&maker_public);
+
+    let mut payment_puzzle_data = Vec::new();
+    payment_puzzle_data.extend_from_slice(b"ecdh_payment_v1");
+    payment_puzzle_data.extend_from_slice(shared_secret.as_bytes());
+    let payment_puzzle = crate::crypto_utils::hash_data_default(&payment_puzzle_data);
+
+    // calculate amounts
+    let payment_amount = offer.requested;
+    let goods_amount = offer.offered;
+    let change_amount = taker_coin.amount() - offer.requested;
+
+    // create 3 coins for taker's wallet
+    let taker_wallet = state.wallets.get_mut(taker_name).unwrap();
+
+    // 1. payment coin (taker → maker, asset B)
+    let payment_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
+        &payment_serial,
+        &payment_rand,
+        crate::crypto_utils::hash_data_default,
+    );
+    let payment_coin = crate::protocol::PrivateCoin::new(
+        payment_puzzle,
+        payment_amount,
+        payment_serial_commitment,
+    );
+    let payment_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(
+        payment_serial,
+        payment_rand,
+    );
+    let payment_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
+        coin: payment_coin,
+        secrets: payment_secrets,
+        account_index: 0,  // non-HD coin
+        coin_index: 0,
+    };
+    taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
+        wallet_coin: payment_wallet_coin,
+        program: "(mod () (q . ()))".to_string(),  // placeholder program
+        spent: false,
+    });
+
+    // 2. goods coin (maker → taker, asset A)
+    let goods_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
+        &goods_serial,
+        &goods_rand,
+        crate::crypto_utils::hash_data_default,
+    );
+    let goods_coin = crate::protocol::PrivateCoin::new(
+        taker_goods_puzzle,
+        goods_amount,
+        goods_serial_commitment,
+    );
+    let goods_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(
+        goods_serial,
+        goods_rand,
+    );
+    let goods_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
+        coin: goods_coin,
+        secrets: goods_secrets,
+        account_index: 0,
+        coin_index: 0,
+    };
+    taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
+        wallet_coin: goods_wallet_coin,
+        program: "(mod () (q . ()))".to_string(),
+        spent: false,
+    });
+
+    // 3. change coin (taker's leftover, asset B)
+    let change_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
+        &change_serial,
+        &change_rand,
+        crate::crypto_utils::hash_data_default,
+    );
+    let change_coin = crate::protocol::PrivateCoin::new(
+        taker_change_puzzle,
+        change_amount,
+        change_serial_commitment,
+    );
+    let change_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(
+        change_serial,
+        change_rand,
+    );
+    let change_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
+        coin: change_coin,
+        secrets: change_secrets,
+        account_index: 0,
+        coin_index: 0,
+    };
+    taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
+        wallet_coin: change_wallet_coin,
+        program: "(mod () (q . ()))".to_string(),
+        spent: false,
+    });
+
+    println!("   added 3 coins to taker's wallet (payment, goods, change)");
+
+    // 4. TODO: create encrypted payment notes for maker to discover payment coin
+
     // 5. remove offer from pending
-
-    println!("✅ settlement proof generated (NOT - this is placeholder)");
-    println!("   once phase 6 is done, this will actually work");
-
-    // remove offer
     state.pending_offers.remove(offer_id);
 
     state.save(data_dir)?;
@@ -2386,10 +2495,6 @@ fn offer_take_command(
     println!("   maker ({}) offered: {} mojos", offer.maker, offer.offered);
     println!("   taker ({}) paying: {} mojos", taker_name, offer.requested);
     println!("   maker proof: {} bytes (ConditionalSpend)", offer.maker_bundle.proof_size());
-    println!();
-    println!("⚠️  NOTE: settlement proof generation not yet complete");
-    println!("    once phase 6 is done, will produce single Settlement proof");
-    println!("    containing both nullifiers + all 5 commitments");
 
     Ok(())
 }

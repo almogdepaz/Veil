@@ -24,9 +24,17 @@ pub use frontend::*;
 pub use parser::*;
 
 /// Compilation context for tracking functions and variables
+/// Stored function definition for inlining
+#[derive(Clone)]
+pub struct FunctionDef {
+    pub arity: usize,
+    pub parameters: Vec<String>,
+    pub body: Expression,
+}
+
 pub struct CompilerContext {
-    /// Function signatures: name -> parameter count
-    pub functions: BTreeMap<String, usize>,
+    /// Function definitions: name -> (arity, parameters, body)
+    pub functions: BTreeMap<String, FunctionDef>,
     /// Current parameter names in scope
     parameters: Vec<String>,
     /// Call stack for recursion detection
@@ -54,12 +62,17 @@ impl CompilerContext {
         }
     }
 
-    pub fn add_function_signature(&mut self, name: String, arity: usize) {
-        self.functions.insert(name, arity);
+    pub fn add_function(&mut self, name: String, parameters: Vec<String>, body: Expression) {
+        let arity = parameters.len();
+        self.functions.insert(name, FunctionDef { arity, parameters, body });
     }
 
     pub fn get_function_arity(&self, name: &str) -> Option<usize> {
-        self.functions.get(name).copied()
+        self.functions.get(name).map(|f| f.arity)
+    }
+
+    pub fn get_function(&self, name: &str) -> Option<&FunctionDef> {
+        self.functions.get(name)
     }
 
     pub fn get_parameter_index(&self, name: &str) -> Option<usize> {
@@ -92,43 +105,33 @@ impl CompilerContext {
     }
 }
 
-// Template compilation: converts chialisp source to deterministic binary bytecode for hashing.
+// Compilation using clvm_tools_rs - the official Chia chialisp compiler.
 //
-// Why binary bytecode?
-// - Template mode converts variable names to positional indices: "x" → param[0] → (f env)
-// - Binary CLVM format provides canonical serialization independent of variable names
-// - Same program logic always produces identical bytecode hash, even with different names:
-//   "(mod (x y) (+ x y))" ≡ "(mod (a b) (+ a b))" → same template_bytecode → same hash
+// This provides full chialisp support including:
+// - defun with proper recursion support
+// - defmacro (compile-time macros)
+// - if/list and other standard macros
+// - All chialisp language features
 //
-// Flow: chialisp → AST → ClvmValue → binary bytecode → hash(bytecode) → program_hash
-// The bytecode is then parsed back to ClvmValue for execution (see clvm_parser.rs)
-fn compile_chialisp_common(
-    hasher: Hasher,
-    source: &str,
-) -> Result<(ModuleAst, Vec<u8>, [u8; 32]), CompileError> {
-    let sexp = parse_chialisp(source).map_err(|e| CompileError::ParseError(format!("{:?}", e)))?;
-    let module = sexp_to_module(sexp)?;
-    let template_bytecode = compile_module_unified(&module, CompilationMode::Template)?;
-    let program_hash = generate_program_hash(hasher, &template_bytecode);
+// Parameters are passed at runtime via the CLVM environment, not substituted at compile time.
+// Use `serialize_params_to_clvm` to convert ProgramParameters to CLVM args format.
 
-    Ok((module, template_bytecode, program_hash))
-}
-
-/// Compile Chialisp to bytecode with parameter substitution
+/// Compile Chialisp to bytecode using clvm_tools_rs compiler.
+///
+/// Note: Parameters are NOT substituted at compile time. The compiled bytecode expects
+/// parameters to be passed at runtime via the CLVM environment (args).
+/// Use `serialize_params_to_clvm` to convert ProgramParameters to CLVM args format.
 pub fn compile_chialisp_to_bytecode(
     hasher: Hasher,
     source: &str,
-    program_parameters: &[crate::ProgramParameter],
 ) -> Result<(Vec<u8>, [u8; 32]), CompileError> {
-    let (module, template_bytecode, program_hash) = compile_chialisp_common(hasher, source)?;
+    // Use clvm_tools_rs's full compiler with recursion support
+    let bytecode = clvm_tools_rs::compile_chialisp(source)
+        .map_err(|e| CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e)))?;
 
-    let instance_bytecode = if module.parameters.is_empty() {
-        template_bytecode.clone()
-    } else {
-        compile_module_with_functions(&module, program_parameters)?
-    };
+    let program_hash = generate_program_hash(hasher, &bytecode);
 
-    Ok((instance_bytecode, program_hash))
+    Ok((bytecode, program_hash))
 }
 
 /// Get program hash for template
@@ -136,184 +139,18 @@ pub fn compile_chialisp_template_hash(
     hasher: Hasher,
     source: &str,
 ) -> Result<[u8; 32], CompileError> {
-    let (_module, _template_bytecode, program_hash) = compile_chialisp_common(hasher, source)?;
-    Ok(program_hash)
+    let bytecode = clvm_tools_rs::compile_chialisp(source)
+        .map_err(|e| CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e)))?;
+    Ok(generate_program_hash(hasher, &bytecode))
 }
 
 /// Compile Chialisp to get template hash using default SHA-256 hasher
 /// Only available with sha2-hasher feature
 #[cfg(feature = "sha2-hasher")]
 pub fn compile_chialisp_template_hash_default(source: &str) -> Result<[u8; 32], CompileError> {
-    let (_module, _template_bytecode, program_hash) =
-        compile_chialisp_common(crate::hash_data, source)?;
-    Ok(program_hash)
-}
-
-/// Compile Chialisp to bytecode and function table with custom hasher
-/// This is the backend-agnostic version that all backends should use
-pub fn compile_chialisp_to_bytecode_with_table(
-    hasher: Hasher,
-    source: &str,
-    program_parameters: &[crate::ProgramParameter],
-) -> Result<(Vec<u8>, [u8; 32], crate::RuntimeFunctionTable), CompileError> {
-    let (module, template_bytecode, program_hash) = compile_chialisp_common(hasher, source)?;
-
-    // Build function table from module
-    let mut function_table = crate::RuntimeFunctionTable::new();
-    for helper in &module.helpers {
-        match helper {
-            HelperDefinition::Function {
-                name,
-                parameters,
-                body,
-                ..
-            } => {
-                // Compile function body to ClvmValue
-                let mut func_context = CompilerContext::with_parameters_and_mode(
-                    parameters.clone(),
-                    CompilationMode::Template,
-                );
-                // Include all module functions in context for recursive calls
-                for other_helper in &module.helpers {
-                    match other_helper {
-                        HelperDefinition::Function {
-                            name: other_name,
-                            parameters: other_params,
-                            ..
-                        } => {
-                            func_context
-                                .add_function_signature(other_name.clone(), other_params.len());
-                        }
-                    }
-                }
-                let compiled_body = compile_expression_unified(body, &mut func_context)?;
-
-                let runtime_function = crate::RuntimeFunction {
-                    parameters: parameters.clone(),
-                    body: compiled_body,
-                };
-                function_table.add_function(name.clone(), runtime_function);
-            }
-        }
-    }
-
-    let instance_bytecode = if module.parameters.is_empty() {
-        template_bytecode.clone()
-    } else {
-        compile_module_with_functions(&module, program_parameters)?
-    };
-
-    Ok((instance_bytecode, program_hash, function_table))
-}
-
-/// Compile module with function definitions and parameter substitution
-fn compile_module_with_functions(
-    module: &ModuleAst,
-    program_parameters: &[crate::ProgramParameter],
-) -> Result<Vec<u8>, CompileError> {
-    if module.parameters.len() != program_parameters.len() {
-        return Err(CompileError::ArityMismatch {
-            operator: "module parameters".to_string(),
-            expected: module.parameters.len(),
-            actual: program_parameters.len(),
-        });
-    }
-
-    let substituted_module = substitute_values_in_module(module, program_parameters)?;
-
-    compile_module_unified(&substituted_module, CompilationMode::Instance)
-}
-
-fn substitute_values_in_module(
-    module: &ModuleAst,
-    program_parameters: &[crate::ProgramParameter],
-) -> Result<ModuleAst, CompileError> {
-    let substituted_body =
-        substitute_values_in_expression(&module.body, &module.parameters, program_parameters)?;
-
-    let mut substituted_helpers = Vec::new();
-    for helper in &module.helpers {
-        match helper {
-            HelperDefinition::Function {
-                name,
-                parameters,
-                body,
-                inline,
-            } => {
-                let substituted_function_body =
-                    substitute_values_in_expression(body, &module.parameters, program_parameters)?;
-                substituted_helpers.push(HelperDefinition::Function {
-                    name: name.clone(),
-                    parameters: parameters.clone(),
-                    body: substituted_function_body,
-                    inline: *inline,
-                });
-            }
-        }
-    }
-
-    Ok(ModuleAst {
-        parameters: vec![],
-        helpers: substituted_helpers,
-        body: substituted_body,
-    })
-}
-
-fn substitute_values_in_expression(
-    expr: &Expression,
-    param_names: &[String],
-    program_parameters: &[crate::ProgramParameter],
-) -> Result<Expression, CompileError> {
-    match expr {
-        Expression::Variable(name) => {
-            if let Some(index) = param_names.iter().position(|p| p == name) {
-                match &program_parameters[index] {
-                    crate::ProgramParameter::Int(val) => Ok(Expression::Number(*val as i64)),
-                    crate::ProgramParameter::Bytes(bytes) => Ok(Expression::Bytes(bytes.clone())),
-                }
-            } else {
-                Ok(expr.clone())
-            }
-        }
-        Expression::Number(_) | Expression::String(_) | Expression::Bytes(_) | Expression::Nil => {
-            Ok(expr.clone())
-        }
-        Expression::Operation {
-            operator,
-            arguments,
-        } => {
-            let substituted_args = arguments
-                .iter()
-                .map(|arg| substitute_values_in_expression(arg, param_names, program_parameters))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(Expression::Operation {
-                operator: operator.clone(),
-                arguments: substituted_args,
-            })
-        }
-        Expression::FunctionCall { name, arguments } => {
-            let substituted_args = arguments
-                .iter()
-                .map(|arg| substitute_values_in_expression(arg, param_names, program_parameters))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(Expression::FunctionCall {
-                name: name.clone(),
-                arguments: substituted_args,
-            })
-        }
-        Expression::List(items) => {
-            let substituted_items = items
-                .iter()
-                .map(|item| substitute_values_in_expression(item, param_names, program_parameters))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(Expression::List(substituted_items))
-        }
-        Expression::Quote(inner) => {
-            let substituted_inner =
-                substitute_values_in_expression(inner, param_names, program_parameters)?;
-            Ok(Expression::Quote(Box::new(substituted_inner)))
-        }
-    }
+    let bytecode = clvm_tools_rs::compile_chialisp(source)
+        .map_err(|e| CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e)))?;
+    Ok(generate_program_hash(crate::hash_data, &bytecode))
 }
 
 /// Unified expression compiler with mode parameter
@@ -340,8 +177,15 @@ pub fn compile_expression_unified(
                 .map(|arg| compile_expression_unified(arg, context))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let op_atom = ClvmValue::Atom(vec![operator.opcode()]);
-            create_cons_list(op_atom, compiled_args)
+            // Check if this is a condition operator (should be compiled as data, not operator call)
+            if operator.is_condition_operator() {
+                // Compile condition as a quoted list: (q . (opcode arg1 arg2 ...))
+                // This creates a condition VALUE that can be returned as program output
+                compile_condition_as_list(operator.opcode(), compiled_args)
+            } else {
+                let op_atom = ClvmValue::Atom(vec![operator.opcode()]);
+                create_cons_list(op_atom, compiled_args)
+            }
         }
         Expression::FunctionCall { name, arguments } => {
             compile_function_call_unified(name, arguments, context)
@@ -410,33 +254,89 @@ fn compile_function_call_unified(
     arguments: &[Expression],
     context: &mut CompilerContext,
 ) -> Result<ClvmValue, CompileError> {
-    let arity = context
-        .get_function_arity(name)
-        .ok_or_else(|| CompileError::UnknownFunction(name.to_string()))?;
+    let func_def = context
+        .get_function(name)
+        .ok_or_else(|| CompileError::UnknownFunction(name.to_string()))?
+        .clone();
 
-    validate_function_call(name, arguments, arity, context.get_call_stack())?;
+    validate_function_call(name, arguments, func_def.arity, context.get_call_stack())?;
 
-    // Use CallFunction opcode to look up pre-compiled function from function table at runtime
-    // This avoids infinite recursion during compilation
+    // Check for recursion - if recursive, we need special handling
+    if context.check_recursion(name) {
+        return Err(CompileError::InvalidModStructure(format!(
+            "Recursive function '{}' detected - recursion not yet supported with inlining",
+            name
+        )));
+    }
 
-    // CallFunction format: (CALL_FUNCTION "function_name" arg1 arg2 ...)
-    let call_function_op = ClvmValue::Atom(vec![150]); // CallFunction opcode
+    // Push function onto call stack to detect recursion
+    context.push_call(name.to_string());
 
-    // Function name as literal atom (NOT quoted - it's extracted directly)
-    let function_name_atom = ClvmValue::Atom(name.as_bytes().to_vec());
+    // Inline the function using CLVM apply pattern:
+    // (a (q . <function-body>) <environment>)
+    //
+    // Where environment is a list of the argument values
 
-    // Compile arguments
+    // Compile the function body in Template mode since function parameters
+    // are accessed via environment references (not substituted values)
+    let mut func_context = CompilerContext::with_parameters_and_mode(
+        func_def.parameters.clone(),
+        CompilationMode::Template,
+    );
+    // Copy function definitions so nested calls work
+    func_context.functions = context.functions.clone();
+    func_context.call_stack = context.call_stack.clone();
+
+    let compiled_body = compile_expression_unified(&func_def.body, &mut func_context)?;
+
+    // Pop function from call stack
+    context.pop_call();
+
+    // Quote the function body: (q . <body>)
+    let quoted_body = ClvmValue::Cons(
+        Box::new(ClvmValue::Atom(vec![ClvmOperator::Quote.opcode()])),
+        Box::new(compiled_body),
+    );
+
+    // Compile arguments and build environment list
     let compiled_args: Vec<ClvmValue> = arguments
         .iter()
         .map(|arg| compile_expression_unified(arg, context))
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Build the call: (200 "name" arg1 arg2 ...)
-    // First element is the operator, rest are arguments
-    let mut all_args = vec![function_name_atom];
-    all_args.extend(compiled_args);
+    // Build environment using cons operations so arguments are EVALUATED at runtime.
+    // This creates: (c arg1 (c arg2 (c arg3 (q . nil))))
+    // When evaluated, this becomes (val1 val2 val3) - a list of evaluated values.
+    //
+    // Previously we built a quoted static structure (q . (arg1 arg2 arg3)),
+    // but that meant (f 1) inside the function got the quoted code (q . 5)
+    // instead of the value 5.
+    let env = if compiled_args.is_empty() {
+        // Empty environment: (q . nil)
+        ClvmValue::Cons(
+            Box::new(ClvmValue::Atom(vec![ClvmOperator::Quote.opcode()])),
+            Box::new(ClvmValue::Atom(vec![])),
+        )
+    } else {
+        // Build nested cons operations from right to left
+        // Start with (q . nil) for the tail
+        let mut env_expr = ClvmValue::Cons(
+            Box::new(ClvmValue::Atom(vec![ClvmOperator::Quote.opcode()])),
+            Box::new(ClvmValue::Atom(vec![])),
+        );
 
-    create_cons_list(call_function_op, all_args)
+        // Wrap each argument with cons: (c arg env_expr)
+        for arg in compiled_args.into_iter().rev() {
+            let cons_op = ClvmValue::Atom(vec![ClvmOperator::Cons.opcode()]);
+            env_expr = create_cons_list(cons_op, vec![arg, env_expr])?;
+        }
+
+        env_expr
+    };
+
+    // Build apply expression: (a <quoted-body> <env>)
+    let apply_op = ClvmValue::Atom(vec![ClvmOperator::Apply.opcode()]);
+    create_cons_list(apply_op, vec![quoted_body, env])
 }
 
 /// Create CLVM code to access parameter at given index (for Template mode)
@@ -484,18 +384,44 @@ fn create_parameter_access(index: usize) -> ClvmValue {
     }
 }
 
+/// Compile a condition operator as a list-building expression
+/// Instead of (opcode arg1 arg2) as an operator call, we generate:
+/// (c (q . opcode) (c arg1 (c arg2 (q))))
+/// This builds a list (opcode arg1 arg2) at runtime that can be returned as output
+fn compile_condition_as_list(opcode: u8, args: Vec<ClvmValue>) -> Result<ClvmValue, CompileError> {
+    // Start with quoted nil for the tail
+    let nil = ClvmValue::Atom(vec![]);
+    let quote_op = ClvmValue::Atom(vec![ClvmOperator::Quote.opcode()]);
+    let mut result = ClvmValue::Cons(Box::new(quote_op), Box::new(nil));
+
+    // Wrap each argument with cons (from right to left)
+    for arg in args.into_iter().rev() {
+        let cons_op = ClvmValue::Atom(vec![ClvmOperator::Cons.opcode()]);
+        result = create_cons_list(cons_op, vec![arg, result])?;
+    }
+
+    // Finally, cons the quoted opcode at the front
+    let quoted_opcode = ClvmValue::Cons(
+        Box::new(ClvmValue::Atom(vec![ClvmOperator::Quote.opcode()])),
+        Box::new(ClvmValue::Atom(vec![opcode])),
+    );
+    let cons_op = ClvmValue::Atom(vec![ClvmOperator::Cons.opcode()]);
+    create_cons_list(cons_op, vec![quoted_opcode, result])
+}
+
 pub fn compile_module_unified(
     module: &ModuleAst,
     mode: CompilationMode,
 ) -> Result<Vec<u8>, CompileError> {
     let mut context = CompilerContext::with_parameters_and_mode(module.parameters.clone(), mode);
 
+    // Register all functions with their full definitions for inlining
     for helper in &module.helpers {
         match helper {
             HelperDefinition::Function {
-                name, parameters, ..
+                name, parameters, body, ..
             } => {
-                context.add_function_signature(name.clone(), parameters.len());
+                context.add_function(name.clone(), parameters.clone(), body.clone());
             }
         }
     }
@@ -523,11 +449,7 @@ mod tests {
 
     #[test]
     fn test_basic_compilation() {
-        let result = compile_chialisp_to_bytecode(
-            hash_data,
-            "(mod (x y) (+ x y))",
-            &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
-        );
+        let result = compile_chialisp_to_bytecode(hash_data, "(mod (x y) (+ x y))");
         assert!(result.is_ok());
 
         let (bytecode, program_hash) = result.unwrap();
@@ -543,7 +465,7 @@ mod tests {
                 (double n))
         "#;
 
-        let result = compile_chialisp_to_bytecode(hash_data, source, &[ProgramParameter::Int(5)]);
+        let result = compile_chialisp_to_bytecode(hash_data, source);
         assert!(result.is_ok());
 
         let (bytecode, program_hash) = result.unwrap();
@@ -555,16 +477,8 @@ mod tests {
     fn test_deterministic_hashing() {
         let source = "(mod (x y) (+ x y))";
 
-        let result1 = compile_chialisp_to_bytecode(
-            hash_data,
-            source,
-            &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
-        );
-        let result2 = compile_chialisp_to_bytecode(
-            hash_data,
-            source,
-            &[ProgramParameter::Int(10), ProgramParameter::Int(20)],
-        );
+        let result1 = compile_chialisp_to_bytecode(hash_data, source);
+        let result2 = compile_chialisp_to_bytecode(hash_data, source);
 
         assert!(result1.is_ok());
         assert!(result2.is_ok());
@@ -572,7 +486,7 @@ mod tests {
         let (_, hash1) = result1.unwrap();
         let (_, hash2) = result2.unwrap();
 
-        // Same source should produce same program hash regardless of parameter values
+        // Same source should produce same program hash
         assert_eq!(hash1, hash2);
     }
 
@@ -581,16 +495,8 @@ mod tests {
         let source1 = "(mod (x y) (+ x y))";
         let source2 = "(mod (x y) (* x y))";
 
-        let result1 = compile_chialisp_to_bytecode(
-            hash_data,
-            source1,
-            &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
-        );
-        let result2 = compile_chialisp_to_bytecode(
-            hash_data,
-            source2,
-            &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
-        );
+        let result1 = compile_chialisp_to_bytecode(hash_data, source1);
+        let result2 = compile_chialisp_to_bytecode(hash_data, source2);
 
         assert!(result1.is_ok());
         assert!(result2.is_ok());
@@ -604,21 +510,7 @@ mod tests {
 
     #[test]
     fn test_invalid_syntax() {
-        let result = compile_chialisp_to_bytecode(
-            hash_data,
-            "(mod (x y) (+ x y",
-            &[ProgramParameter::Int(5), ProgramParameter::Int(3)],
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_parameter_mismatch() {
-        let result = compile_chialisp_to_bytecode(
-            hash_data,
-            "(mod (x y) (+ x y))",
-            &[ProgramParameter::Int(5)],
-        );
+        let result = compile_chialisp_to_bytecode(hash_data, "(mod (x y) (+ x y");
         assert!(result.is_err());
     }
 
@@ -713,8 +605,8 @@ mod tests {
 
         assert_ne!(hash1, hash5);
 
-        // Test 4: Function names DO affect bytecode because CallFunction stores the name
-        // This is intentional - function names are embedded in the bytecode via CallFunction opcode
+        // Test 4: Function names DON'T affect bytecode because functions are inlined
+        // With inlining, only the function body matters, not the name
         let program6 = r#"(mod (x)
             (defun double (y) (* y 2))
             (double x))"#;
@@ -731,9 +623,9 @@ mod tests {
         let hash6 = generate_program_hash(hash_data, &template6);
         let hash7 = generate_program_hash(hash_data, &template7);
 
-        // Function names ARE stored in bytecode via CallFunction opcode (150)
-        // So different function names produce different bytecode hashes
-        assert_ne!(hash6, hash7);
+        // With function inlining, identical function bodies produce identical bytecode
+        // regardless of function names - this is the correct clvmr-compatible behavior
+        assert_eq!(hash6, hash7);
     }
 
     #[test]

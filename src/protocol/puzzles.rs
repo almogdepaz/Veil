@@ -7,6 +7,9 @@ use k256::ecdsa::{signature::Signer, Signature, SigningKey, VerifyingKey};
 /// for spending, enhancing the security of the nullifier protocol.
 use sha2::{Digest, Sha256};
 
+/// AGG_SIG_UNSAFE condition opcode
+pub const AGG_SIG_UNSAFE: u8 = 49;
+
 /// Generate a puzzle program that requires an ECDSA signature for spending
 ///
 /// The puzzle program will:
@@ -19,12 +22,15 @@ use sha2::{Digest, Sha256};
 /// * `amount` - The amount of the coin being created
 ///
 /// # Returns
-/// * A tuple of (puzzle_program_code, puzzle_hash)
+/// A tuple of (puzzle_program_code, puzzle_hash)
 pub fn create_signature_puzzle() -> Result<(String, [u8; 32]), crate::ClvmZkError> {
-    // Create a simple puzzle program that requires signature verification
-    // This will be used with the hybrid parameter system at spend time
-    let program =
-        "(mod (pubkey message signature) (agg_sig_unsafe pubkey message signature))".to_string();
+    // Create a puzzle program that outputs an AGG_SIG_UNSAFE condition
+    // The condition (49 pubkey message signature) will be verified by the backend
+    // This uses proper chialisp list construction to output the condition
+    let program = format!(
+        "(mod (pubkey message signature) (list (list {} pubkey message signature)))",
+        AGG_SIG_UNSAFE
+    );
 
     // Generate deterministic puzzle hash from the COMPILED TEMPLATE (matches backend behavior)
     let hash = compile_chialisp_template_hash_default(&program).map_err(|e| {
@@ -325,12 +331,12 @@ mod tests {
         let (signing_key, verifying_key, puzzle_program, puzzle_hash) =
             create_test_signature_setup().expect("Failed to create test signature setup");
 
-        // Verify puzzle program contains signature verification
-        assert!(puzzle_program.contains("agg_sig_unsafe"));
+        // Verify puzzle program contains AGG_SIG_UNSAFE condition (opcode 49)
+        assert!(puzzle_program.contains("49")); // AGG_SIG_UNSAFE opcode
         assert_eq!(
             puzzle_program,
-            "(mod (pubkey message signature) (agg_sig_unsafe pubkey message signature))"
-        ); // Proper Chialisp syntax
+            "(mod (pubkey message signature) (list (list 49 pubkey message signature)))"
+        ); // Proper Chialisp condition output
 
         // Create a coin with this puzzle
         let _ = [0x42; 32]; // ignored for test
