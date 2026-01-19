@@ -1526,13 +1526,16 @@ fn send_command(
 
                 // Derive coin secrets deterministically from shared_secret
                 // This allows receiver to reconstruct the same secrets during scan
-                let secrets =
-                    crate::wallet::derive_coin_secrets_from_shared_secret(&stealth_payment.shared_secret);
+                let secrets = crate::wallet::derive_coin_secrets_from_shared_secret(
+                    &stealth_payment.shared_secret,
+                );
 
                 // Create coin with stealth-derived puzzle_hash and deterministic secrets
                 let puzzle_hash = stealth_payment.puzzle_hash;
-                let serial_commitment = secrets.serial_commitment(crate::crypto_utils::hash_data_default);
-                let coin = crate::protocol::PrivateCoin::new(puzzle_hash, amount, serial_commitment);
+                let serial_commitment =
+                    secrets.serial_commitment(crate::crypto_utils::hash_data_default);
+                let coin =
+                    crate::protocol::PrivateCoin::new(puzzle_hash, amount, serial_commitment);
 
                 // add coin to global simulator state with ephemeral_pubkey
                 state.simulator.add_coin_with_ephemeral(
@@ -1664,9 +1667,8 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
             println!("  found stealth coin: {} mojos", info.coin.amount);
 
             // Derive secrets from shared_secret - same derivation sender used
-            let secrets = crate::wallet::derive_coin_secrets_from_shared_secret(
-                &stealth_data.shared_secret,
-            );
+            let secrets =
+                crate::wallet::derive_coin_secrets_from_shared_secret(&stealth_data.shared_secret);
 
             // Reconstruct the coin for the wallet
             let coin = info.coin.clone();
