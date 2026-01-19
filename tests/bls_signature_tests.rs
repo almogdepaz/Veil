@@ -241,10 +241,7 @@ fn test_bls_program_with_backend() {
 fn test_bls_invalid_signature() {
     // Test that invalid signatures are rejected
     // Using numeric opcode: bls_verify=59
-    let program = format!(
-        "(mod (pk msg sig) (if ({} pk msg sig) 1 0))",
-        BLS_VERIFY
-    );
+    let program = format!("(mod (pk msg sig) (if ({} pk msg sig) 1 0))", BLS_VERIFY);
 
     let (pk, msg, _valid_sig) = get_valid_bls_test_vector();
 

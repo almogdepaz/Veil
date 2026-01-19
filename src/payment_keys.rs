@@ -75,20 +75,14 @@ impl PaymentKey {
     }
 
     /// check if this key can spend a coin derived via ecdh
-    pub fn can_spend_ecdh_coin(
-        &self,
-        sender_pubkey: &[u8; 32],
-        puzzle_hash: &[u8; 32],
-    ) -> bool {
+    pub fn can_spend_ecdh_coin(&self, sender_pubkey: &[u8; 32], puzzle_hash: &[u8; 32]) -> bool {
         if self.privkey.is_none() {
             return false; // can't spend without privkey
         }
 
         // derive what puzzle_hash should be for this ecdh pair
-        let derived_result = derive_ecdh_puzzle_hash_from_receiver(
-            sender_pubkey,
-            &self.privkey.unwrap(),
-        );
+        let derived_result =
+            derive_ecdh_puzzle_hash_from_receiver(sender_pubkey, &self.privkey.unwrap());
 
         match derived_result {
             Ok(derived) => derived == *puzzle_hash,
@@ -194,10 +188,7 @@ pub fn derive_ecdh_puzzle_hash_from_receiver(
 /// simplified public-key-only derivation (fallback for testing/compatibility)
 ///
 /// in production, use derive_ecdh_puzzle_hash_from_sender or derive_ecdh_puzzle_hash_from_receiver
-pub fn derive_ecdh_puzzle_hash(
-    receiver_pubkey: &[u8; 32],
-    sender_pubkey: &[u8; 32],
-) -> [u8; 32] {
+pub fn derive_ecdh_puzzle_hash(receiver_pubkey: &[u8; 32], sender_pubkey: &[u8; 32]) -> [u8; 32] {
     // simplified hash-based derivation when only pubkeys available
     // NOTE: this is NOT real ECDH, just for compatibility
     let domain = b"ecdh_payment_v1_pubkey_only";
@@ -227,18 +218,12 @@ mod tests {
         let bob = PaymentKey::generate();
 
         // alice computes: shared = bob_pub * alice_priv
-        let shared_alice = derive_ecdh_puzzle_hash_from_sender(
-            &bob.pubkey,
-            &alice.privkey.unwrap(),
-        )
-        .unwrap();
+        let shared_alice =
+            derive_ecdh_puzzle_hash_from_sender(&bob.pubkey, &alice.privkey.unwrap()).unwrap();
 
         // bob computes: shared = alice_pub * bob_priv
-        let shared_bob = derive_ecdh_puzzle_hash_from_receiver(
-            &alice.pubkey,
-            &bob.privkey.unwrap(),
-        )
-        .unwrap();
+        let shared_bob =
+            derive_ecdh_puzzle_hash_from_receiver(&alice.pubkey, &bob.privkey.unwrap()).unwrap();
 
         // both should get same result!
         assert_eq!(shared_alice, shared_bob);
@@ -265,11 +250,8 @@ mod tests {
         let taker = PaymentKey::generate();
 
         // taker creates payment to maker
-        let payment_puzzle = derive_ecdh_puzzle_hash_from_sender(
-            &maker.pubkey,
-            &taker.privkey.unwrap(),
-        )
-        .unwrap();
+        let payment_puzzle =
+            derive_ecdh_puzzle_hash_from_sender(&maker.pubkey, &taker.privkey.unwrap()).unwrap();
 
         // maker should be able to identify the coin
         assert!(maker.can_spend_ecdh_coin(&taker.pubkey, &payment_puzzle));

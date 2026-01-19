@@ -756,7 +756,7 @@ struct StoredOffer {
     maker: String,
     offered: u64,
     requested: u64,
-    maker_pubkey: [u8; 32],  // maker's encryption public key for payment
+    maker_pubkey: [u8; 32], // maker's encryption public key for payment
     maker_bundle: crate::protocol::PrivateSpendBundle,
     created_at: u64,
     // maker's change coin data (for tracking after settlement)
@@ -2134,9 +2134,10 @@ fn offer_create_command(
     let mut state = SimulatorState::load(data_dir)?;
 
     // get wallet
-    let wallet = state.wallets.get(maker_name).ok_or_else(|| {
-        ClvmZkError::InvalidProgram(format!("wallet '{}' not found", maker_name))
-    })?;
+    let wallet = state
+        .wallets
+        .get(maker_name)
+        .ok_or_else(|| ClvmZkError::InvalidProgram(format!("wallet '{}' not found", maker_name)))?;
 
     // parse coins - for offer creation we need exactly one coin
     let spend_coins = parse_coin_indices(coins, wallet)?;
@@ -2178,8 +2179,10 @@ fn offer_create_command(
     let (_, change_puzzle) = crate::protocol::create_delegated_puzzle()?;
 
     // get settlement assertion puzzle
-    let (_assertion_program, _assertion_hash) = crate::protocol::create_settlement_assertion_puzzle()
-        .map_err(|e| ClvmZkError::InvalidProgram(format!("failed to create assertion puzzle: {:?}", e)))?;
+    let (_assertion_program, _assertion_hash) =
+        crate::protocol::create_settlement_assertion_puzzle().map_err(|e| {
+            ClvmZkError::InvalidProgram(format!("failed to create assertion puzzle: {:?}", e))
+        })?;
 
     // create assertion parameters
     let assertion_params = crate::protocol::create_settlement_assertion_params(
@@ -2268,10 +2271,16 @@ fn offer_create_command(
     println!("   requesting: {} mojos", requested_amount);
     println!("   change: {} mojos (returned to maker)", change_amount);
     println!("   proof type: ConditionalSpend (locked until settlement)");
-    println!("   proof generated: {} bytes", conditional_proof.proof_size());
+    println!(
+        "   proof generated: {} bytes",
+        conditional_proof.proof_size()
+    );
     println!();
     println!("takers can view with: sim offer-list");
-    println!("takers can take with: sim offer-take <taker> --offer-id {} --coins <coins>", offer_id);
+    println!(
+        "takers can take with: sim offer-take <taker> --offer-id {} --coins <coins>",
+        offer_id
+    );
 
     Ok(())
 }
@@ -2292,9 +2301,10 @@ fn offer_take_command(
     let offer = state.pending_offers[offer_id].clone();
 
     // get taker wallet
-    let wallet = state.wallets.get(taker_name).ok_or_else(|| {
-        ClvmZkError::InvalidProgram(format!("wallet '{}' not found", taker_name))
-    })?;
+    let wallet = state
+        .wallets
+        .get(taker_name)
+        .ok_or_else(|| ClvmZkError::InvalidProgram(format!("wallet '{}' not found", taker_name)))?;
 
     // parse coins - for now require exactly one coin
     let spend_coins = parse_coin_indices(coins, wallet)?;
@@ -2410,19 +2420,17 @@ fn offer_take_command(
         payment_amount,
         payment_serial_commitment,
     );
-    let payment_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(
-        payment_serial,
-        payment_rand,
-    );
+    let payment_secrets =
+        clvm_zk_core::coin_commitment::CoinSecrets::new(payment_serial, payment_rand);
     let payment_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
         coin: payment_coin,
         secrets: payment_secrets,
-        account_index: 0,  // non-HD coin
+        account_index: 0, // non-HD coin
         coin_index: 0,
     };
     taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: payment_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),  // placeholder program
+        program: "(mod () (q . ()))".to_string(), // placeholder program
         spent: false,
     });
 
@@ -2437,10 +2445,7 @@ fn offer_take_command(
         goods_amount,
         goods_serial_commitment,
     );
-    let goods_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(
-        goods_serial,
-        goods_rand,
-    );
+    let goods_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(goods_serial, goods_rand);
     let goods_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
         coin: goods_coin,
         secrets: goods_secrets,
@@ -2464,10 +2469,8 @@ fn offer_take_command(
         change_amount,
         change_serial_commitment,
     );
-    let change_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(
-        change_serial,
-        change_rand,
-    );
+    let change_secrets =
+        clvm_zk_core::coin_commitment::CoinSecrets::new(change_serial, change_rand);
     let change_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
         coin: change_coin,
         secrets: change_secrets,
@@ -2498,10 +2501,8 @@ fn offer_take_command(
         offer.change_amount,
         maker_change_serial_commitment,
     );
-    let maker_change_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(
-        offer.change_serial,
-        offer.change_rand,
-    );
+    let maker_change_secrets =
+        clvm_zk_core::coin_commitment::CoinSecrets::new(offer.change_serial, offer.change_rand);
     let maker_change_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
         coin: maker_change_coin,
         secrets: maker_change_secrets,
@@ -2526,10 +2527,8 @@ fn offer_take_command(
         payment_amount,
         maker_payment_serial_commitment,
     );
-    let maker_payment_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(
-        payment_serial,
-        payment_rand,
-    );
+    let maker_payment_secrets =
+        clvm_zk_core::coin_commitment::CoinSecrets::new(payment_serial, payment_rand);
     let maker_payment_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
         coin: maker_payment_coin,
         secrets: maker_payment_secrets,
@@ -2551,9 +2550,18 @@ fn offer_take_command(
 
     println!("✅ offer settlement initiated");
     println!("   offer id: {}", offer_id);
-    println!("   maker ({}) offered: {} mojos", offer.maker, offer.offered);
-    println!("   taker ({}) paying: {} mojos", taker_name, offer.requested);
-    println!("   maker proof: {} bytes (ConditionalSpend)", offer.maker_bundle.proof_size());
+    println!(
+        "   maker ({}) offered: {} mojos",
+        offer.maker, offer.offered
+    );
+    println!(
+        "   taker ({}) paying: {} mojos",
+        taker_name, offer.requested
+    );
+    println!(
+        "   maker proof: {} bytes (ConditionalSpend)",
+        offer.maker_bundle.proof_size()
+    );
 
     Ok(())
 }

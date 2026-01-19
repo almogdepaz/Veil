@@ -64,7 +64,14 @@ impl CompilerContext {
 
     pub fn add_function(&mut self, name: String, parameters: Vec<String>, body: Expression) {
         let arity = parameters.len();
-        self.functions.insert(name, FunctionDef { arity, parameters, body });
+        self.functions.insert(
+            name,
+            FunctionDef {
+                arity,
+                parameters,
+                body,
+            },
+        );
     }
 
     pub fn get_function_arity(&self, name: &str) -> Option<usize> {
@@ -126,8 +133,9 @@ pub fn compile_chialisp_to_bytecode(
     source: &str,
 ) -> Result<(Vec<u8>, [u8; 32]), CompileError> {
     // Use clvm_tools_rs's full compiler with recursion support
-    let bytecode = clvm_tools_rs::compile_chialisp(source)
-        .map_err(|e| CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e)))?;
+    let bytecode = clvm_tools_rs::compile_chialisp(source).map_err(|e| {
+        CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e))
+    })?;
 
     let program_hash = generate_program_hash(hasher, &bytecode);
 
@@ -139,8 +147,9 @@ pub fn compile_chialisp_template_hash(
     hasher: Hasher,
     source: &str,
 ) -> Result<[u8; 32], CompileError> {
-    let bytecode = clvm_tools_rs::compile_chialisp(source)
-        .map_err(|e| CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e)))?;
+    let bytecode = clvm_tools_rs::compile_chialisp(source).map_err(|e| {
+        CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e))
+    })?;
     Ok(generate_program_hash(hasher, &bytecode))
 }
 
@@ -148,8 +157,9 @@ pub fn compile_chialisp_template_hash(
 /// Only available with sha2-hasher feature
 #[cfg(feature = "sha2-hasher")]
 pub fn compile_chialisp_template_hash_default(source: &str) -> Result<[u8; 32], CompileError> {
-    let bytecode = clvm_tools_rs::compile_chialisp(source)
-        .map_err(|e| CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e)))?;
+    let bytecode = clvm_tools_rs::compile_chialisp(source).map_err(|e| {
+        CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e))
+    })?;
     Ok(generate_program_hash(crate::hash_data, &bytecode))
 }
 
@@ -419,7 +429,10 @@ pub fn compile_module_unified(
     for helper in &module.helpers {
         match helper {
             HelperDefinition::Function {
-                name, parameters, body, ..
+                name,
+                parameters,
+                body,
+                ..
             } => {
                 context.add_function(name.clone(), parameters.clone(), body.clone());
             }

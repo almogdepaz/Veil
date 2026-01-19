@@ -1,8 +1,8 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, run_clvm_with_conditions, create_veil_evaluator,
-    serialize_params_to_clvm,
-    ClvmResult, ClvmZkError, ProgramParameter, ProofOutput, ZKClvmResult, BLS_DST,
+    compile_chialisp_to_bytecode, create_veil_evaluator, run_clvm_with_conditions,
+    serialize_params_to_clvm, ClvmResult, ClvmZkError, ProgramParameter, ProofOutput, ZKClvmResult,
+    BLS_DST,
 };
 use sha2::{Digest, Sha256};
 
@@ -58,13 +58,9 @@ impl MockBackend {
     ) -> Result<ZKClvmResult, ClvmZkError> {
         // Compile chialisp to bytecode
         let (instance_bytecode, program_hash) =
-            compile_chialisp_to_bytecode(hash_data, chialisp_source)
-                .map_err(|e| {
-                    ClvmZkError::ProofGenerationFailed(format!(
-                        "chialisp compilation failed: {:?}",
-                        e
-                    ))
-                })?;
+            compile_chialisp_to_bytecode(hash_data, chialisp_source).map_err(|e| {
+                ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
+            })?;
 
         // Create VeilEvaluator with mock crypto functions
         let evaluator = create_veil_evaluator(hash_data, default_bls_verifier, ecdsa_verifier);
@@ -74,10 +70,10 @@ impl MockBackend {
 
         // Run CLVM bytecode and parse conditions from output
         let max_cost = 1_000_000_000;
-        let (output_bytes, mut conditions) = run_clvm_with_conditions(&evaluator, &instance_bytecode, &args, max_cost)
-            .map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
-            })?;
+        let (output_bytes, mut conditions) =
+            run_clvm_with_conditions(&evaluator, &instance_bytecode, &args, max_cost).map_err(
+                |e| ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e)),
+            )?;
 
         // Validate signature conditions (AGG_SIG_UNSAFE=49, AGG_SIG_ME=50)
         // These must be verified inside the ZK proof, not just output as conditions
@@ -234,11 +230,7 @@ impl MockBackend {
     ) -> Result<ZKClvmResult, ClvmZkError> {
         // Compile chialisp to bytecode
         let (instance_bytecode, program_hash) =
-            compile_chialisp_to_bytecode(
-                hash_data,
-                &inputs.chialisp_source,
-            )
-            .map_err(|e| {
+            compile_chialisp_to_bytecode(hash_data, &inputs.chialisp_source).map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
             })?;
 
@@ -250,10 +242,10 @@ impl MockBackend {
 
         // Run CLVM bytecode and parse conditions from output
         let max_cost = 1_000_000_000;
-        let (output_bytes, mut conditions) = run_clvm_with_conditions(&evaluator, &instance_bytecode, &args, max_cost)
-            .map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e))
-            })?;
+        let (output_bytes, mut conditions) =
+            run_clvm_with_conditions(&evaluator, &instance_bytecode, &args, max_cost).map_err(
+                |e| ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e)),
+            )?;
 
         // Validate signature conditions (AGG_SIG_UNSAFE=49, AGG_SIG_ME=50)
         // These must be verified inside the ZK proof, not just output as conditions

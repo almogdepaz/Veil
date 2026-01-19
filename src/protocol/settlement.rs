@@ -1,4 +1,4 @@
-use crate::protocol::{PrivateCoin, PrivateSpendBundle, ProtocolError, ProofType};
+use crate::protocol::{PrivateCoin, PrivateSpendBundle, ProofType, ProtocolError};
 use clvm_zk_core::coin_commitment::CoinSecrets;
 use serde::{Deserialize, Serialize};
 
@@ -10,10 +10,10 @@ use clvm_zk_risc0::CLVM_RISC0_GUEST_ID;
 pub struct SettlementOutput {
     pub maker_nullifier: [u8; 32],
     pub taker_nullifier: [u8; 32],
-    pub maker_change_commitment: [u8; 32],     // maker's change (asset A)
-    pub payment_commitment: [u8; 32],          // taker → maker (asset B, requested amount)
-    pub taker_goods_commitment: [u8; 32],      // maker → taker (asset A, offered amount)
-    pub taker_change_commitment: [u8; 32],     // taker's change (asset B, Y - requested)
+    pub maker_change_commitment: [u8; 32], // maker's change (asset A)
+    pub payment_commitment: [u8; 32],      // taker → maker (asset B, requested amount)
+    pub taker_goods_commitment: [u8; 32],  // maker → taker (asset A, offered amount)
+    pub taker_change_commitment: [u8; 32], // taker's change (asset B, Y - requested)
 }
 
 /// complete settlement proof bundle
@@ -117,7 +117,7 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
     #[cfg(feature = "risc0")]
     {
         use clvm_zk_risc0::SETTLEMENT_ELF;
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
 
         // compute serial commitment
         let mut serial_commit_data = Vec::new();
@@ -128,8 +128,11 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
 
         // deserialize maker's receipt (needed for add_assumption AND journal extraction)
         let maker_receipt: risc0_zkvm::Receipt =
-            borsh::BorshDeserialize::try_from_slice(&params.maker_proof.zk_proof)
-                .map_err(|e| ProtocolError::ProofGenerationFailed(format!("failed to deserialize maker's receipt: {e}")))?;
+            borsh::BorshDeserialize::try_from_slice(&params.maker_proof.zk_proof).map_err(|e| {
+                ProtocolError::ProofGenerationFailed(format!(
+                    "failed to deserialize maker's receipt: {e}"
+                ))
+            })?;
 
         // extract journal bytes for guest to verify (risc0 composition pattern)
         let maker_journal_bytes = maker_receipt.journal.bytes.clone();
@@ -179,7 +182,7 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
             #[cfg(feature = "risc0")]
             standard_guest_image_id: image_id_to_bytes(CLVM_RISC0_GUEST_ID),
             #[cfg(not(feature = "risc0"))]
-            standard_guest_image_id: [0u8; 32],  // placeholder for non-risc0 backends
+            standard_guest_image_id: [0u8; 32], // placeholder for non-risc0 backends
             maker_journal_bytes,
             taker_coin: TakerCoinData {
                 amount: params.taker_coin.amount,
@@ -218,11 +221,9 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
         })?;
 
         let prover = default_prover();
-        let receipt = prover
-            .prove(env, SETTLEMENT_ELF)
-            .map_err(|e| {
-                ProtocolError::ProofGenerationFailed(format!("settlement proof generation failed: {e}"))
-            })?;
+        let receipt = prover.prove(env, SETTLEMENT_ELF).map_err(|e| {
+            ProtocolError::ProofGenerationFailed(format!("settlement proof generation failed: {e}"))
+        })?;
 
         let receipt_obj = receipt.receipt;
         let output: SettlementOutput = receipt_obj.journal.decode().map_err(|e| {

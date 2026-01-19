@@ -6,9 +6,8 @@ extern crate alloc;
 use alloc::vec;
 
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, run_clvm_with_conditions, create_veil_evaluator,
-    serialize_params_to_clvm,
-    ClvmResult, Input, ProofOutput, BLS_DST,
+    compile_chialisp_to_bytecode, create_veil_evaluator, run_clvm_with_conditions,
+    serialize_params_to_clvm, ClvmResult, Input, ProofOutput, BLS_DST,
 };
 
 use bls12_381::hash_to_curve::{ExpandMsgXmd, HashToCurve};
@@ -86,11 +85,9 @@ fn main() {
     let private_inputs: Input = io::read();
 
     // Compile chialisp to bytecode using the new VeilEvaluator-compatible compiler
-    let (instance_bytecode, program_hash) = compile_chialisp_to_bytecode(
-        sp1_hasher,
-        &private_inputs.chialisp_source,
-    )
-    .expect("Chialisp compilation failed");
+    let (instance_bytecode, program_hash) =
+        compile_chialisp_to_bytecode(sp1_hasher, &private_inputs.chialisp_source)
+            .expect("Chialisp compilation failed");
 
     // Create VeilEvaluator with SP1 crypto functions
     let evaluator = create_veil_evaluator(sp1_hasher, sp1_verify_bls, sp1_verify_ecdsa);
@@ -100,8 +97,9 @@ fn main() {
 
     // Run CLVM bytecode and parse conditions from output
     let max_cost = 1_000_000_000; // 1 billion cost units
-    let (output_bytes, mut conditions) = run_clvm_with_conditions(&evaluator, &instance_bytecode, &args, max_cost)
-        .expect("CLVM execution failed");
+    let (output_bytes, mut conditions) =
+        run_clvm_with_conditions(&evaluator, &instance_bytecode, &args, max_cost)
+            .expect("CLVM execution failed");
 
     // Transform CREATE_COIN conditions for output privacy
     let mut has_transformations = false;

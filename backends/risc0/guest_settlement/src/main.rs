@@ -5,20 +5,20 @@ risc0_zkvm::guest::entry!(main);
 extern crate alloc;
 use alloc::vec::Vec;
 
+use clvm_zk_core::types::ClvmValue;
 use risc0_zkvm::guest::env;
 use risc0_zkvm::sha::{Impl, Sha256};
 use x25519_dalek::{PublicKey, StaticSecret};
-use clvm_zk_core::types::ClvmValue;
 
 /// settlement output committed by taker's proof
 #[derive(serde::Serialize)]
 struct SettlementOutput {
     maker_nullifier: [u8; 32],
     taker_nullifier: [u8; 32],
-    maker_change_commitment: [u8; 32],     // maker's change (asset A)
-    payment_commitment: [u8; 32],          // taker → maker (asset B)
-    taker_goods_commitment: [u8; 32],      // maker → taker (asset A)
-    taker_change_commitment: [u8; 32],     // taker's change (asset B)
+    maker_change_commitment: [u8; 32], // maker's change (asset A)
+    payment_commitment: [u8; 32],      // taker → maker (asset B)
+    taker_goods_commitment: [u8; 32],  // maker → taker (asset A)
+    taker_change_commitment: [u8; 32], // taker's change (asset B)
 }
 
 /// taker's private coin data
@@ -46,13 +46,13 @@ struct SettlementInput {
     taker_coin: TakerCoinData,
     merkle_root: [u8; 32],
     taker_ephemeral_privkey: [u8; 32],
-    taker_goods_puzzle: [u8; 32],       // for receiving offered goods (asset A)
-    taker_change_puzzle: [u8; 32],      // for receiving change (asset B)
-    payment_serial: [u8; 32],           // for payment to maker
+    taker_goods_puzzle: [u8; 32], // for receiving offered goods (asset A)
+    taker_change_puzzle: [u8; 32], // for receiving change (asset B)
+    payment_serial: [u8; 32],     // for payment to maker
     payment_rand: [u8; 32],
-    goods_serial: [u8; 32],             // for taker receiving goods
+    goods_serial: [u8; 32], // for taker receiving goods
     goods_rand: [u8; 32],
-    change_serial: [u8; 32],            // for taker's change
+    change_serial: [u8; 32], // for taker's change
     change_rand: [u8; 32],
 }
 
@@ -80,7 +80,10 @@ fn main() {
     verify_taker_coin(&input.taker_coin, input.merkle_root);
 
     // 6. assert taker has enough funds
-    assert!(input.taker_coin.amount >= requested, "taker has insufficient funds");
+    assert!(
+        input.taker_coin.amount >= requested,
+        "taker has insufficient funds"
+    );
 
     // 7. compute ECDH for payment address
     let taker_secret = StaticSecret::from(input.taker_ephemeral_privkey);
@@ -124,7 +127,7 @@ fn main() {
     let taker_nullifier = compute_nullifier(
         &input.taker_coin.serial_number,
         &input.taker_coin.puzzle_hash,
-        input.taker_coin.amount
+        input.taker_coin.amount,
     );
 
     // 13. commit settlement output
@@ -155,7 +158,8 @@ fn parse_maker_output(clvm_output: &[u8]) -> ([u8; 32], u64, u64, [u8; 32]) {
             let maker_change_commitment = extract_create_coin_commitment(&create_coin_box);
 
             // extract settlement terms
-            let (offered, requested, maker_pubkey) = extract_settlement_terms(&settlement_terms_box);
+            let (offered, requested, maker_pubkey) =
+                extract_settlement_terms(&settlement_terms_box);
 
             (maker_change_commitment, offered, requested, maker_pubkey)
         }
@@ -182,11 +186,13 @@ fn extract_create_coin_commitment(create_coin: &ClvmValue) -> [u8; 32] {
 
                                     match rest2.as_ref() {
                                         ClvmValue::Cons(serial_box, rest3) => {
-                                            let change_serial = extract_bytes_32(serial_box.as_ref());
+                                            let change_serial =
+                                                extract_bytes_32(serial_box.as_ref());
 
                                             match rest3.as_ref() {
                                                 ClvmValue::Cons(rand_box, _) => {
-                                                    let change_rand = extract_bytes_32(rand_box.as_ref());
+                                                    let change_rand =
+                                                        extract_bytes_32(rand_box.as_ref());
 
                                                     // compute commitment
                                                     create_coin_commitment(
@@ -287,15 +293,18 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32]) {
     let computed_serial_commitment = Impl::hash_bytes(&serial_commit_data);
     let computed_serial_bytes: [u8; 32] = computed_serial_commitment.as_bytes().try_into().unwrap();
 
-    assert_eq!(computed_serial_bytes, coin.serial_commitment, "invalid serial commitment");
+    assert_eq!(
+        computed_serial_bytes, coin.serial_commitment,
+        "invalid serial commitment"
+    );
 
     // 2. compute coin_commitment using the VERIFIED serial_commitment
     // (don't recompute it - use coin.serial_commitment which we just verified)
     let mut coin_commit_data = Vec::new();
     coin_commit_data.extend_from_slice(b"clvm_zk_coin_v1.0");
-    coin_commit_data.extend_from_slice(&coin.amount.to_be_bytes());  // BIG-ENDIAN (matches core lib)
+    coin_commit_data.extend_from_slice(&coin.amount.to_be_bytes()); // BIG-ENDIAN (matches core lib)
     coin_commit_data.extend_from_slice(&coin.puzzle_hash);
-    coin_commit_data.extend_from_slice(&coin.serial_commitment);  // use verified commitment!
+    coin_commit_data.extend_from_slice(&coin.serial_commitment); // use verified commitment!
     let coin_commitment_hash = Impl::hash_bytes(&coin_commit_data);
     let coin_commitment: [u8; 32] = coin_commitment_hash.as_bytes().try_into().unwrap();
 
@@ -317,11 +326,19 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32]) {
         index /= 2;
     }
 
-    assert_eq!(current_hash, merkle_root, "merkle proof verification failed");
+    assert_eq!(
+        current_hash, merkle_root,
+        "merkle proof verification failed"
+    );
 }
 
 /// create coin commitment: hash("clvm_zk_coin_v1.0" || amount || puzzle || serial_commitment)
-fn create_coin_commitment(amount: u64, puzzle: &[u8; 32], serial: &[u8; 32], rand: &[u8; 32]) -> [u8; 32] {
+fn create_coin_commitment(
+    amount: u64,
+    puzzle: &[u8; 32],
+    serial: &[u8; 32],
+    rand: &[u8; 32],
+) -> [u8; 32] {
     // first create serial commitment
     let mut serial_commit_data = Vec::new();
     serial_commit_data.extend_from_slice(b"clvm_zk_serial_v1.0");
@@ -332,7 +349,7 @@ fn create_coin_commitment(amount: u64, puzzle: &[u8; 32], serial: &[u8; 32], ran
     // then create coin commitment
     let mut coin_commit_data = Vec::new();
     coin_commit_data.extend_from_slice(b"clvm_zk_coin_v1.0");
-    coin_commit_data.extend_from_slice(&amount.to_be_bytes());  // BIG-ENDIAN (matches core lib)
+    coin_commit_data.extend_from_slice(&amount.to_be_bytes()); // BIG-ENDIAN (matches core lib)
     coin_commit_data.extend_from_slice(puzzle);
     coin_commit_data.extend_from_slice(serial_commitment.as_bytes());
 

@@ -203,21 +203,23 @@ pub fn create_password_spend_parameters(password: &str) -> Vec<ProgramParameter>
 /// # returns
 /// * template bytecode ready to pass as ProgramParameter::Bytes
 pub fn compile_to_template_bytecode(source: &str) -> Result<Vec<u8>, crate::ClvmZkError> {
-    use clvm_zk_core::chialisp::{parse_chialisp, sexp_to_module, compile_module_unified, CompilationMode};
+    use clvm_zk_core::chialisp::{
+        compile_module_unified, parse_chialisp, sexp_to_module, CompilationMode,
+    };
 
     // parse and convert to module
-    let sexp = parse_chialisp(source).map_err(|e| {
-        crate::ClvmZkError::InvalidProgram(format!("parse error: {:?}", e))
-    })?;
+    let sexp = parse_chialisp(source)
+        .map_err(|e| crate::ClvmZkError::InvalidProgram(format!("parse error: {:?}", e)))?;
 
     let module = sexp_to_module(sexp).map_err(|e| {
         crate::ClvmZkError::InvalidProgram(format!("module conversion error: {:?}", e))
     })?;
 
     // compile in template mode - preserves parameter structure
-    let template_bytecode = compile_module_unified(&module, CompilationMode::Template).map_err(|e| {
-        crate::ClvmZkError::InvalidProgram(format!("template compilation error: {:?}", e))
-    })?;
+    let template_bytecode =
+        compile_module_unified(&module, CompilationMode::Template).map_err(|e| {
+            crate::ClvmZkError::InvalidProgram(format!("template compilation error: {:?}", e))
+        })?;
 
     Ok(template_bytecode)
 }

@@ -219,7 +219,10 @@ impl PrivateSpendBundle {
 
     /// check if this proof can be directly submitted to blockchain
     pub fn is_submittable(&self) -> bool {
-        matches!(self.proof_type, ProofType::Transaction | ProofType::Settlement)
+        matches!(
+            self.proof_type,
+            ProofType::Transaction | ProofType::Settlement
+        )
     }
 
     /// check if this is a conditional spend proof (locked)

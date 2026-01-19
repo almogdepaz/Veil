@@ -1,7 +1,7 @@
 /// test payment scanning for ecdh-based coin discovery
 #[cfg(feature = "mock")]
 mod tests {
-    use clvm_zk::payment_keys::{PaymentKey, derive_ecdh_puzzle_hash_from_sender};
+    use clvm_zk::payment_keys::{derive_ecdh_puzzle_hash_from_sender, PaymentKey};
     use clvm_zk::protocol::PrivateCoin;
     use clvm_zk_core::coin_commitment::SerialCommitment;
 
@@ -15,7 +15,8 @@ mod tests {
         let payment_puzzle_hash = derive_ecdh_puzzle_hash_from_sender(
             &maker_key.to_pubkey(),
             &taker_key.privkey.unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
 
         // create payment coin with ecdh puzzle_hash
         let payment_coin = PrivateCoin {
@@ -51,9 +52,9 @@ mod tests {
 
         // maker scans for payments
         let coins = vec![
-            (other_coin1, [0x02; 32]),           // not ours
+            (other_coin1, [0x02; 32]),             // not ours
             (payment_coin, taker_key.to_pubkey()), // THIS ONE - ecdh match
-            (other_coin2, [0x03; 32]),           // not ours
+            (other_coin2, [0x03; 32]),             // not ours
         ];
 
         let spendable = maker_key.scan_for_payments(&coins);
@@ -73,17 +74,21 @@ mod tests {
         let sender3 = PaymentKey::generate();
 
         // create ecdh coins from sender1 and sender3 (real ECDH with private keys)
-        let payment1_puzzle = derive_ecdh_puzzle_hash_from_sender(&receiver.to_pubkey(), &sender1.privkey.unwrap()).unwrap();
-        let payment2_puzzle = derive_ecdh_puzzle_hash_from_sender(&receiver.to_pubkey(), &sender3.privkey.unwrap()).unwrap();
+        let payment1_puzzle =
+            derive_ecdh_puzzle_hash_from_sender(&receiver.to_pubkey(), &sender1.privkey.unwrap())
+                .unwrap();
+        let payment2_puzzle =
+            derive_ecdh_puzzle_hash_from_sender(&receiver.to_pubkey(), &sender3.privkey.unwrap())
+                .unwrap();
 
         let payment1 = PrivateCoin::new_with_secrets(payment1_puzzle, 500).0;
         let random_coin = PrivateCoin::new_with_secrets([0x99; 32], 300).0;
         let payment2 = PrivateCoin::new_with_secrets(payment2_puzzle, 700).0;
 
         let coins = vec![
-            (payment1, sender1.to_pubkey()),  // match
+            (payment1, sender1.to_pubkey()),    // match
             (random_coin, sender2.to_pubkey()), // no match
-            (payment2, sender3.to_pubkey()),  // match
+            (payment2, sender3.to_pubkey()),    // match
         ];
 
         let spendable = receiver.scan_for_payments(&coins);
@@ -112,7 +117,9 @@ mod tests {
         let sender = PaymentKey::generate();
 
         // correct ecdh derivation (real ECDH with sender's private key)
-        let correct_puzzle = derive_ecdh_puzzle_hash_from_sender(&receiver.to_pubkey(), &sender.privkey.unwrap()).unwrap();
+        let correct_puzzle =
+            derive_ecdh_puzzle_hash_from_sender(&receiver.to_pubkey(), &sender.privkey.unwrap())
+                .unwrap();
         assert!(
             receiver.can_spend_ecdh_coin(&sender.to_pubkey(), &correct_puzzle),
             "should be able to spend correct ecdh coin"

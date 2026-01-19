@@ -36,7 +36,6 @@ pub type EcdsaVerifier = fn(&[u8], &[u8], &[u8]) -> Result<bool, &'static str>;
 /// min_sig variant: pk in g2, sig in g1
 pub const BLS_DST: &[u8] = b"CLVM_ZK_BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_";
 
-
 pub fn atom_to_number(value: &ClvmValue) -> Result<i64, &'static str> {
     match value {
         ClvmValue::Atom(bytes) => {
@@ -505,8 +504,8 @@ pub fn run_clvm_with_conditions(
     let (output_bytes, _cost) = evaluator.run_program(bytecode, args, max_cost)?;
 
     // Parse conditions from output
-    let conditions = deserialize_clvm_output_to_conditions(&output_bytes)
-        .unwrap_or_else(|_| Vec::new());
+    let conditions =
+        deserialize_clvm_output_to_conditions(&output_bytes).unwrap_or_else(|_| Vec::new());
 
     Ok((output_bytes, conditions))
 }

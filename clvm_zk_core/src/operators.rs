@@ -87,7 +87,7 @@ impl ClvmOperator {
             ClvmOperator::Rest => 6,      // r
             ClvmOperator::ListCheck => 7, // l
             // 8 = raise
-            ClvmOperator::Equal => 9,     // =
+            ClvmOperator::Equal => 9,        // =
             ClvmOperator::GreaterThan => 21, // >
 
             // Arithmetic (Chia standard)
@@ -99,12 +99,12 @@ impl ClvmOperator {
             ClvmOperator::Modulo => 61,   // %  (mod opcode in Chia)
 
             // Extended operations
-            ClvmOperator::ModPow => 60,   // modpow
+            ClvmOperator::ModPow => 60, // modpow
 
             // Signature operations (Chia condition opcodes)
             ClvmOperator::AggSigUnsafe => 49,
             ClvmOperator::AggSigMe => 50,
-            
+
             // Custom signature verification (use BLS opcode 59 for bls_verify)
             ClvmOperator::BlsVerify => 59,
             // ECDSA uses 4-byte opcode in clvmr, but we use 200 for now
