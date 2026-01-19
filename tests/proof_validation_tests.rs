@@ -31,26 +31,6 @@ fn test_proofs_differ_for_different_inputs() -> Result<(), Box<dyn std::error::E
     if output1 == output2 {
         return Err("Different programs should produce different outputs".into());
     }
-    // Debug: print actual outputs
-    println!("DEBUG: output1 = {:?}, expected = {:?}", output1, vec![5]);
-    println!("DEBUG: output2 = {:?}, expected = {:?}", output2, vec![12]);
-
-    // Test simple parameter access
-    let test_a = ClvmZkProver::prove("(mod (a) a)", &[ProgramParameter::int(42)]).unwrap();
-    println!(
-        "DEBUG: 'a' alone = {:?}, expected = [42]",
-        test_a.proof_output.clvm_res
-    );
-
-    let test_b = ClvmZkProver::prove(
-        "(mod (a b) b)",
-        &[ProgramParameter::int(10), ProgramParameter::int(20)],
-    )
-    .unwrap();
-    println!(
-        "DEBUG: 'b' with (a=10, b=20) = {:?}, expected = [20]",
-        test_b.proof_output.clvm_res
-    );
 
     if output1.output != vec![5] {
         return Err(format!("2 + 3 should equal 5, got {:?}", output1).into());

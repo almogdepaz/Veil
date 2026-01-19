@@ -2240,9 +2240,8 @@ fn offer_create_command(
         }
     }
 
-    // TODO: track maker's change coin for when settlement completes
-    // (currently maker will receive change but won't have secrets to spend it)
-    // need to store change_secrets in wallet after settlement
+    // note: maker's change coin secrets are stored in the offer and will be
+    // added to maker's wallet when offer_take_command processes settlement
 
     // store the offer
     let offer_id = state.pending_offers.len();
@@ -2483,7 +2482,67 @@ fn offer_take_command(
 
     println!("   added 3 coins to taker's wallet (payment, goods, change)");
 
-    // 4. TODO: create encrypted payment notes for maker to discover payment coin
+    // 4. add maker's coins to maker's wallet
+    let maker_wallet = state.wallets.get_mut(&offer.maker).ok_or_else(|| {
+        ClvmZkError::InvalidProgram(format!("maker wallet '{}' not found", offer.maker))
+    })?;
+
+    // 4a. maker's change coin (returned to maker, asset A)
+    let maker_change_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
+        &offer.change_serial,
+        &offer.change_rand,
+        crate::crypto_utils::hash_data_default,
+    );
+    let maker_change_coin = crate::protocol::PrivateCoin::new(
+        offer.change_puzzle,
+        offer.change_amount,
+        maker_change_serial_commitment,
+    );
+    let maker_change_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(
+        offer.change_serial,
+        offer.change_rand,
+    );
+    let maker_change_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
+        coin: maker_change_coin,
+        secrets: maker_change_secrets,
+        account_index: 0,
+        coin_index: 0,
+    };
+    maker_wallet.coins.push(crate::cli::WalletCoinWrapper {
+        wallet_coin: maker_change_wallet_coin,
+        program: "(mod () (q . ()))".to_string(),
+        spent: false,
+    });
+
+    // 4b. maker's payment coin (taker → maker, asset B)
+    // the payment_puzzle was derived via ECDH above, amount is offer.requested
+    let maker_payment_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
+        &payment_serial,
+        &payment_rand,
+        crate::crypto_utils::hash_data_default,
+    );
+    let maker_payment_coin = crate::protocol::PrivateCoin::new(
+        payment_puzzle,
+        payment_amount,
+        maker_payment_serial_commitment,
+    );
+    let maker_payment_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(
+        payment_serial,
+        payment_rand,
+    );
+    let maker_payment_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
+        coin: maker_payment_coin,
+        secrets: maker_payment_secrets,
+        account_index: 0,
+        coin_index: 0,
+    };
+    maker_wallet.coins.push(crate::cli::WalletCoinWrapper {
+        wallet_coin: maker_payment_wallet_coin,
+        program: "(mod () (q . ()))".to_string(),
+        spent: false,
+    });
+
+    println!("   added 2 coins to maker's wallet (change, payment)");
 
     // 5. remove offer from pending
     state.pending_offers.remove(offer_id);
