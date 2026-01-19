@@ -19,5 +19,5 @@ risc0-build = "3.0.3"
 sha2 = "0.10"
 
 [package.metadata.risc0]
-methods = ["guest", "guest_recursive"]
+methods = ["guest", "guest_recursive", "guest_settlement"]
 

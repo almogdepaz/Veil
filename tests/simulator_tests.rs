@@ -35,7 +35,7 @@ fn test_coin_secrets() -> clvm_zk_core::coin_commitment::CoinSecrets {
 
 /// create test puzzle program with matching hash
 fn create_test_puzzle(puzzle_id: &str) -> (String, [u8; 32]) {
-    let program = format!("{}", puzzle_id);
+    let program = puzzle_id.to_string();
     let hash = compile_chialisp_template_hash_default(&program).unwrap();
     (program, hash)
 }

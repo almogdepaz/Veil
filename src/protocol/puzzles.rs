@@ -7,6 +7,9 @@ use k256::ecdsa::{signature::Signer, Signature, SigningKey, VerifyingKey};
 /// for spending, enhancing the security of the nullifier protocol.
 use sha2::{Digest, Sha256};
 
+/// AGG_SIG_UNSAFE condition opcode
+pub const AGG_SIG_UNSAFE: u8 = 49;
+
 /// Generate a puzzle program that requires an ECDSA signature for spending
 ///
 /// The puzzle program will:
@@ -19,12 +22,15 @@ use sha2::{Digest, Sha256};
 /// * `amount` - The amount of the coin being created
 ///
 /// # Returns
-/// * A tuple of (puzzle_program_code, puzzle_hash)
+/// A tuple of (puzzle_program_code, puzzle_hash)
 pub fn create_signature_puzzle() -> Result<(String, [u8; 32]), crate::ClvmZkError> {
-    // Create a simple puzzle program that requires signature verification
-    // This will be used with the hybrid parameter system at spend time
-    let program =
-        "(mod (pubkey message signature) (agg_sig_unsafe pubkey message signature))".to_string();
+    // Create a puzzle program that outputs an AGG_SIG_UNSAFE condition
+    // The condition (49 pubkey message signature) will be verified by the backend
+    // This uses proper chialisp list construction to output the condition
+    let program = format!(
+        "(mod (pubkey message signature) (list (list {} pubkey message signature)))",
+        AGG_SIG_UNSAFE
+    );
 
     // Generate deterministic puzzle hash from the COMPILED TEMPLATE (matches backend behavior)
     let hash = compile_chialisp_template_hash_default(&program).map_err(|e| {
@@ -184,6 +190,136 @@ pub fn create_password_spend_parameters(password: &str) -> Vec<ProgramParameter>
     vec![ProgramParameter::from_bytes(password.as_bytes())]
 }
 
+/// compile chialisp program to template bytecode
+///
+/// this produces CLVM bytecode without parameter substitution, suitable for use
+/// as the delegated_puzzle parameter when spending delegated puzzle coins.
+///
+/// template bytecode preserves parameter structure for execution via APPLY operator.
+///
+/// # arguments
+/// * `source` - chialisp source code
+///
+/// # returns
+/// * template bytecode ready to pass as ProgramParameter::Bytes
+pub fn compile_to_template_bytecode(source: &str) -> Result<Vec<u8>, crate::ClvmZkError> {
+    use clvm_zk_core::chialisp::{
+        compile_module_unified, parse_chialisp, sexp_to_module, CompilationMode,
+    };
+
+    // parse and convert to module
+    let sexp = parse_chialisp(source)
+        .map_err(|e| crate::ClvmZkError::InvalidProgram(format!("parse error: {:?}", e)))?;
+
+    let module = sexp_to_module(sexp).map_err(|e| {
+        crate::ClvmZkError::InvalidProgram(format!("module conversion error: {:?}", e))
+    })?;
+
+    // compile in template mode - preserves parameter structure
+    let template_bytecode =
+        compile_module_unified(&module, CompilationMode::Template).map_err(|e| {
+            crate::ClvmZkError::InvalidProgram(format!("template compilation error: {:?}", e))
+        })?;
+
+    Ok(template_bytecode)
+}
+
+/// create delegated puzzle for offers (settlement-specific)
+///
+/// this puzzle directly executes the settlement assertion with provided parameters.
+/// simpler than generic delegated puzzle - just inlines the assertion logic.
+///
+/// takes the same 7 parameters as settlement_assertion and outputs the same results.
+///
+/// # returns
+/// * tuple of (puzzle_program_code, puzzle_hash)
+pub fn create_delegated_puzzle() -> Result<(String, [u8; 32]), crate::ClvmZkError> {
+    // directly embed settlement assertion logic
+    // same parameters as create_settlement_assertion_puzzle
+    // uses explicit cons (c) instead of list for clearer structure
+    let program = r#"(mod (offered requested maker_pubkey change_amount change_puzzle change_serial change_rand)
+  (c
+    (c 51 (c change_puzzle (c change_amount (c change_serial (c change_rand ())))))
+    (c offered (c requested (c maker_pubkey ())))
+  )
+)"#
+    .to_string();
+
+    let hash = compile_chialisp_template_hash_default(&program).map_err(|e| {
+        crate::ClvmZkError::InvalidProgram(format!(
+            "failed to compile template hash for delegated puzzle: {:?}",
+            e
+        ))
+    })?;
+
+    Ok((program, hash))
+}
+
+/// create settlement assertion puzzle for conditional offers
+///
+/// maker spends their coin and outputs:
+/// 1. CREATE_COIN for their change (they're offering less than they're spending)
+/// 2. settlement terms (offered, requested, maker_pubkey) for taker to enforce
+///
+/// taker's settlement guest will parse both outputs and include maker's change
+/// commitment in the final settlement transaction.
+///
+/// # returns
+/// * tuple of (puzzle_program_code, puzzle_hash)
+pub fn create_settlement_assertion_puzzle() -> Result<(String, [u8; 32]), crate::ClvmZkError> {
+    // output list with two elements:
+    // 1. CREATE_COIN condition (opcode 51) for maker's change
+    // 2. settlement terms for taker to parse
+    let program = r#"(mod (offered requested maker_pubkey change_amount change_puzzle change_serial change_rand)
+  (list
+    (list 51 change_puzzle change_amount change_serial change_rand)
+    (list offered requested maker_pubkey)
+  )
+)"#.to_string();
+
+    let hash = compile_chialisp_template_hash_default(&program).map_err(|e| {
+        crate::ClvmZkError::InvalidProgram(format!(
+            "failed to compile template hash for settlement assertion: {:?}",
+            e
+        ))
+    })?;
+
+    Ok((program, hash))
+}
+
+/// create parameters for maker's settlement assertion proof
+///
+/// # arguments
+/// * `offered` - amount maker is offering to taker
+/// * `requested` - amount maker requests in return
+/// * `maker_pubkey` - maker's x25519 public key for ECDH payment derivation
+/// * `change_amount` - amount maker gets as change (coin_amount - offered)
+/// * `change_puzzle` - puzzle hash for maker's change coin
+/// * `change_serial` - serial number for maker's change coin
+/// * `change_rand` - randomness for maker's change coin serial commitment
+///
+/// # returns
+/// * vector of ProgramParameter for the assertion puzzle
+pub fn create_settlement_assertion_params(
+    offered: u64,
+    requested: u64,
+    maker_pubkey: &[u8; 32],
+    change_amount: u64,
+    change_puzzle: &[u8; 32],
+    change_serial: &[u8; 32],
+    change_rand: &[u8; 32],
+) -> Vec<ProgramParameter> {
+    vec![
+        ProgramParameter::Int(offered),
+        ProgramParameter::Int(requested),
+        ProgramParameter::from_bytes(maker_pubkey),
+        ProgramParameter::Int(change_amount),
+        ProgramParameter::from_bytes(change_puzzle),
+        ProgramParameter::from_bytes(change_serial),
+        ProgramParameter::from_bytes(change_rand),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,12 +333,12 @@ mod tests {
         let (signing_key, verifying_key, puzzle_program, puzzle_hash) =
             create_test_signature_setup().expect("Failed to create test signature setup");
 
-        // Verify puzzle program contains signature verification
-        assert!(puzzle_program.contains("agg_sig_unsafe"));
+        // Verify puzzle program contains AGG_SIG_UNSAFE condition (opcode 49)
+        assert!(puzzle_program.contains("49")); // AGG_SIG_UNSAFE opcode
         assert_eq!(
             puzzle_program,
-            "(mod (pubkey message signature) (agg_sig_unsafe pubkey message signature))"
-        ); // Proper Chialisp syntax
+            "(mod (pubkey message signature) (list (list 49 pubkey message signature)))"
+        ); // Proper Chialisp condition output
 
         // Create a coin with this puzzle
         let _ = [0x42; 32]; // ignored for test

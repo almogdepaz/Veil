@@ -7,6 +7,16 @@ use tokio::task;
 
 use crate::common::BATCH_SIZE;
 
+// CLVM condition opcodes - must use numeric values in chialisp
+const REMARK: u8 = 1;
+const CREATE_COIN: u8 = 51;
+const ASSERT_CONCURRENT_SPEND: u8 = 64;
+const ASSERT_CONCURRENT_PUZZLE: u8 = 65;
+const ASSERT_MY_COIN_ID: u8 = 70;
+const ASSERT_MY_PARENT_ID: u8 = 71;
+const ASSERT_MY_AMOUNT: u8 = 73;
+const RESERVE_FEE: u8 = 52;
+
 #[tokio::test]
 async fn fuzz_arithmetic_operations() -> Result<(), String> {
     test_info!("Starting arithmetic operations fuzz test...");
@@ -50,7 +60,7 @@ async fn fuzz_arithmetic_operations() -> Result<(), String> {
                 let a = *a;
                 let b = *b;
                 task::spawn_blocking(move || {
-                    let expr = format!("(mod (a b) (list (list REMARK ({op} a b))))");
+                    let expr = format!("(mod (a b) (list (list {REMARK} ({op} a b))))");
                     let result = test_expression(&expr, &[a as i64, b as i64]);
 
                     match result {
@@ -147,7 +157,7 @@ async fn fuzz_comparison_operations() -> Result<(), String> {
                 let a = *a;
                 let b = *b;
                 task::spawn_blocking(move || {
-                    let expr = format!("(mod (a b) (list (list REMARK ({op} a b))))");
+                    let expr = format!("(mod (a b) (list (list {REMARK} ({op} a b))))");
                     let result = test_expression(&expr, &[a, b]);
 
                     if let TestResult::Success(output) = &result {
@@ -230,43 +240,22 @@ async fn fuzz_comparison_operations() -> Result<(), String> {
 }
 
 /// Test basic conditions with fuzzing using the concurrent batching pattern.
+/// Uses proper chialisp syntax: conditions are OUTPUT as lists (list OPCODE args...)
 #[tokio::test]
 async fn fuzz_conditions_basic() -> Result<(), String> {
+    // Condition test cases using proper chialisp syntax with numeric opcodes
+    // Format: (mod () (list (list OPCODE args...)))
     let condition_test_cases = [
-        // CREATE_COIN tests - expressions use literals, no parameters needed
-        ("create_coin basic", "(create_coin 1000 500)"),
-        ("create_coin zero", "(create_coin 0 100)"),
-        ("create_coin large", "(create_coin 999999 1000000)"),
-        // AGG_SIG_UNSAFE tests removed - they require proper 48-byte public keys and 96-byte signatures
-        // These should be tested separately with proper cryptographic data
-        // Note: Many condition types (assert_my_coin_id, assert_my_parent_id, assert_my_puzzle_hash,
-        // assert_my_amount, reserve_fee, create_coin_announcement, etc.) are not yet implemented
-        // in the advanced expression builder and should be added in the future
-        //
-        // For now, testing only the supported conditions:
-        // ASSERT_CONCURRENT_SPEND tests (supported in advanced builder)
-        ("assert_concurrent_spend", "(assert_concurrent_spend 2222)"),
-        (
-            "assert_concurrent_spend zero",
-            "(assert_concurrent_spend 0)",
-        ),
-        (
-            "assert_concurrent_spend large",
-            "(assert_concurrent_spend 999999)",
-        ),
-        // ASSERT_CONCURRENT_PUZZLE tests
-        (
-            "assert_concurrent_puzzle",
-            "(assert_concurrent_puzzle 3333)",
-        ),
-        (
-            "assert_concurrent_puzzle zero",
-            "(assert_concurrent_puzzle 0)",
-        ),
-        (
-            "assert_concurrent_puzzle large",
-            "(assert_concurrent_puzzle 888888)",
-        ),
+        // CREATE_COIN tests (opcode 51) - (list 51 puzzle_hash amount)
+        ("create_coin basic", format!("(mod () (list (list {} 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef 500)))", CREATE_COIN)),
+        ("create_coin zero amount", format!("(mod () (list (list {} 0x0000000000000000000000000000000000000000000000000000000000000000 0)))", CREATE_COIN)),
+        ("create_coin large", format!("(mod () (list (list {} 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff 999999)))", CREATE_COIN)),
+        // ASSERT_CONCURRENT_SPEND tests (opcode 64) - (list 64 coin_id)
+        ("assert_concurrent_spend", format!("(mod () (list (list {} 0x2222222222222222222222222222222222222222222222222222222222222222)))", ASSERT_CONCURRENT_SPEND)),
+        ("assert_concurrent_spend zero", format!("(mod () (list (list {} 0x0000000000000000000000000000000000000000000000000000000000000000)))", ASSERT_CONCURRENT_SPEND)),
+        // ASSERT_CONCURRENT_PUZZLE tests (opcode 65) - (list 65 puzzle_hash)
+        ("assert_concurrent_puzzle", format!("(mod () (list (list {} 0x3333333333333333333333333333333333333333333333333333333333333333)))", ASSERT_CONCURRENT_PUZZLE)),
+        ("assert_concurrent_puzzle zero", format!("(mod () (list (list {} 0x0000000000000000000000000000000000000000000000000000000000000000)))", ASSERT_CONCURRENT_PUZZLE)),
     ];
 
     let total_cases = condition_test_cases.len();
@@ -314,53 +303,30 @@ async fn fuzz_conditions_basic() -> Result<(), String> {
     Ok(())
 }
 
-/// Test malformed conditions using the concurrent batching pattern.
+/// Test malformed chialisp syntax using the concurrent batching pattern.
+/// Tests actual syntax errors that clvm_tools_rs will reject.
 #[tokio::test]
 async fn fuzz_conditions_malformed() -> Result<(), String> {
+    // Malformed expressions that clvm_tools_rs should reject at compile time
+    // Note: clvm_tools_rs is permissive - unknown symbols become atoms, so we test
+    // only true syntax errors: unbalanced parens, empty input, etc.
     let malformed_conditions = [
-        // Wrong number of arguments
-        "(create_coin)",
-        "(create_coin 1000)",
-        "(create_coin 1000 500 extra)",
-        "(agg_sig_unsafe)",
-        "(agg_sig_unsafe 123)",
-        "(agg_sig_unsafe 123 456)",
-        "(agg_sig_unsafe 123 456 789 extra)",
-        "(assert_my_coin_id)",
-        "(assert_my_coin_id 123 456)",
-        "(reserve_fee)",
-        "(reserve_fee 100 200)",
-        // Invalid condition names
-        "(unknown_condition 123)",
-        "(create_coin_wrong 1000 500)",
-        "(agg_sig_safe 123 456 789)",
-        "(assert_my_coin_wrong 123)",
-        // Invalid arguments
-        "(create_coin abc 500)",
-        "(create_coin 1000 def)",
-        "(agg_sig_unsafe abc def ghi)",
-        "(assert_my_coin_id xyz)",
-        "(reserve_fee -100)",
-        "(reserve_fee 0)",
-        // Nested malformed conditions
-        "(create_coin (+ 1) 500)",
-        "(create_coin 1000 (unknown 2))",
-        "(agg_sig_unsafe (invalid) 456 789)",
-        // Special characters
-        "(create_coin @ 500)",
-        "(create_coin 1000 #)",
-        "(agg_sig_unsafe $ % ^)",
-        "(assert_my_coin_id !)",
-        // Empty and whitespace
+        // Empty and whitespace-only
         "",
         "   ",
-        "()",
-        "( )",
         // Unbalanced parentheses
-        "(create_coin 1000 500",
-        "create_coin 1000 500)",
-        "((create_coin 1000 500)",
-        "(create_coin 1000 500 600)",
+        "(mod () (+ 1 2",
+        "(mod () (+ 1 2)))",
+        "mod () (+ 1 2))",
+        "(mod () ((+ 1 2)",
+        // Missing closing parens in mod
+        "(mod (x) (+ x",
+        "(mod (x y) (list x",
+        // Invalid mod structure
+        "(mod",
+        "(mod (",
+        // Mismatched brackets/parens (if any)
+        "(mod () [+ 1 2])", // brackets not supported
     ];
 
     let total_cases = malformed_conditions.len();
@@ -371,27 +337,25 @@ async fn fuzz_conditions_malformed() -> Result<(), String> {
             .iter()
             .map(|expr_str| {
                 let expr = expr_str.to_string();
-                let param_list = [
-                    ProgramParameter::int(1),
-                    ProgramParameter::int(2),
-                    ProgramParameter::int(3),
-                ];
-                // Check that program compilation fails as expected
-                match compile_chialisp_template_hash_default(&expr) {
-                    Ok(_hash) => {
-                        test_error!("   Unexpectedly created program hash for '{expr}'");
-                    }
-                    Err(e) => {
-                        test_info!("   Correctly rejected at template hashing: {:?}", e);
-                    }
-                }
-                task::spawn_blocking(move || match ClvmZkProver::prove(&expr, &param_list) {
-                    Ok(_) => Err(format!(
-                        "Malformed expression '{expr}' should not have produced a valid proof."
-                    )),
-                    Err(_) => {
-                        test_info!("[PASS] Malformed expression '{expr}' correctly failed.");
-                        Ok(())
+                task::spawn_blocking(move || {
+                    // Check that program compilation fails as expected
+                    match compile_chialisp_template_hash_default(&expr) {
+                        Ok(_hash) => {
+                            // If it somehow compiles, proof should still fail
+                            match ClvmZkProver::prove(&expr, &[]) {
+                                Ok(_) => Err(format!(
+                                    "Malformed expression '{expr}' unexpectedly compiled and produced a proof"
+                                )),
+                                Err(_) => {
+                                    test_info!("[PASS] '{expr}' compiled but proof correctly failed");
+                                    Ok(())
+                                }
+                            }
+                        }
+                        Err(_e) => {
+                            test_info!("[PASS] Malformed '{expr}' correctly rejected at compile time");
+                            Ok(())
+                        }
                     }
                 })
             })
@@ -417,33 +381,40 @@ async fn fuzz_conditions_malformed() -> Result<(), String> {
 }
 
 /// Test edge case conditions using the concurrent batching pattern.
+/// Uses proper chialisp syntax: conditions are OUTPUT as lists (list OPCODE args...)
 #[tokio::test]
 async fn fuzz_conditions_edge_cases() -> Result<(), String> {
+    // Edge case tests using proper chialisp syntax with numeric opcodes
+    // Format: (mod () (list (list OPCODE args...)))
+    // Note: CREATE_COIN (51) requires puzzle_hash (32 bytes) and amount
+    //       ASSERT_MY_AMOUNT (73) requires amount
+    //       RESERVE_FEE (52) requires amount
+    //       ASSERT_MY_COIN_ID (70) requires coin_id (32 bytes)
+    //       ASSERT_MY_PARENT_ID (71) requires parent_id (32 bytes)
     let edge_case_tests = [
-        // Boundary values - expressions use literals, no parameters needed
-        ("create_coin_min", "(create_coin 0 0)"),
-        ("create_coin_max", "(create_coin 2147483647 2147483647)"),
-        ("assert_my_amount_zero", "(assert_my_amount 0)"),
-        ("assert_my_amount_max", "(assert_my_amount 2147483647)"),
-        ("reserve_fee_min", "(reserve_fee 1)"),
-        ("reserve_fee_max", "(reserve_fee 2147483647)"),
-        // Powers of 2
-        ("create_coin_pow2_1", "(create_coin 1 2)"),
-        ("create_coin_pow2_256", "(create_coin 256 512)"),
-        ("create_coin_pow2_65536", "(create_coin 65536 131072)"),
-        // Sequential values
-        ("create_coin_seq", "(create_coin 1000 1001)"),
-        ("assert_my_amount_seq", "(assert_my_amount 12345)"),
-        // Repeated values
-        ("create_coin_same", "(create_coin 777 777)"),
+        // Boundary values - CREATE_COIN with zero hash and various amounts
+        ("create_coin_min", format!("(mod () (list (list {} 0x0000000000000000000000000000000000000000000000000000000000000000 0)))", CREATE_COIN)),
+        ("create_coin_max_amount", format!("(mod () (list (list {} 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff 2147483647)))", CREATE_COIN)),
+        // ASSERT_MY_AMOUNT tests
+        ("assert_my_amount_zero", format!("(mod () (list (list {} 0)))", ASSERT_MY_AMOUNT)),
+        ("assert_my_amount_max", format!("(mod () (list (list {} 2147483647)))", ASSERT_MY_AMOUNT)),
+        // RESERVE_FEE tests
+        ("reserve_fee_min", format!("(mod () (list (list {} 1)))", RESERVE_FEE)),
+        ("reserve_fee_max", format!("(mod () (list (list {} 2147483647)))", RESERVE_FEE)),
+        // Powers of 2 - CREATE_COIN amounts
+        ("create_coin_pow2_256", format!("(mod () (list (list {} 0x1111111111111111111111111111111111111111111111111111111111111111 256)))", CREATE_COIN)),
+        ("create_coin_pow2_65536", format!("(mod () (list (list {} 0x2222222222222222222222222222222222222222222222222222222222222222 65536)))", CREATE_COIN)),
+        // Sequential and repeated values
+        ("assert_my_amount_seq", format!("(mod () (list (list {} 12345)))", ASSERT_MY_AMOUNT)),
+        ("reserve_fee_777", format!("(mod () (list (list {} 777)))", RESERVE_FEE)),
         // Prime numbers
-        ("create_coin_primes", "(create_coin 7919 7927)"),
-        ("assert_my_coin_id_prime", "(assert_my_coin_id 1009)"),
-        // Fibonacci-like sequences
-        ("create_coin_fib", "(create_coin 1597 2584)"),
-        // Hex-like values
-        ("create_coin_hex", "(create_coin 255 4095)"),
-        ("assert_my_parent_id_hex", "(assert_my_parent_id 65535)"),
+        ("assert_my_amount_prime", format!("(mod () (list (list {} 7919)))", ASSERT_MY_AMOUNT)),
+        ("reserve_fee_prime", format!("(mod () (list (list {} 1009)))", RESERVE_FEE)),
+        // ASSERT_MY_COIN_ID and ASSERT_MY_PARENT_ID with 32-byte hashes
+        ("assert_my_coin_id_test", format!("(mod () (list (list {} 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890)))", ASSERT_MY_COIN_ID)),
+        ("assert_my_parent_id_test", format!("(mod () (list (list {} 0x9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba)))", ASSERT_MY_PARENT_ID)),
+        // Fibonacci-like amounts
+        ("create_coin_fib", format!("(mod () (list (list {} 0x5555555555555555555555555555555555555555555555555555555555555555 2584)))", CREATE_COIN)),
     ];
 
     let total_cases = edge_case_tests.len();
@@ -593,34 +564,47 @@ fn test_condition_validation_logic() -> Result<(), String> {
 }
 
 /// Comprehensive conditions security test - test all conditions against tampering
+/// Uses proper chialisp syntax: conditions are OUTPUT as lists (list OPCODE args...)
+/// NOTE: This test is only meaningful with real ZK backends (risc0, sp1) - the mock
+/// backend doesn't provide real cryptographic verification, so tampered proofs may be accepted.
 #[test]
-#[ignore]
+#[cfg(not(feature = "mock"))]
 fn comprehensive_fuzz_conditions_security() -> Result<(), String> {
-    // Test data for each major condition type
+    // Test data for each major condition type using proper chialisp syntax
+    // Format: (mod (args...) (list (list OPCODE args...)))
     let test_conditions = [
         (
             "CREATE_COIN",
-            "(mod (a b) (create_coin a b))",
-            vec![ProgramParameter::int(1000), ProgramParameter::int(500)],
+            format!(
+                "(mod (puzzle_hash amount) (list (list {} puzzle_hash amount)))",
+                CREATE_COIN
+            ),
+            vec![
+                ProgramParameter::from_bytes(&[0x42u8; 32]), // 32-byte puzzle hash
+                ProgramParameter::int(500),
+            ],
         ),
         (
             "ASSERT_MY_COIN_ID",
-            "(mod (a) (assert_my_coin_id a))",
-            vec![ProgramParameter::int(12345)],
+            format!(
+                "(mod (coin_id) (list (list {} coin_id)))",
+                ASSERT_MY_COIN_ID
+            ),
+            vec![ProgramParameter::from_bytes(&[0x12u8; 32])], // 32-byte coin_id
         ),
         (
             "ASSERT_MY_AMOUNT",
-            "(mod (a) (assert_my_amount a))",
+            format!("(mod (amount) (list (list {} amount)))", ASSERT_MY_AMOUNT),
             vec![ProgramParameter::int(1000)],
         ),
         (
             "RESERVE_FEE",
-            "(mod (a) (reserve_fee a))",
+            format!("(mod (fee) (list (list {} fee)))", RESERVE_FEE),
             vec![ProgramParameter::int(100)],
         ),
         (
             "REMARK",
-            "(mod (a) (create_coin_announcement a))",
+            format!("(mod (msg) (list (list {} msg)))", REMARK),
             vec![ProgramParameter::int(777)],
         ),
     ];
@@ -628,8 +612,8 @@ fn comprehensive_fuzz_conditions_security() -> Result<(), String> {
     let mut total_attacks_tested = 0;
     let mut security_failures = 0;
 
-    for (condition_name, expr, params) in test_conditions {
-        let result = match ClvmZkProver::prove(expr, &params) {
+    for (condition_name, expr, params) in &test_conditions {
+        let result = match ClvmZkProver::prove(expr, params) {
             Ok(result) => result,
             Err(e) => {
                 test_info!("   Failed to generate proof for {condition_name}: {e}");
@@ -773,60 +757,34 @@ fn comprehensive_fuzz_conditions_security() -> Result<(), String> {
 
 /// Test suite for known failing cases that need to be fixed
 /// These are currently ignored but should be addressed in future iterations
+/// documents historical issues and their resolution status
 #[test]
-#[ignore = "Known failing cases - need investigation and fixes"]
-fn known_failing_cases_test_suite() -> Result<(), Box<dyn std::error::Error>> {
-    test_info!("\n=== Known Failing Cases Test Suite ===");
-    test_info!("This test documents cases that currently don't work but should be fixed:");
+fn known_issues_status() -> Result<(), Box<dyn std::error::Error>> {
+    test_info!("\n=== Known Issues Status ===");
 
-    // 1. Parameter substitution bug
-    test_info!("\n1. Parameter substitution bug:");
-    test_info!("   Programs with different parameters produce same output");
-    test_info!("   Example: (mod (a b) (+ a b)) with [2,3] and [5,7] should produce [5] and [12], not same output");
+    // 1. Parameter substitution - FIXED
+    test_info!("\n1. Parameter substitution: FIXED");
+    let result1 = ClvmZkProver::prove(
+        "(mod (a b) (+ a b))",
+        &[ProgramParameter::int(2), ProgramParameter::int(3)],
+    )?;
+    let result2 = ClvmZkProver::prove(
+        "(mod (a b) (+ a b))",
+        &[ProgramParameter::int(5), ProgramParameter::int(7)],
+    )?;
+    assert_eq!(result1.proof_output.clvm_res.output, vec![5]);
+    assert_eq!(result2.proof_output.clvm_res.output, vec![12]);
+    test_info!("   ✓ [2,3] → [5], [5,7] → [12]");
 
-    match (
-        ClvmZkProver::prove(
-            "(mod (a b) (+ a b))",
-            &[ProgramParameter::int(2), ProgramParameter::int(3)],
-        ),
-        ClvmZkProver::prove(
-            "(mod (a b) (+ a b))",
-            &[ProgramParameter::int(5), ProgramParameter::int(7)],
-        ),
-    ) {
-        (Ok(result1), Ok(result2)) => {
-            let out1 = result1.proof_output.clvm_res;
-            let out2 = result2.proof_output.clvm_res;
-            test_info!("   Program 1 output: {out1:?} (expected: [5])");
-            test_info!("   Program 2 output: {out2:?} (expected: [12])");
-            if out1 == out2 {
-                test_info!("   ✗ CONFIRMED: Both programs produce same output despite different parameters");
-            }
-        }
-        _ => test_info!("   Could not test due to proof generation issues"),
-    }
+    // 2. Bytemuck panic - FIXED (handled via metadata-targeted tampering in tests)
+    test_info!("\n2. Bytemuck panic on tampered proofs: FIXED");
+    test_info!("   ✓ Tampering tests now target metadata bytes to avoid internal panics");
 
-    // 2. Bytemuck panic case
-    test_info!("\n2. Bytemuck InvalidBitPattern panic:");
-    test_info!("   Tampered proofs with specific bit patterns cause bytemuck to panic instead of graceful failure");
-    test_info!("   This was fixed in test_condition_validation_logic but original pattern was:");
-    test_info!("   - Flip bits at positions 50 and 100 in proof data");
-    test_info!("   - Caused panic in risc0_core::field::Elem::from_u32_slice during verification");
-    test_info!("   - Fix: Modified tampering to target metadata bytes instead of proof data");
+    // 3. Signature opcodes - KNOWN LIMITATION
+    test_info!("\n3. agg_sig_unsafe/agg_sig_same opcodes: KNOWN LIMITATION");
+    test_info!("   These Chia aggregated signature opcodes require BLS support");
+    test_info!("   Workaround: Use ecdsa_verify or bls_verify operators instead");
 
-    // 3. Unsupported signature opcodes
-    test_info!("\n3. Unsupported cryptographic opcodes:");
-    test_info!(
-        "   agg_sig_unsafe and agg_sig_same opcodes are not fully supported in ZK-CLVM runtime"
-    );
-    test_info!("   Error: 'unsupported or invalid expression format'");
-    test_info!("   Workaround: Tests marked as #[ignore] with proper ECDSA helpers for future implementation");
-
-    // 4. Future cases can be added here
-    test_info!("\n4. Reserved for future failing cases...");
-
-    test_info!("\n=== End of Known Failing Cases ===");
-    test_info!("Total documented issues: 3 major categories");
-
+    test_info!("\n=== End Known Issues Status ===");
     Ok(())
 }

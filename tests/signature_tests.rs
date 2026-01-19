@@ -1,6 +1,10 @@
 mod common;
 use clvm_zk::{ClvmZkProver, ProgramParameter};
 use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+
+// CLVM condition opcodes
+const AGG_SIG_UNSAFE: u8 = 49;
+
 /// Generate valid ECDSA signature data for testing
 /// Returns (public_key_bytes, message_bytes, signature_bytes)
 pub fn generate_valid_sig_data() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
@@ -39,6 +43,7 @@ pub fn generate_invalid_sig_data() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     (pk, msg, invalid_sig)
 }
 /// Test agg_sig_unsafe with valid cryptographic data
+/// Uses proper chialisp syntax: conditions are OUTPUT as lists (list 49 pk msg sig)
 #[test]
 fn fuzz_agg_sig_unsafe_valid() -> Result<(), Box<dyn std::error::Error>> {
     test_info!("\nTesting agg_sig_unsafe with valid cryptographic data...");
@@ -51,8 +56,11 @@ fn fuzz_agg_sig_unsafe_valid() -> Result<(), Box<dyn std::error::Error>> {
         sig_bytes.len()
     );
 
-    // The expression uses variables for the byte arrays
-    let expr = "(mod (a b c) (agg_sig_unsafe a b c))";
+    // The expression outputs agg_sig_unsafe as a condition list: (list (list 49 pk msg sig))
+    let expr = format!(
+        "(mod (pk msg sig) (list (list {} pk msg sig)))",
+        AGG_SIG_UNSAFE
+    );
     let params = vec![
         ProgramParameter::from_bytes(&pk_bytes),
         ProgramParameter::from_bytes(&msg_bytes),
@@ -60,13 +68,13 @@ fn fuzz_agg_sig_unsafe_valid() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     test_info!("Generating proof for agg_sig_unsafe...");
-    let result = ClvmZkProver::prove(expr, &params)
+    let result = ClvmZkProver::prove(&expr, &params)
         .map_err(|e| format!("Proof generation failed for valid agg_sig_unsafe: {e}"))?;
     let output = result.proof_output.clvm_res;
     let proof = result.proof_bytes;
 
     test_info!("Verifying proof for agg_sig_unsafe...");
-    let program_hash = compile_chialisp_template_hash_default(expr)
+    let program_hash = compile_chialisp_template_hash_default(&expr)
         .map_err(|e| format!("Hash template failed: {:?}", e))?;
     let (verified, _) = ClvmZkProver::verify_proof(program_hash, &proof, Some(&output.output))
         .map_err(|e| format!("Verification error for agg_sig_unsafe: {e}"))?;
@@ -86,6 +94,7 @@ fn fuzz_agg_sig_unsafe_valid() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Test agg_sig_unsafe with invalid cryptographic data (negative test)
+/// Uses proper chialisp syntax: conditions are OUTPUT as lists (list 49 pk msg sig)
 #[test]
 fn fuzz_agg_sig_unsafe_invalid() -> Result<(), Box<dyn std::error::Error>> {
     test_info!("\nTesting agg_sig_unsafe with invalid cryptographic data...");
@@ -98,7 +107,11 @@ fn fuzz_agg_sig_unsafe_invalid() -> Result<(), Box<dyn std::error::Error>> {
         invalid_sig_bytes.len()
     );
 
-    let expr = "(mod (a b c) (agg_sig_unsafe a b c))";
+    // The expression outputs agg_sig_unsafe as a condition list: (list (list 49 pk msg sig))
+    let expr = format!(
+        "(mod (pk msg sig) (list (list {} pk msg sig)))",
+        AGG_SIG_UNSAFE
+    );
     let params = vec![
         ProgramParameter::from_bytes(&pk_bytes),
         ProgramParameter::from_bytes(&msg_bytes),
@@ -106,14 +119,14 @@ fn fuzz_agg_sig_unsafe_invalid() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     test_info!("Attempting proof generation for invalid agg_sig_unsafe...");
-    match ClvmZkProver::prove(expr, &params) {
+    match ClvmZkProver::prove(&expr, &params) {
         Ok(result) => {
             let output = result.proof_output.clvm_res;
             let proof = result.proof_bytes;
             test_info!("Proof generation succeeded, checking if verification catches the invalid signature...");
 
             // The proof might succeed but verification should fail or return invalid result
-            let program_hash = compile_chialisp_template_hash_default(expr)
+            let program_hash = compile_chialisp_template_hash_default(&expr)
                 .map_err(|e| format!("Hash template failed: {:?}", e))?;
             let (verified, _) =
                 ClvmZkProver::verify_proof(program_hash, &proof, Some(&output.output))

@@ -75,43 +75,45 @@ pub enum ClvmOperator {
 
 impl ClvmOperator {
     /// Get the opcode byte for this operator
-    /// This is used by both host compilation and guest evaluation
+    /// Uses Chia-standard CLVM opcodes for compatibility with clvmr
     pub fn opcode(&self) -> u8 {
         match self {
-            // Arithmetic (ASCII codes)
-            ClvmOperator::Add => 43,      // '+'
-            ClvmOperator::Subtract => 45, // '-'
-            ClvmOperator::Multiply => 42, // '*'
-            ClvmOperator::Divide => 47,   // '/'
-            ClvmOperator::Modulo => 37,   // '%'
+            // Core CLVM opcodes (Chia standard)
+            ClvmOperator::Quote => 1,     // q
+            ClvmOperator::Apply => 2,     // a
+            ClvmOperator::If => 3,        // i
+            ClvmOperator::Cons => 4,      // c
+            ClvmOperator::First => 5,     // f
+            ClvmOperator::Rest => 6,      // r
+            ClvmOperator::ListCheck => 7, // l
+            // 8 = raise
+            ClvmOperator::Equal => 9,        // =
+            ClvmOperator::GreaterThan => 21, // >
 
-            // Comparison (ASCII codes)
-            ClvmOperator::Equal => 61,       // '='
-            ClvmOperator::GreaterThan => 62, // '>'
+            // Arithmetic (Chia standard)
+            ClvmOperator::Add => 16,      // +
+            ClvmOperator::Subtract => 17, // -
+            ClvmOperator::Multiply => 18, // *
+            ClvmOperator::Divide => 19,   // /
+            ClvmOperator::DivMod => 20,   // divmod
+            ClvmOperator::Modulo => 61,   // %  (mod opcode in Chia)
 
-            // CLVM primitives (ASCII codes)
-            ClvmOperator::If => 105,        // 'i'
-            ClvmOperator::First => 102,     // 'f'
-            ClvmOperator::Rest => 114,      // 'r'
-            ClvmOperator::Cons => 99,       // 'c'
-            ClvmOperator::ListCheck => 108, // 'l'
-            ClvmOperator::Quote => 113,     // 'q'
-            ClvmOperator::Apply => 97,      // 'a'
+            // Extended operations
+            ClvmOperator::ModPow => 60, // modpow
 
-            // Extended operations (condition opcodes)
-            ClvmOperator::DivMod => 80,
-            ClvmOperator::ModPow => 81,
-
-            // Signature operations
+            // Signature operations (Chia condition opcodes)
             ClvmOperator::AggSigUnsafe => 49,
             ClvmOperator::AggSigMe => 50,
+
+            // Custom signature verification (use BLS opcode 59 for bls_verify)
+            ClvmOperator::BlsVerify => 59,
+            // ECDSA uses 4-byte opcode in clvmr, but we use 200 for now
             ClvmOperator::EcdsaVerify => 200,
-            ClvmOperator::BlsVerify => 201,
 
             // Output/Messaging
             ClvmOperator::Remark => 1,
 
-            // Coin operations
+            // Coin operations (Chia condition opcodes)
             ClvmOperator::CreateCoin => 51,
             ClvmOperator::ReserveFee => 52,
 
@@ -135,12 +137,37 @@ impl ClvmOperator {
             ClvmOperator::AssertMyPuzzleHash => 72,
             ClvmOperator::AssertMyAmount => 73,
 
-            // Runtime function calls
+            // Runtime function calls (Veil extension)
             ClvmOperator::CallFunction => 150,
 
             // Host-only helpers - these should never be compiled to opcodes
             ClvmOperator::List => panic!("List is a host-only helper and has no opcode"),
         }
+    }
+
+    /// Check if this operator is a Chia condition (should be compiled as data, not operator call)
+    /// Condition operators create condition values that are returned as program output
+    pub fn is_condition_operator(&self) -> bool {
+        matches!(
+            self,
+            ClvmOperator::Remark
+                | ClvmOperator::AggSigUnsafe
+                | ClvmOperator::AggSigMe
+                | ClvmOperator::CreateCoin
+                | ClvmOperator::ReserveFee
+                | ClvmOperator::CreateCoinAnnouncement
+                | ClvmOperator::AssertCoinAnnouncement
+                | ClvmOperator::CreatePuzzleAnnouncement
+                | ClvmOperator::AssertPuzzleAnnouncement
+                | ClvmOperator::AssertConcurrentSpend
+                | ClvmOperator::AssertConcurrentPuzzle
+                | ClvmOperator::SendMessage
+                | ClvmOperator::ReceiveMessage
+                | ClvmOperator::AssertMyCoinId
+                | ClvmOperator::AssertMyParentId
+                | ClvmOperator::AssertMyPuzzleHash
+                | ClvmOperator::AssertMyAmount
+        )
     }
 
     /// Parse operator from string (used by host for Chialisp parsing)
@@ -215,51 +242,41 @@ impl ClvmOperator {
     pub fn from_opcode(opcode: u8) -> Option<Self> {
         match opcode {
             // Arithmetic (ASCII codes)
-            43 => Some(ClvmOperator::Add),
-            45 => Some(ClvmOperator::Subtract),
-            42 => Some(ClvmOperator::Multiply),
-            47 => Some(ClvmOperator::Divide),
-            37 => Some(ClvmOperator::Modulo),
+            // Core CLVM opcodes (Chia standard)
+            1 => Some(ClvmOperator::Quote),
+            2 => Some(ClvmOperator::Apply),
+            3 => Some(ClvmOperator::If),
+            4 => Some(ClvmOperator::Cons),
+            5 => Some(ClvmOperator::First),
+            6 => Some(ClvmOperator::Rest),
+            7 => Some(ClvmOperator::ListCheck),
+            9 => Some(ClvmOperator::Equal),
+            21 => Some(ClvmOperator::GreaterThan),
 
-            // Comparison (ASCII codes)
-            61 => Some(ClvmOperator::Equal),
-            62 => Some(ClvmOperator::GreaterThan),
+            // Arithmetic (Chia standard)
+            16 => Some(ClvmOperator::Add),
+            17 => Some(ClvmOperator::Subtract),
+            18 => Some(ClvmOperator::Multiply),
+            19 => Some(ClvmOperator::Divide),
+            20 => Some(ClvmOperator::DivMod),
+            61 => Some(ClvmOperator::Modulo),
 
-            // CLVM primitives (ASCII codes)
-            105 => Some(ClvmOperator::If),
-            102 => Some(ClvmOperator::First),
-            114 => Some(ClvmOperator::Rest),
-            99 => Some(ClvmOperator::Cons),
-            108 => Some(ClvmOperator::ListCheck),
-            113 => Some(ClvmOperator::Quote),
-            97 => Some(ClvmOperator::Apply),
+            // Extended operations
+            60 => Some(ClvmOperator::ModPow),
 
-            // Extended operations (condition opcodes)
-            80 => Some(ClvmOperator::DivMod),
-            81 => Some(ClvmOperator::ModPow),
-
-            // Signature operations
+            // Signature operations (Chia condition opcodes)
             49 => Some(ClvmOperator::AggSigUnsafe),
             50 => Some(ClvmOperator::AggSigMe),
+            59 => Some(ClvmOperator::BlsVerify),
             200 => Some(ClvmOperator::EcdsaVerify),
-            201 => Some(ClvmOperator::BlsVerify),
 
-            // Output/Messaging
-            1 => Some(ClvmOperator::Remark),
-
-            // Coin operations
+            // Coin operations (Chia condition opcodes)
             51 => Some(ClvmOperator::CreateCoin),
             52 => Some(ClvmOperator::ReserveFee),
-
-            // Note: Announcement conditions (60-63) are NOT in from_opcode() because they
-            // conflict with CLVM operators (60='<', 61='=', 62='>'). Their opcode() mappings
-            // are used by handlers to create condition structures.
 
             // Concurrency
             64 => Some(ClvmOperator::AssertConcurrentSpend),
             65 => Some(ClvmOperator::AssertConcurrentPuzzle),
-
-            // Note: Messaging conditions (66-67) not in from_opcode() to avoid conflicts
 
             // Assertions
             70 => Some(ClvmOperator::AssertMyCoinId),
@@ -267,7 +284,7 @@ impl ClvmOperator {
             72 => Some(ClvmOperator::AssertMyPuzzleHash),
             73 => Some(ClvmOperator::AssertMyAmount),
 
-            // Runtime function calls
+            // Runtime function calls (Veil extension)
             150 => Some(ClvmOperator::CallFunction),
 
             _ => None,
@@ -402,6 +419,7 @@ mod tests {
     #[test]
     fn test_operator_roundtrip() {
         // Test that string -> operator -> opcode -> operator works
+        // Note: Using Chia-standard opcodes now
         let ops = [
             "+",
             "-",
@@ -410,7 +428,6 @@ mod tests {
             "%",
             "=",
             ">",
-            "<",
             "i",
             "f",
             "r",

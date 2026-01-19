@@ -1,0 +1,15 @@
+[package]
+name = "clvm-zk-risc0-guest-settlement"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+risc0-zkvm = "3.0.3"
+clvm-zk-core = { path = "../../../clvm_zk_core", features = ["risc0"] }
+serde = { version = "1.0", features = ["derive"] }
+borsh = { version = "1.5", features = ["derive"] }
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+
+[[bin]]
+name = "settlement"
+path = "src/main.rs"

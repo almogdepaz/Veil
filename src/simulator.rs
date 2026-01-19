@@ -411,6 +411,31 @@ impl CLVMZkSimulator {
         self.transactions.clear();
         self.block_height = 0;
     }
+
+    /// process settlement output: add nullifiers and commitments to simulator state
+    pub fn process_settlement(&mut self, output: &crate::protocol::SettlementOutput) {
+        // add nullifiers to nullifier set
+        self.nullifier_set.insert(output.maker_nullifier);
+        self.nullifier_set.insert(output.taker_nullifier);
+
+        // add all 4 coin commitments to merkle tree
+        let commitments = [
+            output.maker_change_commitment,
+            output.payment_commitment,
+            output.taker_goods_commitment,
+            output.taker_change_commitment,
+        ];
+
+        for commitment in &commitments {
+            let leaf_index = self.coin_tree.leaves_len();
+            self.coin_tree.insert(*commitment);
+            self.commitment_to_index.insert(*commitment, leaf_index);
+            self.merkle_leaves.push(*commitment);
+        }
+
+        // commit tree after adding all commitments
+        self.coin_tree.commit();
+    }
 }
 
 /// coin info in simulator
