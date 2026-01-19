@@ -95,7 +95,10 @@ fn main() {
     payment_puzzle_data.extend_from_slice(b"ecdh_payment_v1");
     payment_puzzle_data.extend_from_slice(shared_secret.as_bytes());
     let payment_puzzle = Impl::hash_bytes(&payment_puzzle_data);
-    let payment_puzzle_bytes: [u8; 32] = payment_puzzle.as_bytes().try_into().unwrap();
+    let payment_puzzle_bytes: [u8; 32] = payment_puzzle
+        .as_bytes()
+        .try_into()
+        .expect("sha256 digest must be 32 bytes");
 
     // 9. create payment commitment (taker → maker, asset B)
     let payment_commitment = create_coin_commitment(
@@ -291,7 +294,10 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32]) {
     serial_commit_data.extend_from_slice(&coin.serial_number);
     serial_commit_data.extend_from_slice(&coin.serial_randomness);
     let computed_serial_commitment = Impl::hash_bytes(&serial_commit_data);
-    let computed_serial_bytes: [u8; 32] = computed_serial_commitment.as_bytes().try_into().unwrap();
+    let computed_serial_bytes: [u8; 32] = computed_serial_commitment
+        .as_bytes()
+        .try_into()
+        .expect("sha256 digest must be 32 bytes");
 
     assert_eq!(
         computed_serial_bytes, coin.serial_commitment,
@@ -306,7 +312,10 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32]) {
     coin_commit_data.extend_from_slice(&coin.puzzle_hash);
     coin_commit_data.extend_from_slice(&coin.serial_commitment); // use verified commitment!
     let coin_commitment_hash = Impl::hash_bytes(&coin_commit_data);
-    let coin_commitment: [u8; 32] = coin_commitment_hash.as_bytes().try_into().unwrap();
+    let coin_commitment: [u8; 32] = coin_commitment_hash
+        .as_bytes()
+        .try_into()
+        .expect("sha256 digest must be 32 bytes");
 
     // 3. verify merkle membership
     let mut current_hash = coin_commitment;
@@ -322,7 +331,10 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32]) {
             concat.extend_from_slice(&current_hash);
         }
         let hash_result = Impl::hash_bytes(&concat);
-        current_hash = hash_result.as_bytes().try_into().unwrap();
+        current_hash = hash_result
+            .as_bytes()
+            .try_into()
+            .expect("sha256 digest must be 32 bytes");
         index /= 2;
     }
 
@@ -354,7 +366,10 @@ fn create_coin_commitment(
     coin_commit_data.extend_from_slice(serial_commitment.as_bytes());
 
     let coin_commitment = Impl::hash_bytes(&coin_commit_data);
-    coin_commitment.as_bytes().try_into().unwrap()
+    coin_commitment
+        .as_bytes()
+        .try_into()
+        .expect("sha256 digest must be 32 bytes")
 }
 
 /// compute nullifier: hash(serial_number || program_hash || amount)
@@ -365,5 +380,8 @@ fn compute_nullifier(serial_number: &[u8; 32], program_hash: &[u8; 32], amount: 
     nullifier_data.extend_from_slice(program_hash);
     nullifier_data.extend_from_slice(&amount.to_be_bytes());
     let nullifier = Impl::hash_bytes(&nullifier_data);
-    nullifier.as_bytes().try_into().unwrap()
+    nullifier
+        .as_bytes()
+        .try_into()
+        .expect("sha256 digest must be 32 bytes")
 }
