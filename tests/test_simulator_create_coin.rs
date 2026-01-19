@@ -1,4 +1,12 @@
 /// test simulator integration with 4-arg CREATE_COIN (output privacy)
+#[cfg(feature = "mock")]
+use clvm_zk::protocol::PrivateCoin;
+#[cfg(feature = "mock")]
+use clvm_zk::simulator::{CLVMZkSimulator, CoinMetadata, CoinType};
+#[cfg(feature = "mock")]
+use clvm_zk_core::{
+    compile_chialisp_template_hash_default, CoinSecrets, SerialCommitment, XCH_TAIL,
+};
 
 #[test]
 #[cfg(feature = "mock")]
