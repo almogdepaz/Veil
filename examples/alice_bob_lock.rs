@@ -1,5 +1,5 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::chialisp::{compile_chialisp_template_hash_default, with_standard_conditions};
 
 use k256::ecdsa::{signature::Signer, Signature, SigningKey, VerifyingKey};
 use rand::thread_rng;
@@ -103,9 +103,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\nTesting Chialisp examples with new API...");
 
-    // Test create_coin condition - new API handles everything in guest
+    // Test create_coin condition - chialisp conditions are (list OPCODE args...)
+    let create_coin_program = with_standard_conditions(
+        "(mod (puzzle_hash amount) (list (list CREATE_COIN puzzle_hash amount)))",
+    );
     match ClvmZkProver::prove(
-        "(mod (puzzle_hash amount) (create_coin puzzle_hash amount))",
+        &create_coin_program,
         &[ProgramParameter::int(999), ProgramParameter::int(1000)],
     ) {
         Ok(result) => {
@@ -118,11 +121,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Test reserve_fee condition - much simpler with guest compilation
-    match ClvmZkProver::prove(
-        "(mod (fee_amount) (reserve_fee fee_amount))",
-        &[ProgramParameter::int(50)],
-    ) {
+    // Test reserve_fee condition
+    let reserve_fee_program =
+        with_standard_conditions("(mod (fee_amount) (list (list RESERVE_FEE fee_amount)))");
+    match ClvmZkProver::prove(&reserve_fee_program, &[ProgramParameter::int(50)]) {
         Ok(result) => {
             println!("Guest-compiled reserve_fee succeeded!");
             println!("   - Output: {:?}", result.proof_output.clvm_res);

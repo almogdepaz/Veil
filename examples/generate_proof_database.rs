@@ -1,4 +1,5 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
+use clvm_zk_core::chialisp::with_standard_conditions;
 use clvm_zk_core::coin_commitment::{CoinCommitment, CoinSecrets, XCH_TAIL};
 use clvm_zk_core::merkle::SparseMerkleTree;
 use sha2::{Digest, Sha256};
@@ -85,12 +86,9 @@ fn main() {
     fs::create_dir_all(&output_dir).expect("failed to create output directory");
 
     // chialisp program that creates CREATE_COIN condition
-    // CREATE_COIN is recognized by the compiler and converted to opcode 51
-    let coin_spend_program = r#"
-        (mod (amount recipient_hash)
-            (list CREATE_COIN recipient_hash amount)
-        )
-    "#;
+    let coin_spend_program = with_standard_conditions(
+        "(mod (amount recipient_hash) (list (list CREATE_COIN recipient_hash amount)))",
+    );
 
     let mut total_prove_time = std::time::Duration::ZERO;
     let mut total_proof_size = 0usize;
@@ -98,7 +96,7 @@ fn main() {
 
     // setup: create merkle tree and coins with proper commitments
     println!("creating coins with serial commitments...");
-    let program_hash = compile_program_hash(coin_spend_program);
+    let program_hash = compile_program_hash(&coin_spend_program);
     let mut merkle_tree = SparseMerkleTree::new(20, hash_data);
     let mut coin_data = Vec::new();
 
@@ -161,7 +159,7 @@ fn main() {
         // generate proof with serial commitment (full nullifier protocol)
         let prove_start = Instant::now();
         let result = ClvmZkProver::prove_with_serial_commitment(
-            coin_spend_program,
+            &coin_spend_program,
             &[
                 ProgramParameter::Int(*amount),
                 ProgramParameter::Bytes(recipient_hash.to_vec()),

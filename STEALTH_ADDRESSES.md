@@ -161,19 +161,6 @@ Give view key to auditors, watch-only wallets, tax software without spending ris
 
 Stealth addresses are fully implemented in `src/wallet/stealth.rs`:
 
-```rust
-// Key types
-StealthKeys        // view_privkey + spend_privkey (wallet stores)
-StealthAddress     // view_pubkey + spend_pubkey (public, 66 bytes)
-StealthViewKey     // view_privkey + spend_pubkey (for auditors)
-StealthCoinData    // shared_secret + ephemeral_pubkey (per-coin)
-
-// Functions
-create_stealth_payment(&StealthAddress) -> StealthPayment
-StealthViewKey::scan_coins(&[(puzzle_hash, ephemeral_pubkey)]) -> Vec<found>
-StealthKeys::derive_spend_key(&shared_secret) -> [u8; 32]
-```
-
 **Simulator usage:**
 ```bash
 cargo run-mock -- sim wallet alice create    # creates stealth address

@@ -21,6 +21,20 @@ echo
 EXAMPLES=$(ls examples/*.rs | xargs -n1 basename | sed 's/\.rs$//')
 
 for example in $EXAMPLES; do
+    # skip examples that require specific backends
+    if [ "$BACKEND" = "mock" ] && [ "$example" = "benchmark_aggregation" ]; then
+        echo "--- $example --- (skipped: requires risc0/sp1)"
+        continue
+    fi
+    if [ "$BACKEND" = "mock" ] && [ "$example" = "recursive_aggregation" ]; then
+        echo "--- $example --- (skipped: requires risc0/sp1)"
+        continue
+    fi
+    if [ "$BACKEND" = "mock" ] && [ "$example" = "generate_proof_database" ]; then
+        echo "--- $example --- (skipped: requires risc0/sp1)"
+        continue
+    fi
+
     echo "--- $example ---"
     cargo run-$BACKEND --example "$example" || {
         echo "FAILED: $example"
