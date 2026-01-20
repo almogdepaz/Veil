@@ -199,9 +199,3 @@ No new dependencies required.
 2. **domain separation** - all hashes prefixed with "veil_stealth_v1"
 3. **view key != spend key** - compromise view key doesn't allow spending
 4. **shared_secret storage** - wallet must persist shared_secret to spend later
-
-## Status
-
-✅ **Fully implemented** - stealth addresses are the default payment method.
-
-Encrypted notes have been removed from the codebase.
