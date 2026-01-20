@@ -61,7 +61,8 @@ pub fn with_standard_conditions(source: &str) -> String {
                     }
                 }
                 // insert constants after param list
-                let mut result = String::with_capacity(source.len() + STANDARD_CONDITION_CODES.len());
+                let mut result =
+                    String::with_capacity(source.len() + STANDARD_CONDITION_CODES.len());
                 result.push_str(&source[..param_end]);
                 result.push_str(STANDARD_CONDITION_CODES);
                 result.push_str(&source[param_end..]);
@@ -212,7 +213,10 @@ mod tests {
         let (_, hash1) = compile_chialisp_to_bytecode(hash_data, "(mod (x y) (+ x y))").unwrap();
         let (_, hash2) = compile_chialisp_to_bytecode(hash_data, "(mod (x y) (* x y))").unwrap();
 
-        assert_ne!(hash1, hash2, "different programs should have different hashes");
+        assert_ne!(
+            hash1, hash2,
+            "different programs should have different hashes"
+        );
     }
 
     #[test]

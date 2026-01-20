@@ -35,7 +35,10 @@ fn test_xch_different_amounts_different_commitments() {
     let c1 = CoinCommitment::compute(&XCH_TAIL, 1000, &puzzle_hash, &serial, hash_data);
     let c2 = CoinCommitment::compute(&XCH_TAIL, 1001, &puzzle_hash, &serial, hash_data);
 
-    assert_ne!(c1, c2, "different amounts must produce different commitments");
+    assert_ne!(
+        c1, c2,
+        "different amounts must produce different commitments"
+    );
 }
 
 #[test]
@@ -45,7 +48,10 @@ fn test_xch_different_puzzles_different_commitments() {
     let c1 = CoinCommitment::compute(&XCH_TAIL, 1000, &[0x01u8; 32], &serial, hash_data);
     let c2 = CoinCommitment::compute(&XCH_TAIL, 1000, &[0x02u8; 32], &serial, hash_data);
 
-    assert_ne!(c1, c2, "different puzzles must produce different commitments");
+    assert_ne!(
+        c1, c2,
+        "different puzzles must produce different commitments"
+    );
 }
 
 #[test]
@@ -64,8 +70,7 @@ fn test_xch_max_amount_valid() {
     let puzzle_hash = [0x42u8; 32];
     let serial = SerialCommitment([0x99u8; 32]);
 
-    let commitment =
-        CoinCommitment::compute(&XCH_TAIL, u64::MAX, &puzzle_hash, &serial, hash_data);
+    let commitment = CoinCommitment::compute(&XCH_TAIL, u64::MAX, &puzzle_hash, &serial, hash_data);
     assert_eq!(commitment.as_bytes().len(), 32);
 }
 
@@ -80,11 +85,13 @@ fn test_cat_commitment_differs_from_xch() {
     let serial = SerialCommitment([0x99u8; 32]);
 
     // XCH uses zero tail_hash
-    let xch_commitment = CoinCommitment::compute(&XCH_TAIL, amount, &puzzle_hash, &serial, hash_data);
+    let xch_commitment =
+        CoinCommitment::compute(&XCH_TAIL, amount, &puzzle_hash, &serial, hash_data);
 
     // CAT uses non-zero tail_hash (hash of TAIL program)
     let cat_tail = hash_data(b"my_cat_tail_program");
-    let cat_commitment = CoinCommitment::compute(&cat_tail, amount, &puzzle_hash, &serial, hash_data);
+    let cat_commitment =
+        CoinCommitment::compute(&cat_tail, amount, &puzzle_hash, &serial, hash_data);
 
     assert_ne!(
         xch_commitment, cat_commitment,
@@ -118,8 +125,7 @@ fn test_cat_tail_hash_format() {
 
     // commitment with this tail should work
     let serial = SerialCommitment([0x99u8; 32]);
-    let commitment =
-        CoinCommitment::compute(&tail_hash, 1000, &[0x42u8; 32], &serial, hash_data);
+    let commitment = CoinCommitment::compute(&tail_hash, 1000, &[0x42u8; 32], &serial, hash_data);
     assert_eq!(commitment.as_bytes().len(), 32);
 }
 
@@ -251,8 +257,13 @@ fn test_nullifier_excludes_randomness() {
     // coin commitment includes serial_randomness, nullifier doesn't
     // this is by design for unlinkability
     let serial_commitment = SerialCommitment::compute(&serial_number, &[0x22u8; 32], hash_data);
-    let coin_commitment =
-        CoinCommitment::compute(&XCH_TAIL, amount, &program_hash, &serial_commitment, hash_data);
+    let coin_commitment = CoinCommitment::compute(
+        &XCH_TAIL,
+        amount,
+        &program_hash,
+        &serial_commitment,
+        hash_data,
+    );
 
     // nullifier should NOT be derivable from coin_commitment
     // (they use completely different hash structures)
@@ -272,12 +283,7 @@ fn test_coin_commitment_preimage_size() {
 
     assert_eq!(COIN_COMMITMENT_PREIMAGE_SIZE, 121);
 
-    let preimage = build_coin_commitment_preimage(
-        &XCH_TAIL,
-        1000,
-        &[0x42u8; 32],
-        &[0x99u8; 32],
-    );
+    let preimage = build_coin_commitment_preimage(&XCH_TAIL, 1000, &[0x42u8; 32], &[0x99u8; 32]);
 
     assert_eq!(preimage.len(), 121);
 }
@@ -428,8 +434,13 @@ fn test_full_commitment_chain() {
         SerialCommitment::compute(&serial_number, &serial_randomness, hash_data);
 
     // step 2: coin commitment (XCH)
-    let coin_commitment =
-        CoinCommitment::compute(&XCH_TAIL, amount, &puzzle_hash, &serial_commitment, hash_data);
+    let coin_commitment = CoinCommitment::compute(
+        &XCH_TAIL,
+        amount,
+        &puzzle_hash,
+        &serial_commitment,
+        hash_data,
+    );
 
     // step 3: nullifier (for spending)
     let mut nullifier_data = Vec::with_capacity(72);
@@ -445,8 +456,7 @@ fn test_full_commitment_chain() {
 
     // all should be deterministic
     let serial2 = SerialCommitment::compute(&serial_number, &serial_randomness, hash_data);
-    let coin2 =
-        CoinCommitment::compute(&XCH_TAIL, amount, &puzzle_hash, &serial2, hash_data);
+    let coin2 = CoinCommitment::compute(&XCH_TAIL, amount, &puzzle_hash, &serial2, hash_data);
 
     assert_eq!(serial_commitment, serial2);
     assert_eq!(coin_commitment, coin2);
@@ -463,12 +473,22 @@ fn test_cat_commitment_chain() {
 
     let serial_commitment =
         SerialCommitment::compute(&serial_number, &serial_randomness, hash_data);
-    let coin_commitment =
-        CoinCommitment::compute(&cat_tail, amount, &puzzle_hash, &serial_commitment, hash_data);
+    let coin_commitment = CoinCommitment::compute(
+        &cat_tail,
+        amount,
+        &puzzle_hash,
+        &serial_commitment,
+        hash_data,
+    );
 
     // must differ from XCH with same parameters
-    let xch_commitment =
-        CoinCommitment::compute(&XCH_TAIL, amount, &puzzle_hash, &serial_commitment, hash_data);
+    let xch_commitment = CoinCommitment::compute(
+        &XCH_TAIL,
+        amount,
+        &puzzle_hash,
+        &serial_commitment,
+        hash_data,
+    );
 
     assert_ne!(coin_commitment, xch_commitment);
 }

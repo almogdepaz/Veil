@@ -55,8 +55,8 @@ struct SettlementInput {
     change_serial: [u8; 32], // for taker's change
     change_rand: [u8; 32],
     // v2.0 coin commitment format: tail_hash identifies asset type
-    taker_tail_hash: [u8; 32],  // taker's coin asset (XCH = zeros)
-    goods_tail_hash: [u8; 32],  // offered goods asset (maker's asset)
+    taker_tail_hash: [u8; 32], // taker's coin asset (XCH = zeros)
+    goods_tail_hash: [u8; 32], // offered goods asset (maker's asset)
 }
 
 fn main() {
@@ -169,7 +169,8 @@ fn parse_maker_output(clvm_output: &[u8], tail_hash: &[u8; 32]) -> ([u8; 32], u6
     match value {
         ClvmValue::Cons(create_coin_box, settlement_terms_box) => {
             // extract maker_change_commitment from CREATE_COIN (v2.0 format)
-            let maker_change_commitment = extract_create_coin_commitment(&create_coin_box, tail_hash);
+            let maker_change_commitment =
+                extract_create_coin_commitment(&create_coin_box, tail_hash);
 
             // extract settlement terms
             let (offered, requested, maker_pubkey) =

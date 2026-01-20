@@ -192,7 +192,8 @@ impl MockBackend {
 
         validate_signature_conditions(&conditions)?;
         let tail_hash = [0u8; 32]; // default XCH for simple proving API
-        let final_output = transform_create_coin_conditions(&mut conditions, output_bytes, tail_hash)?;
+        let final_output =
+            transform_create_coin_conditions(&mut conditions, output_bytes, tail_hash)?;
 
         let clvm_output = ClvmResult {
             output: final_output,
@@ -247,7 +248,8 @@ impl MockBackend {
 
         validate_signature_conditions(&conditions)?;
         let tail_hash = inputs.tail_hash.unwrap_or([0u8; 32]);
-        let final_output = transform_create_coin_conditions(&mut conditions, output_bytes, tail_hash)?;
+        let final_output =
+            transform_create_coin_conditions(&mut conditions, output_bytes, tail_hash)?;
 
         let clvm_output = ClvmResult {
             output: final_output,
@@ -345,12 +347,14 @@ impl MockBackend {
                 // compute nullifier for additional coin
                 // nullifier = hash(serial_number || program_hash || amount)
                 let (_, coin_program_hash) =
-                    compile_chialisp_to_bytecode(hash_data, &coin.chialisp_source).map_err(|e| {
-                        ClvmZkError::ProofGenerationFailed(format!(
-                            "additional coin compilation failed: {:?}",
-                            e
-                        ))
-                    })?;
+                    compile_chialisp_to_bytecode(hash_data, &coin.chialisp_source).map_err(
+                        |e| {
+                            ClvmZkError::ProofGenerationFailed(format!(
+                                "additional coin compilation failed: {:?}",
+                                e
+                            ))
+                        },
+                    )?;
 
                 let mut nullifier_data = Vec::with_capacity(72);
                 nullifier_data.extend_from_slice(&coin_data.serial_number);
