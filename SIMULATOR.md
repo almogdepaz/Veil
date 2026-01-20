@@ -35,7 +35,8 @@ when creating a coin:
 serial_number = random(32 bytes)
 serial_randomness = random(32 bytes)
 serial_commitment = hash("clvm_zk_serial_v1.0" || serial_number || serial_randomness)
-coin_commitment = hash("clvm_zk_coin_v1.0" || amount || puzzle_hash || serial_commitment)
+coin_commitment = hash("clvm_zk_coin_v2.0" || tail_hash || amount || puzzle_hash || serial_commitment)
+# tail_hash identifies asset: [0; 32] for XCH, hash of TAIL for CATs
 ```
 
 when spending a coin:

@@ -249,15 +249,89 @@ fn main() {
         None => None,
     };
 
+    // collect nullifiers: primary coin + additional coins for ring spends
+    let mut nullifiers = nullifier.map(|n| vec![n]).unwrap_or_default();
+
+    // process additional coins for ring spends
+    if let Some(additional_coins) = &private_inputs.additional_coins {
+        for coin in additional_coins {
+            let coin_data = &coin.serial_commitment_data;
+
+            // compile coin's puzzle to get program_hash
+            let (_, coin_program_hash) =
+                compile_chialisp_to_bytecode(risc0_hasher, &coin.chialisp_source)
+                    .expect("additional coin chialisp compilation failed");
+
+            // verify program_hash matches puzzle_hash
+            assert_eq!(
+                coin_program_hash, coin_data.program_hash,
+                "additional coin: program_hash mismatch"
+            );
+
+            // verify serial commitment
+            let domain = b"clvm_zk_serial_v1.0";
+            let mut serial_commit_data = [0u8; 83];
+            serial_commit_data[..19].copy_from_slice(domain);
+            serial_commit_data[19..51].copy_from_slice(&coin_data.serial_number);
+            serial_commit_data[51..83].copy_from_slice(&coin_data.serial_randomness);
+            let computed_serial_commitment = risc0_hasher(&serial_commit_data);
+
+            assert_eq!(
+                computed_serial_commitment, coin_data.serial_commitment,
+                "additional coin: serial commitment verification failed"
+            );
+
+            // verify coin commitment (v2.0 format)
+            let coin_domain = b"clvm_zk_coin_v2.0";
+            let mut coin_commit_data = [0u8; 121];
+            coin_commit_data[..17].copy_from_slice(coin_domain);
+            coin_commit_data[17..49].copy_from_slice(&coin.tail_hash);
+            coin_commit_data[49..57].copy_from_slice(&coin_data.amount.to_be_bytes());
+            coin_commit_data[57..89].copy_from_slice(&coin_program_hash);
+            coin_commit_data[89..121].copy_from_slice(&computed_serial_commitment);
+            let computed_coin_commitment = risc0_hasher(&coin_commit_data);
+
+            assert_eq!(
+                computed_coin_commitment, coin_data.coin_commitment,
+                "additional coin: coin commitment verification failed"
+            );
+
+            // verify merkle proof
+            let mut current_hash = computed_coin_commitment;
+            let mut current_index = coin_data.leaf_index;
+            for sibling in coin_data.merkle_path.iter() {
+                let mut combined = [0u8; 64];
+                if current_index % 2 == 0 {
+                    combined[..32].copy_from_slice(&current_hash);
+                    combined[32..].copy_from_slice(sibling);
+                } else {
+                    combined[..32].copy_from_slice(sibling);
+                    combined[32..].copy_from_slice(&current_hash);
+                }
+                current_hash = risc0_hasher(&combined);
+                current_index /= 2;
+            }
+
+            assert_eq!(
+                current_hash, coin_data.merkle_root,
+                "additional coin: merkle root mismatch"
+            );
+
+            // compute nullifier for this coin
+            let mut nullifier_data = Vec::with_capacity(72);
+            nullifier_data.extend_from_slice(&coin_data.serial_number);
+            nullifier_data.extend_from_slice(&coin_program_hash);
+            nullifier_data.extend_from_slice(&coin_data.amount.to_be_bytes());
+            nullifiers.push(risc0_hasher(&nullifier_data));
+        }
+    }
+
     let end_cycles = env::cycle_count();
     let total_cycles = end_cycles.saturating_sub(start_cycles);
     let clvm_output = ClvmResult {
         output: final_output,
         cost: total_cycles,
     };
-
-    // Convert Option<nullifier> to Vec for ProofOutput
-    let nullifiers = nullifier.map(|n| vec![n]).unwrap_or_default();
 
     env::commit(&ProofOutput {
         program_hash,

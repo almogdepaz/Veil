@@ -601,9 +601,8 @@ pub fn serialize_params_to_clvm(params: &[ProgramParameter]) -> Vec<u8> {
 
 /// Run CLVM bytecode using VeilEvaluator and parse conditions from output
 ///
-/// This function provides a bridge between the old ClvmEvaluator interface and
-/// the new VeilEvaluator. It assumes the program returns a list of conditions
-/// as its output (standard Chia model).
+/// Executes compiled CLVM bytecode and parses the output as Chia-style conditions.
+/// The program is expected to return a list of conditions as its output.
 ///
 /// # Arguments
 /// * `evaluator` - VeilEvaluator with injected crypto functions

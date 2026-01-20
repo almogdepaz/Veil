@@ -684,6 +684,7 @@ pub struct CoinMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CoinType {
     Regular,
+    Cat,
     Multisig,
     Timelocked,
     Atomic,

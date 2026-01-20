@@ -72,7 +72,7 @@ fn test_ring_spend_merkle_debug() {
         &secrets1,
         CoinMetadata {
             owner: "alice".to_string(),
-            coin_type: CoinType::Regular,
+            coin_type: CoinType::Cat,
             notes: "CAT coin 1".to_string(),
         },
     );
@@ -82,7 +82,7 @@ fn test_ring_spend_merkle_debug() {
         &secrets2,
         CoinMetadata {
             owner: "alice".to_string(),
-            coin_type: CoinType::Regular,
+            coin_type: CoinType::Cat,
             notes: "CAT coin 2".to_string(),
         },
     );

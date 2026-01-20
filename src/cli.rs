@@ -1133,8 +1133,11 @@ fn faucet_command(
         // add coin to global simulator state
         let coin = wallet_coin.to_private_coin();
         let secrets = wallet_coin.secrets();
-        // TODO: add CoinType::CAT when tail_hash.is_some()
-        let coin_type = CoinType::Regular;
+        let coin_type = if tail_hash.is_some() {
+            CoinType::Cat
+        } else {
+            CoinType::Regular
+        };
         state.simulator.add_coin(
             coin,
             secrets,
@@ -2313,6 +2316,9 @@ fn offer_take_command_impl(
         goods_rand,
         change_serial,
         change_rand,
+        // v2.0: tail_hash identifies asset type (XCH = zeros for both in this example)
+        taker_tail_hash: [0u8; 32],
+        goods_tail_hash: [0u8; 32],
     };
 
     // generate settlement proof

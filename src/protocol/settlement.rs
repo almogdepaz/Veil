@@ -91,6 +91,12 @@ pub struct SettlementParams {
     /// taker's change coin secrets
     pub change_serial: [u8; 32],
     pub change_rand: [u8; 32],
+
+    /// v2.0 coin commitment: tail_hash identifies asset type
+    /// taker's asset (what taker is spending, XCH = zeros)
+    pub taker_tail_hash: [u8; 32],
+    /// goods asset (what maker is offering, XCH = zeros)
+    pub goods_tail_hash: [u8; 32],
 }
 
 /// prove settlement transaction
@@ -155,6 +161,9 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
             goods_rand: [u8; 32],
             change_serial: [u8; 32],
             change_rand: [u8; 32],
+            // v2.0 coin commitment: tail_hash identifies asset type
+            taker_tail_hash: [u8; 32],
+            goods_tail_hash: [u8; 32],
         }
 
         #[derive(serde::Serialize)]
@@ -203,6 +212,8 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
             goods_rand: params.goods_rand,
             change_serial: params.change_serial,
             change_rand: params.change_rand,
+            taker_tail_hash: params.taker_tail_hash,
+            goods_tail_hash: params.goods_tail_hash,
         };
 
         use risc0_zkvm::{default_prover, ExecutorEnv};

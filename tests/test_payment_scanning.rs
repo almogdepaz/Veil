@@ -22,6 +22,7 @@ mod tests {
         let payment_coin = PrivateCoin {
             puzzle_hash: payment_puzzle_hash,
             amount: 1000,
+            tail_hash: [0u8; 32], // XCH
             serial_commitment: SerialCommitment::compute(
                 &[0x11; 32],
                 &[0x22; 32],
@@ -33,6 +34,7 @@ mod tests {
         let other_coin1 = PrivateCoin {
             puzzle_hash: [0x33; 32],
             amount: 500,
+            tail_hash: [0u8; 32], // XCH
             serial_commitment: SerialCommitment::compute(
                 &[0x44; 32],
                 &[0x55; 32],
@@ -43,6 +45,7 @@ mod tests {
         let other_coin2 = PrivateCoin {
             puzzle_hash: [0x66; 32],
             amount: 250,
+            tail_hash: [0u8; 32], // XCH
             serial_commitment: SerialCommitment::compute(
                 &[0x77; 32],
                 &[0x88; 32],

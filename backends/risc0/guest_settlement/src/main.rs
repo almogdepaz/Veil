@@ -54,6 +54,9 @@ struct SettlementInput {
     goods_rand: [u8; 32],
     change_serial: [u8; 32], // for taker's change
     change_rand: [u8; 32],
+    // v2.0 coin commitment format: tail_hash identifies asset type
+    taker_tail_hash: [u8; 32],  // taker's coin asset (XCH = zeros)
+    goods_tail_hash: [u8; 32],  // offered goods asset (maker's asset)
 }
 
 fn main() {
@@ -77,11 +80,12 @@ fn main() {
 
     // parse maker's clvm output: [CREATE_COIN, settlement_terms]
     // expected format: ((51 change_puzzle change_amount change_serial change_rand) (offered requested maker_pubkey))
+    // maker's change uses goods_tail_hash since it's the same asset maker started with
     let (maker_change_commitment, offered, requested, maker_pubkey) =
-        parse_maker_output(&maker_output.clvm_res.output);
+        parse_maker_output(&maker_output.clvm_res.output, &input.goods_tail_hash);
 
-    // 5. verify taker's coin ownership
-    verify_taker_coin(&input.taker_coin, input.merkle_root);
+    // 5. verify taker's coin ownership (v2.0 format with tail_hash)
+    verify_taker_coin(&input.taker_coin, input.merkle_root, &input.taker_tail_hash);
 
     // 6. assert taker has enough funds
     assert!(
@@ -104,29 +108,32 @@ fn main() {
         .try_into()
         .expect("sha256 digest must be 32 bytes");
 
-    // 9. create payment commitment (taker → maker, asset B)
+    // 9. create payment commitment (taker → maker, asset B = taker's asset)
     let payment_commitment = create_coin_commitment(
         requested,
         &payment_puzzle_bytes,
         &input.payment_serial,
         &input.payment_rand,
+        &input.taker_tail_hash,
     );
 
-    // 10. create taker goods commitment (maker → taker, asset A)
+    // 10. create taker goods commitment (maker → taker, asset A = goods asset)
     let taker_goods_commitment = create_coin_commitment(
         offered,
         &input.taker_goods_puzzle,
         &input.goods_serial,
         &input.goods_rand,
+        &input.goods_tail_hash,
     );
 
-    // 11. create taker's change commitment (taker's leftover, asset B)
+    // 11. create taker's change commitment (taker's leftover, asset B = taker's asset)
     let taker_change_amount = input.taker_coin.amount - requested;
     let taker_change_commitment = create_coin_commitment(
         taker_change_amount,
         &input.taker_change_puzzle,
         &input.change_serial,
         &input.change_rand,
+        &input.taker_tail_hash,
     );
 
     // 12. compute taker's nullifier
@@ -151,7 +158,7 @@ fn main() {
 }
 
 /// parse maker's clvm output to extract change CREATE_COIN and settlement terms
-fn parse_maker_output(clvm_output: &[u8]) -> ([u8; 32], u64, u64, [u8; 32]) {
+fn parse_maker_output(clvm_output: &[u8], tail_hash: &[u8; 32]) -> ([u8; 32], u64, u64, [u8; 32]) {
     use clvm_zk_core::clvm_parser::ClvmParser;
 
     // parse CLVM bytecode
@@ -161,8 +168,8 @@ fn parse_maker_output(clvm_output: &[u8]) -> ([u8; 32], u64, u64, [u8; 32]) {
     // expected: ((51 change_puzzle change_amount change_serial change_rand) (offered requested maker_pubkey))
     match value {
         ClvmValue::Cons(create_coin_box, settlement_terms_box) => {
-            // extract maker_change_commitment from CREATE_COIN
-            let maker_change_commitment = extract_create_coin_commitment(&create_coin_box);
+            // extract maker_change_commitment from CREATE_COIN (v2.0 format)
+            let maker_change_commitment = extract_create_coin_commitment(&create_coin_box, tail_hash);
 
             // extract settlement terms
             let (offered, requested, maker_pubkey) =
@@ -175,7 +182,7 @@ fn parse_maker_output(clvm_output: &[u8]) -> ([u8; 32], u64, u64, [u8; 32]) {
 }
 
 /// extract CREATE_COIN commitment from (51 change_puzzle change_amount change_serial change_rand)
-fn extract_create_coin_commitment(create_coin: &ClvmValue) -> [u8; 32] {
+fn extract_create_coin_commitment(create_coin: &ClvmValue, tail_hash: &[u8; 32]) -> [u8; 32] {
     // parse (51 change_puzzle change_amount change_serial change_rand)
     match create_coin {
         ClvmValue::Cons(opcode_box, args_box) => {
@@ -201,12 +208,13 @@ fn extract_create_coin_commitment(create_coin: &ClvmValue) -> [u8; 32] {
                                                     let change_rand =
                                                         extract_bytes_32(rand_box.as_ref());
 
-                                                    // compute commitment
+                                                    // compute commitment (v2.0 format)
                                                     create_coin_commitment(
                                                         change_amount,
                                                         &change_puzzle,
                                                         &change_serial,
                                                         &change_rand,
+                                                        tail_hash,
                                                     )
                                                 }
                                                 _ => panic!("invalid CREATE_COIN: missing rand"),
@@ -290,8 +298,8 @@ fn extract_u64(value: &ClvmValue) -> u64 {
     }
 }
 
-/// verify taker's coin ownership via merkle membership
-fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32]) {
+/// verify taker's coin ownership via merkle membership (v2.0 format with tail_hash)
+fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32], tail_hash: &[u8; 32]) {
     // 1. verify serial commitment
     let mut serial_commit_data = Vec::new();
     serial_commit_data.extend_from_slice(b"clvm_zk_serial_v1.0");
@@ -308,13 +316,13 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32]) {
         "invalid serial commitment"
     );
 
-    // 2. compute coin_commitment using the VERIFIED serial_commitment
-    // (don't recompute it - use coin.serial_commitment which we just verified)
-    let mut coin_commit_data = Vec::new();
-    coin_commit_data.extend_from_slice(b"clvm_zk_coin_v1.0");
-    coin_commit_data.extend_from_slice(&coin.amount.to_be_bytes()); // BIG-ENDIAN (matches core lib)
-    coin_commit_data.extend_from_slice(&coin.puzzle_hash);
-    coin_commit_data.extend_from_slice(&coin.serial_commitment); // use verified commitment!
+    // 2. compute coin_commitment v2.0: domain(17) || tail_hash(32) || amount(8) || puzzle(32) || serial(32)
+    let mut coin_commit_data = [0u8; 121];
+    coin_commit_data[..17].copy_from_slice(b"clvm_zk_coin_v2.0");
+    coin_commit_data[17..49].copy_from_slice(tail_hash);
+    coin_commit_data[49..57].copy_from_slice(&coin.amount.to_be_bytes());
+    coin_commit_data[57..89].copy_from_slice(&coin.puzzle_hash);
+    coin_commit_data[89..121].copy_from_slice(&coin.serial_commitment);
     let coin_commitment_hash = Impl::hash_bytes(&coin_commit_data);
     let coin_commitment: [u8; 32] = coin_commitment_hash
         .as_bytes()
@@ -348,26 +356,28 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32]) {
     );
 }
 
-/// create coin commitment: hash("clvm_zk_coin_v1.0" || amount || puzzle || serial_commitment)
+/// create coin commitment v2.0: hash(domain || tail_hash || amount || puzzle || serial_commitment)
 fn create_coin_commitment(
     amount: u64,
     puzzle: &[u8; 32],
     serial: &[u8; 32],
     rand: &[u8; 32],
+    tail_hash: &[u8; 32],
 ) -> [u8; 32] {
     // first create serial commitment
-    let mut serial_commit_data = Vec::new();
-    serial_commit_data.extend_from_slice(b"clvm_zk_serial_v1.0");
-    serial_commit_data.extend_from_slice(serial);
-    serial_commit_data.extend_from_slice(rand);
+    let mut serial_commit_data = [0u8; 83];
+    serial_commit_data[..19].copy_from_slice(b"clvm_zk_serial_v1.0");
+    serial_commit_data[19..51].copy_from_slice(serial);
+    serial_commit_data[51..83].copy_from_slice(rand);
     let serial_commitment = Impl::hash_bytes(&serial_commit_data);
 
-    // then create coin commitment
-    let mut coin_commit_data = Vec::new();
-    coin_commit_data.extend_from_slice(b"clvm_zk_coin_v1.0");
-    coin_commit_data.extend_from_slice(&amount.to_be_bytes()); // BIG-ENDIAN (matches core lib)
-    coin_commit_data.extend_from_slice(puzzle);
-    coin_commit_data.extend_from_slice(serial_commitment.as_bytes());
+    // v2.0 coin commitment: domain(17) || tail_hash(32) || amount(8) || puzzle(32) || serial(32)
+    let mut coin_commit_data = [0u8; 121];
+    coin_commit_data[..17].copy_from_slice(b"clvm_zk_coin_v2.0");
+    coin_commit_data[17..49].copy_from_slice(tail_hash);
+    coin_commit_data[49..57].copy_from_slice(&amount.to_be_bytes());
+    coin_commit_data[57..89].copy_from_slice(puzzle);
+    coin_commit_data[89..121].copy_from_slice(serial_commitment.as_bytes());
 
     let coin_commitment = Impl::hash_bytes(&coin_commit_data);
     coin_commitment

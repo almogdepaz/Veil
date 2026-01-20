@@ -5,7 +5,8 @@ use clvm_zk::protocol::PrivateCoin;
 use clvm_zk::simulator::{CLVMZkSimulator, CoinMetadata, CoinType};
 #[cfg(feature = "mock")]
 use clvm_zk_core::{
-    compile_chialisp_template_hash_default, CoinSecrets, SerialCommitment, XCH_TAIL,
+    compile_chialisp_template_hash_default, with_standard_conditions, CoinSecrets,
+    SerialCommitment, XCH_TAIL,
 };
 
 #[test]
@@ -14,15 +15,15 @@ fn test_create_and_spend_coins() {
     let mut sim = CLVMZkSimulator::new();
 
     // program that creates 2 new coins
-    let alice_program = r#"
-        (mod (puzzle1 puzzle2 serial1 rand1 serial2 rand2)
+    let alice_program = with_standard_conditions(
+        "(mod (puzzle1 puzzle2 serial1 rand1 serial2 rand2)
             (list
                 (list CREATE_COIN puzzle1 600 serial1 rand1)
-                (list CREATE_COIN puzzle2 300 serial2 rand2)))
-    "#;
+                (list CREATE_COIN puzzle2 300 serial2 rand2)))",
+    );
 
     // compute actual puzzle hash for alice's coin
-    let puzzle_hash = compile_chialisp_template_hash_default(alice_program)
+    let puzzle_hash = compile_chialisp_template_hash_default(&alice_program)
         .expect("failed to compile alice program");
 
     let (alice_coin, alice_secrets) = PrivateCoin::new_with_secrets(puzzle_hash, 1000);
@@ -175,16 +176,16 @@ fn test_create_coin_adds_to_merkle_tree() {
     let mut sim = CLVMZkSimulator::new();
 
     // program that creates 2 new coins using 4-arg CREATE_COIN
-    let program = r#"
-        (mod (puzzle1 puzzle2 serial1 rand1 serial2 rand2)
+    let program = with_standard_conditions(
+        "(mod (puzzle1 puzzle2 serial1 rand1 serial2 rand2)
             (list
                 (list CREATE_COIN puzzle1 500 serial1 rand1)
-                (list CREATE_COIN puzzle2 300 serial2 rand2)))
-    "#;
+                (list CREATE_COIN puzzle2 300 serial2 rand2)))",
+    );
 
     // compute actual puzzle hash for alice's coin
     let puzzle_hash =
-        compile_chialisp_template_hash_default(program).expect("failed to compile program");
+        compile_chialisp_template_hash_default(&program).expect("failed to compile program");
 
     let (alice_coin, alice_secrets) = PrivateCoin::new_with_secrets(puzzle_hash, 1000);
 
@@ -252,14 +253,14 @@ fn test_create_coin_transparent_mode() {
     let mut sim = CLVMZkSimulator::new();
 
     // program using 2-arg CREATE_COIN (transparent mode)
-    let program = r#"
-        (mod (puzzle)
-            (list (list CREATE_COIN puzzle 1000)))
-    "#;
+    let program = with_standard_conditions(
+        "(mod (puzzle)
+            (list (list CREATE_COIN puzzle 1000)))",
+    );
 
     // compute actual puzzle hash
     let puzzle_hash =
-        compile_chialisp_template_hash_default(program).expect("failed to compile program");
+        compile_chialisp_template_hash_default(&program).expect("failed to compile program");
 
     let (coin, secrets) = PrivateCoin::new_with_secrets(puzzle_hash, 2000);
 

@@ -203,25 +203,21 @@ pub fn create_password_spend_parameters(password: &str) -> Vec<ProgramParameter>
 /// # returns
 /// * template bytecode ready to pass as ProgramParameter::Bytes
 pub fn compile_to_template_bytecode(source: &str) -> Result<Vec<u8>, crate::ClvmZkError> {
-    use clvm_zk_core::chialisp::{
-        compile_module_unified, parse_chialisp, sexp_to_module, CompilationMode,
-    };
+    // clvm_tools_rs produces template-compatible bytecode (env references, not substituted values)
+    // use the wrapper from clvm_zk_core which handles the clvm_tools_rs dependency
+    let (bytecode, _hash) = clvm_zk_core::chialisp::compile_chialisp_to_bytecode(
+        sha2_hash,
+        source,
+    )
+    .map_err(|e| crate::ClvmZkError::InvalidProgram(format!("compilation error: {:?}", e)))?;
+    Ok(bytecode)
+}
 
-    // parse and convert to module
-    let sexp = parse_chialisp(source)
-        .map_err(|e| crate::ClvmZkError::InvalidProgram(format!("parse error: {:?}", e)))?;
-
-    let module = sexp_to_module(sexp).map_err(|e| {
-        crate::ClvmZkError::InvalidProgram(format!("module conversion error: {:?}", e))
-    })?;
-
-    // compile in template mode - preserves parameter structure
-    let template_bytecode =
-        compile_module_unified(&module, CompilationMode::Template).map_err(|e| {
-            crate::ClvmZkError::InvalidProgram(format!("template compilation error: {:?}", e))
-        })?;
-
-    Ok(template_bytecode)
+fn sha2_hash(data: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
 }
 
 /// create delegated puzzle for offers (settlement-specific)

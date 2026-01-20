@@ -334,7 +334,32 @@ impl MockBackend {
             None => None,
         };
 
-        let nullifiers = nullifier.map(|n| vec![n]).unwrap_or_default();
+        // collect nullifiers: primary coin + additional coins
+        let mut nullifiers = nullifier.map(|n| vec![n]).unwrap_or_default();
+
+        // process additional coins for ring spends
+        if let Some(additional_coins) = &inputs.additional_coins {
+            for coin in additional_coins {
+                let coin_data = &coin.serial_commitment_data;
+
+                // compute nullifier for additional coin
+                // nullifier = hash(serial_number || program_hash || amount)
+                let (_, coin_program_hash) =
+                    compile_chialisp_to_bytecode(hash_data, &coin.chialisp_source).map_err(|e| {
+                        ClvmZkError::ProofGenerationFailed(format!(
+                            "additional coin compilation failed: {:?}",
+                            e
+                        ))
+                    })?;
+
+                let mut nullifier_data = Vec::with_capacity(72);
+                nullifier_data.extend_from_slice(&coin_data.serial_number);
+                nullifier_data.extend_from_slice(&coin_program_hash);
+                nullifier_data.extend_from_slice(&coin_data.amount.to_be_bytes());
+                nullifiers.push(hash_data(&nullifier_data));
+            }
+        }
+
         let proof_output = ProofOutput {
             program_hash,
             nullifiers,

@@ -1,6 +1,8 @@
-/// Test CREATE_COIN transformation for output privacy
+/// Test CREATE_COIN (opcode 51) transformation for output privacy
 #[cfg(feature = "mock")]
-use clvm_zk_core::{extract_coin_commitments, hash_data, ProgramParameter};
+use clvm_zk_core::{
+    extract_coin_commitments, hash_data, with_standard_conditions, ProgramParameter,
+};
 
 #[cfg(feature = "mock")]
 use clvm_zk_mock::MockBackend;
@@ -16,11 +18,11 @@ fn test_create_coin_private_mode() {
     let recipient_puzzle = [0x42u8; 32];
     let amount: u64 = 1000;
 
-    // Chialisp program with 4-arg CREATE_COIN (private mode)
-    let program = r#"
-        (mod (recipient amount serial_num serial_rand)
-            (list (list CREATE_COIN recipient amount serial_num serial_rand)))
-    "#;
+    // Chialisp program with 4-arg CREATE_COIN - private mode
+    let program = with_standard_conditions(
+        "(mod (recipient amount serial_num serial_rand)
+            (list (list CREATE_COIN recipient amount serial_num serial_rand)))",
+    );
 
     // Parameters: recipient, amount, serial_number, serial_randomness
     let params = vec![
@@ -33,7 +35,7 @@ fn test_create_coin_private_mode() {
     // Generate proof
     let backend = MockBackend::new().expect("failed to create backend");
     let result = backend
-        .prove_chialisp_program(program, &params)
+        .prove_chialisp_program(&program, &params)
         .expect("proof generation failed");
 
     // Extract coin commitments from proof output
@@ -72,12 +74,12 @@ fn test_create_coin_multiple_outputs() {
     let amount2: u64 = 300;
 
     // Chialisp program creating 2 coins
-    let program = r#"
-        (mod (r1 a1 s1 sr1 r2 a2 s2 sr2)
+    let program = with_standard_conditions(
+        "(mod (r1 a1 s1 sr1 r2 a2 s2 sr2)
             (list
                 (list CREATE_COIN r1 a1 s1 sr1)
-                (list CREATE_COIN r2 a2 s2 sr2)))
-    "#;
+                (list CREATE_COIN r2 a2 s2 sr2)))",
+    );
 
     let params = vec![
         ProgramParameter::Bytes(recipient1.to_vec()),
@@ -92,7 +94,7 @@ fn test_create_coin_multiple_outputs() {
 
     let backend = MockBackend::new().expect("failed to create backend");
     let result = backend
-        .prove_chialisp_program(program, &params)
+        .prove_chialisp_program(&program, &params)
         .expect("proof generation failed");
 
     let commitments =
@@ -120,10 +122,10 @@ fn test_create_coin_transparent_mode() {
     let recipient = [0x33u8; 32];
     let amount: u64 = 777;
 
-    let program = r#"
-        (mod (recipient amount)
-            (list (list CREATE_COIN recipient amount)))
-    "#;
+    let program = with_standard_conditions(
+        "(mod (recipient amount)
+            (list (list CREATE_COIN recipient amount)))",
+    );
 
     let params = vec![
         ProgramParameter::Bytes(recipient.to_vec()),
@@ -132,7 +134,7 @@ fn test_create_coin_transparent_mode() {
 
     let backend = MockBackend::new().expect("failed to create backend");
     let result = backend
-        .prove_chialisp_program(program, &params)
+        .prove_chialisp_program(&program, &params)
         .expect("proof generation failed");
 
     // Parse output to verify 2-arg format preserved
