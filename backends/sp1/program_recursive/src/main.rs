@@ -58,10 +58,6 @@ pub fn main() {
         for nullifier in &expected_data.nullifiers {
             commitment_data.extend_from_slice(nullifier);
         }
-        // pad if no nullifiers (for backward compatibility)
-        if expected_data.nullifiers.is_empty() {
-            commitment_data.extend_from_slice(&[0u8; 32]);
-        }
         commitment_data.extend_from_slice(&expected_data.output);
 
         // hash using sha2 crate

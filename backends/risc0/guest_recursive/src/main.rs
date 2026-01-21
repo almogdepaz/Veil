@@ -62,10 +62,6 @@ fn main() {
         for nullifier in &proof_output.nullifiers {
             commitment_data.extend_from_slice(nullifier);
         }
-        // pad if no nullifiers (for backward compatibility with simple proofs)
-        if proof_output.nullifiers.is_empty() {
-            commitment_data.extend_from_slice(&[0u8; 32]);
-        }
         commitment_data.extend_from_slice(&proof_output.clvm_res.output);
 
         let commitment_hash = Impl::hash_bytes(&commitment_data);
