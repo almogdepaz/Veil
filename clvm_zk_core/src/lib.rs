@@ -773,7 +773,10 @@ mod security_tests {
 ///
 /// # returns
 /// (total_input_amount, total_output_amount) after validation
-pub fn enforce_ring_balance(private_inputs: &Input, conditions: &[Condition]) -> (u64, u64) {
+pub fn enforce_ring_balance(
+    private_inputs: &Input,
+    conditions: &[Condition],
+) -> Result<(u64, u64), &'static str> {
     // track output amounts from CREATE_COIN conditions
     let mut total_output_amount: u64 = 0;
 
@@ -781,18 +784,17 @@ pub fn enforce_ring_balance(private_inputs: &Input, conditions: &[Condition]) ->
         if condition.opcode == 51 {
             // CREATE_COIN
             let amount = match condition.args.len() {
-                2 => {
-                    // transparent mode: CREATE_COIN(puzzle_hash, amount)
-                    if condition.args[1].len() >= 8 {
-                        u64::from_be_bytes(condition.args[1][..8].try_into().unwrap())
-                    } else {
-                        0
-                    }
-                }
-                4 => {
-                    // private mode: CREATE_COIN(puzzle_hash, amount, serial, rand)
-                    if condition.args[1].len() >= 8 {
-                        u64::from_be_bytes(condition.args[1][..8].try_into().unwrap())
+                2 | 4 => {
+                    // both transparent (2-arg) and private (4-arg) modes
+                    // handle variable-length amount encoding (chialisp uses compact encoding)
+                    let amount_bytes = &condition.args[1];
+                    if amount_bytes.len() == 8 {
+                        u64::from_be_bytes(amount_bytes.as_slice().try_into().unwrap())
+                    } else if amount_bytes.len() < 8 && !amount_bytes.is_empty() {
+                        // pad to 8 bytes (big-endian: zeros on left)
+                        let mut padded = [0u8; 8];
+                        padded[8 - amount_bytes.len()..].copy_from_slice(amount_bytes);
+                        u64::from_be_bytes(padded)
                     } else {
                         0
                     }
@@ -812,26 +814,150 @@ pub fn enforce_ring_balance(private_inputs: &Input, conditions: &[Condition]) ->
 
             for coin in additional_coins {
                 // enforce single-asset ring (defense in depth)
-                assert_eq!(
-                    coin.tail_hash, primary_tail_hash,
-                    "ring spend: all coins must have same tail_hash"
-                );
+                if coin.tail_hash != primary_tail_hash {
+                    return Err("ring spend: all coins must have same tail_hash");
+                }
 
                 input_sum += coin.serial_commitment_data.amount;
             }
         }
 
         // enforce conservation of value
-        assert_eq!(
-            input_sum, total_output_amount,
-            "balance check failed: input {} != output {}",
-            input_sum, total_output_amount
-        );
+        if input_sum != total_output_amount {
+            return Err("balance check failed: input != output");
+        }
 
         input_sum
     } else {
         0 // no serial commitment = simple program execution
     };
 
-    (total_input_amount, total_output_amount)
+    Ok((total_input_amount, total_output_amount))
+}
+
+// ============================================================================
+// cryptographic domain constants
+// ============================================================================
+
+pub const SERIAL_DOMAIN: &[u8] = b"clvm_zk_serial_v1.0";
+pub const COIN_DOMAIN: &[u8] = b"clvm_zk_coin_v2.0";
+pub const SERIAL_COMMITMENT_SIZE: usize = 83; // domain(19) + serial_number(32) + serial_randomness(32)
+pub const COIN_COMMITMENT_SIZE: usize = 121; // domain(17) + tail_hash(32) + amount(8) + puzzle_hash(32) + serial_commitment(32)
+pub const NULLIFIER_DATA_SIZE: usize = 72; // serial_number(32) + program_hash(32) + amount(8)
+
+// ============================================================================
+// commitment computation helpers
+// ============================================================================
+
+/// compute serial commitment: hash(domain || serial_number || serial_randomness)
+pub fn compute_serial_commitment<H>(
+    hasher: H,
+    serial_number: &[u8; 32],
+    serial_randomness: &[u8; 32],
+) -> [u8; 32]
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    let mut serial_data = [0u8; SERIAL_COMMITMENT_SIZE];
+    serial_data[..19].copy_from_slice(SERIAL_DOMAIN);
+    serial_data[19..51].copy_from_slice(serial_number);
+    serial_data[51..83].copy_from_slice(serial_randomness);
+    hasher(&serial_data)
+}
+
+/// compute coin commitment v2.0: hash(domain || tail_hash || amount || puzzle_hash || serial_commitment)
+pub fn compute_coin_commitment<H>(
+    hasher: H,
+    tail_hash: [u8; 32],
+    amount: u64,
+    puzzle_hash: &[u8; 32],
+    serial_commitment: &[u8; 32],
+) -> [u8; 32]
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    let mut coin_data = [0u8; COIN_COMMITMENT_SIZE];
+    coin_data[..17].copy_from_slice(COIN_DOMAIN);
+    coin_data[17..49].copy_from_slice(&tail_hash);
+    coin_data[49..57].copy_from_slice(&amount.to_be_bytes());
+    coin_data[57..89].copy_from_slice(puzzle_hash);
+    coin_data[89..121].copy_from_slice(serial_commitment);
+    hasher(&coin_data)
+}
+
+/// compute nullifier: hash(serial_number || program_hash || amount)
+pub fn compute_nullifier<H>(
+    hasher: H,
+    serial_number: &[u8; 32],
+    program_hash: &[u8; 32],
+    amount: u64,
+) -> [u8; 32]
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    let mut nullifier_data = Vec::with_capacity(NULLIFIER_DATA_SIZE);
+    nullifier_data.extend_from_slice(serial_number);
+    nullifier_data.extend_from_slice(program_hash);
+    nullifier_data.extend_from_slice(&amount.to_be_bytes());
+    hasher(&nullifier_data)
+}
+
+// ============================================================================
+// merkle proof verification
+// ============================================================================
+
+/// verify merkle proof for a leaf at given index
+pub fn verify_merkle_proof<H>(
+    hasher: H,
+    leaf_hash: [u8; 32],
+    merkle_path: &[[u8; 32]],
+    leaf_index: usize,
+    expected_root: [u8; 32],
+) -> Result<(), &'static str>
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    let mut current_hash = leaf_hash;
+    let mut current_index = leaf_index;
+
+    for sibling in merkle_path.iter() {
+        let mut combined = [0u8; 64];
+        if current_index.is_multiple_of(2) {
+            combined[..32].copy_from_slice(&current_hash);
+            combined[32..].copy_from_slice(sibling);
+        } else {
+            combined[..32].copy_from_slice(sibling);
+            combined[32..].copy_from_slice(&current_hash);
+        }
+        current_hash = hasher(&combined);
+        current_index /= 2;
+    }
+
+    if current_hash == expected_root {
+        Ok(())
+    } else {
+        Err("merkle root mismatch")
+    }
+}
+
+// ============================================================================
+// amount parsing utilities
+// ============================================================================
+
+/// parse variable-length amount bytes (chialisp uses compact encoding)
+/// pads to 8 bytes big-endian if needed
+pub fn parse_variable_length_amount(bytes: &[u8]) -> Result<u64, &'static str> {
+    if bytes.is_empty() {
+        return Ok(0);
+    }
+    if bytes.len() > 8 {
+        return Err("amount too large (max 8 bytes)");
+    }
+    if bytes.len() == 8 {
+        Ok(u64::from_be_bytes(bytes.try_into().unwrap()))
+    } else {
+        let mut padded = [0u8; 8];
+        padded[8 - bytes.len()..].copy_from_slice(bytes);
+        Ok(u64::from_be_bytes(padded))
+    }
 }

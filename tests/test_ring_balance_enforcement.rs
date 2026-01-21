@@ -16,25 +16,18 @@ async fn test_ring_spend_rejects_inflation_attack() {
     let mut sim = CLVMZkSimulator::new();
 
     // puzzle that creates 1000 XCH output regardless of input
-    // note: CREATE_COIN args must be proper byte lengths (32, 8, 32, 32)
-    let exploit_puzzle = format!(
-        r#"(mod ()
+    // using transparent 2-arg CREATE_COIN format for testing
+    let exploit_puzzle = r#"(mod ()
             (list
                 (list 51
-                    (q . {})
+                    (sha256 1)
                     1000
-                    (q . {})
-                    (q . {})
                 )
             )
-        )"#,
-        hex::encode([0x11u8; 32]),
-        hex::encode([0xaau8; 32]),
-        hex::encode([0xbbu8; 32]),
-    );
+        )"#;
 
-    let puzzle_hash = compile_chialisp_template_hash_default(&exploit_puzzle.as_str())
-        .expect("puzzle compilation failed");
+    let puzzle_hash =
+        compile_chialisp_template_hash_default(&exploit_puzzle).expect("puzzle compilation failed");
 
     // create 3 coins: 100 + 200 + 150 = 450 XCH input
     let (coin1, secrets1) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
@@ -75,9 +68,9 @@ async fn test_ring_spend_rejects_inflation_attack() {
     let (path3, idx3) = sim.get_merkle_path_and_index(&coin3).expect("no path");
 
     let coins = vec![
-        (&coin1, &exploit_puzzle, &[][..], &secrets1, path1, idx1),
-        (&coin2, &exploit_puzzle, &[][..], &secrets2, path2, idx2),
-        (&coin3, &exploit_puzzle, &[][..], &secrets3, path3, idx3),
+        (&coin1, exploit_puzzle, &[][..], &secrets1, path1, idx1),
+        (&coin2, exploit_puzzle, &[][..], &secrets2, path2, idx2),
+        (&coin3, exploit_puzzle, &[][..], &secrets3, path3, idx3),
     ];
 
     let result = Spender::create_ring_spend(coins, merkle_root);
@@ -167,32 +160,21 @@ async fn test_ring_spend_accepts_balanced() {
     let mut sim = CLVMZkSimulator::new();
 
     // puzzle that creates exactly 300 XCH output (matching 100+200 input)
-    let balanced_puzzle = format!(
-        r#"(mod ()
+    // using transparent 2-arg CREATE_COIN format
+    let balanced_puzzle = r#"(mod ()
             (list
                 (list 51
-                    (q . {})
+                    (sha256 1)
                     150
-                    (q . {})
-                    (q . {})
                 )
                 (list 51
-                    (q . {})
+                    (sha256 2)
                     150
-                    (q . {})
-                    (q . {})
                 )
             )
-        )"#,
-        hex::encode([0x11u8; 32]),
-        hex::encode([0xaau8; 32]),
-        hex::encode([0xbbu8; 32]),
-        hex::encode([0x22u8; 32]),
-        hex::encode([0xccu8; 32]),
-        hex::encode([0xddu8; 32]),
-    );
+        )"#;
 
-    let puzzle_hash = compile_chialisp_template_hash_default(&balanced_puzzle.as_str())
+    let puzzle_hash = compile_chialisp_template_hash_default(&balanced_puzzle)
         .expect("puzzle compilation failed");
 
     let (coin1, secrets1) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
@@ -222,8 +204,8 @@ async fn test_ring_spend_accepts_balanced() {
     let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path");
 
     let coins = vec![
-        (&coin1, &balanced_puzzle, &[][..], &secrets1, path1, idx1),
-        (&coin2, &balanced_puzzle, &[][..], &secrets2, path2, idx2),
+        (&coin1, balanced_puzzle, &[][..], &secrets1, path1, idx1),
+        (&coin2, balanced_puzzle, &[][..], &secrets2, path2, idx2),
     ];
 
     let result = Spender::create_ring_spend(coins, merkle_root);
@@ -247,23 +229,16 @@ async fn test_ring_spend_rejects_deflation() {
 
     let mut sim = CLVMZkSimulator::new();
 
-    let deflation_puzzle = format!(
-        r#"(mod ()
+    let deflation_puzzle = r#"(mod ()
             (list
                 (list 51
-                    (q . {})
+                    (sha256 1)
                     100
-                    (q . {})
-                    (q . {})
                 )
             )
-        )"#,
-        hex::encode([0x11u8; 32]),
-        hex::encode([0xaau8; 32]),
-        hex::encode([0xbbu8; 32]),
-    );
+        )"#;
 
-    let puzzle_hash = compile_chialisp_template_hash_default(&deflation_puzzle.as_str())
+    let puzzle_hash = compile_chialisp_template_hash_default(&deflation_puzzle)
         .expect("puzzle compilation failed");
 
     let (coin1, secrets1) = PrivateCoin::new_with_secrets(puzzle_hash, 100);
@@ -293,8 +268,8 @@ async fn test_ring_spend_rejects_deflation() {
     let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path");
 
     let coins = vec![
-        (&coin1, &deflation_puzzle, &[][..], &secrets1, path1, idx1),
-        (&coin2, &deflation_puzzle, &[][..], &secrets2, path2, idx2),
+        (&coin1, deflation_puzzle, &[][..], &secrets1, path1, idx1),
+        (&coin2, deflation_puzzle, &[][..], &secrets2, path2, idx2),
     ];
 
     let result = Spender::create_ring_spend(coins, merkle_root);
