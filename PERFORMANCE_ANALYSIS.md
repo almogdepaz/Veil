@@ -506,14 +506,20 @@ the optimization worked! eliminating Vec allocations in settlement guest and usi
 
 ## final performance summary (after all optimizations)
 
-| operation | original | iteration 2 | iteration 8 | total speedup |
-|-----------|----------|-------------|-------------|---------------|
-| conditional offer | 580s | 26s | 25s | **23.2x faster** |
-| settlement | 372s | 354s | 317s | **1.17x faster** |
-| **TOTAL DEMO** | **969s** | **397s** | **358s** | **2.7x overall** |
+| operation | original | iteration 2 | iteration 8 | final | total speedup |
+|-----------|----------|-------------|-------------|-------|---------------|
+| conditional offer | 580s | 26s | 25s | 25s | **23.2x faster** |
+| settlement | 372s | 354s | 317s | 316s | **1.18x faster** |
+| **TOTAL DEMO** | **969s** | **397s** | **358s** | **357s** | **2.7x overall** |
 
 **proof sizes**:
 - conditional: 1,689,605 bytes → 257,678 bytes (6.5x smaller)
+
+**iteration 8 details**:
+- eliminated ~100 lines of duplicated crypto code in settlement guest
+- replaced Vec allocations with fixed-size stack arrays:
+  - serial_commitment, coin_commitment, merkle_proof verification (317s → 316s)
+  - ECDH payment puzzle derivation (negligible impact, code consistency)
 
 ## no more obvious no-tradeoff optimizations available ✅
 
