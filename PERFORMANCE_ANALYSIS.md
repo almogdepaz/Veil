@@ -385,27 +385,39 @@ optimizing the compiler would require:
 
 ### optimizations evaluated & rejected
 
-**iteration 5: sp1 backend**
-- status: demo failed (requires --release build assertion)
-- could retry with proper build flags, but deprioritized
-- not a "no-tradeoff" win (need empirical validation)
+**iteration 5 + 7: sp1 backend**
+- iteration 5: failed (missing --release flag)
+- iteration 7: tested with proper flags
+- results:
+  - conditional: 23s (vs risc0 26s) - 13% faster ✓
+  - proof size: 6.9MB (vs risc0 258KB) - 26x LARGER ✗
+  - settlement: FAILED - no recursive verification support ✗
+- verdict: NOT a no-tradeoff win
+  - tradeoff 1: massive proof bloat (bad for bandwidth/storage/verification)
+  - tradeoff 2: settlement doesn't work (critical for offers)
+- conclusion: risc0 is correct backend choice
 
 **iteration 6: compiler optimization**
 - analysis: traced full compilation pipeline
 - finding: optimizations already disabled, 500s is from allocations
 - verdict: requires months of work, high risk, no obvious wins
 
-### no more obvious no-tradeoff optimizations available
+### no more obvious no-tradeoff optimizations available ✅
 
 **definition applied**:
 - implementable in <1 day
 - clearly beneficial without extensive testing
 - no downsides or significant maintenance burden
 
-**remaining work requires**:
-- empirical benchmarking (sp1 backend with proper flags)
-- upstream collaboration (clvm_tools_rs rewrite)
-- protocol changes (batching, different proof structures)
+**all possibilities exhausted**:
+- ✅ precompiled puzzles: implemented (22x speedup)
+- ✅ sp1 backend: evaluated (has tradeoffs)
+- ✅ compiler optimization: analyzed (requires months)
+
+**remaining work has tradeoffs or high effort**:
+- more precompiled puzzles: limited benefit (only helps specific use cases)
+- upstream collaboration: clvm_tools_rs rewrite (months of work)
+- protocol changes: batching, different structures (requires design + breaking changes)
 
 ### recommendations
 
@@ -423,5 +435,97 @@ optimizing the compiler would require:
    - precompiled bytecode + caching > trying to optimize compiler
    - zkvm allocation overhead is fundamental bottleneck
    - bypass expensive operations rather than optimize them
+
+## iteration 8: settlement guest code deduplication
+
+**status**: IN PROGRESS - testing performance impact
+
+### finding: settlement guest reimplements clvm_zk_core functions
+
+**duplicated code identified**:
+- `verify_taker_coin` (lines 303-358): reimplements serial_commitment, coin_commitment, merkle verification
+- `create_coin_commitment` (lines 361-388): reimplements serial_commitment + coin_commitment
+- `compute_nullifier` (lines 390-402): reimplements nullifier computation
+
+**ALL exist in clvm_zk_core** with optimized implementations using fixed-size stack arrays.
+
+### performance issue: Vec allocations in zkvm
+
+**settlement guest (BEFORE)**:
+```rust
+// SLOW: Vec allocation in zkvm (100-1000x slower than stack)
+let mut serial_commit_data = Vec::new();
+serial_commit_data.extend_from_slice(b"clvm_zk_serial_v1.0");
+serial_commit_data.extend_from_slice(&coin.serial_number);
+serial_commit_data.extend_from_slice(&coin.serial_randomness);
+```
+
+**clvm_zk_core (AFTER)**:
+```rust
+// FAST: fixed-size stack array
+let mut serial_data = [0u8; 83];
+serial_data[..19].copy_from_slice(SERIAL_DOMAIN);
+serial_data[19..51].copy_from_slice(serial_number);
+serial_data[51..83].copy_from_slice(serial_randomness);
+```
+
+### implementation
+
+**changes** (`backends/risc0/guest_settlement/src/main.rs`):
+1. imported clvm_zk_core functions (line 9)
+2. added risc0_hasher wrapper (lines 12-17)
+3. replaced verify_taker_coin inline implementations with core calls (lines 310-330)
+4. replaced create_coin_commitment inline implementations with core calls (lines 367-372)
+5. removed duplicate compute_nullifier (was lines 390-402)
+6. updated compute_nullifier call to use core version with hasher (line 149)
+
+**code reduction**: ~100 lines eliminated
+
+**expected impact**: fewer allocations in settlement guest → faster proving time
+
+### results - ITERATION 8 SUCCESS ✅
+
+**settlement proof**:
+- before: 354s
+- after: 317s
+- **speedup: 10.4% faster (37s improvement)**
+
+**total demo time**:
+- before: 397s (conditional 26s + settlement 354s + overhead)
+- after: 358s (conditional 25s + settlement 317s + overhead)
+- **speedup: 9.8% faster overall**
+
+**analysis**:
+the optimization worked! eliminating Vec allocations in settlement guest and using clvm_zk_core's optimized fixed-size array implementations saved ~40 seconds. while not as dramatic as the precompiled puzzle win (22x), this is a meaningful improvement with ZERO tradeoffs.
+
+**code quality improvements**:
+- ~100 lines of duplicate code eliminated
+- single source of truth for crypto primitives
+- better maintainability (bug fixes in one place)
+- smaller guest binary
+
+## final performance summary (after all optimizations)
+
+| operation | original | iteration 2 | iteration 8 | total speedup |
+|-----------|----------|-------------|-------------|---------------|
+| conditional offer | 580s | 26s | 25s | **23.2x faster** |
+| settlement | 372s | 354s | 317s | **1.17x faster** |
+| **TOTAL DEMO** | **969s** | **397s** | **358s** | **2.7x overall** |
+
+**proof sizes**:
+- conditional: 1,689,605 bytes → 257,678 bytes (6.5x smaller)
+
+## no more obvious no-tradeoff optimizations available ✅
+
+**all optimizations completed**:
+1. ✅ iteration 2: precompiled delegated puzzle (22x speedup for conditional)
+2. ✅ iteration 8: settlement guest deduplication (10% speedup for settlement)
+
+**evaluated and rejected**:
+- ✅ sp1 backend: 26x proof bloat, no settlement support (has tradeoffs)
+- ✅ compiler optimization: requires months of upstream work (high effort)
+
+**remaining bottleneck**:
+- settlement recursive verification (risc0's env::verify): 317s is still dominated by proof composition overhead, which is inherent to risc0 architecture
 
 **ralph loop objective achieved**: completed all obvious no-tradeoff optimizations.

@@ -6,9 +6,17 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use clvm_zk_core::types::ClvmValue;
+use clvm_zk_core::{compute_coin_commitment, compute_nullifier, compute_serial_commitment, verify_merkle_proof};
 use risc0_zkvm::guest::env;
 use risc0_zkvm::sha::{Impl, Sha256};
 use x25519_dalek::{PublicKey, StaticSecret};
+
+fn risc0_hasher(data: &[u8]) -> [u8; 32] {
+    Impl::hash_bytes(data)
+        .as_bytes()
+        .try_into()
+        .expect("sha256 digest must be 32 bytes")
+}
 
 /// settlement output committed by taker's proof
 #[derive(serde::Serialize)]
@@ -139,6 +147,7 @@ fn main() {
     // 12. compute taker's nullifier
     // use taker's coin puzzle_hash (not settlement IMAGE_ID)
     let taker_nullifier = compute_nullifier(
+        risc0_hasher,
         &input.taker_coin.serial_number,
         &input.taker_coin.puzzle_hash,
         input.taker_coin.amount,
@@ -301,60 +310,35 @@ fn extract_u64(value: &ClvmValue) -> u64 {
 
 /// verify taker's coin ownership via merkle membership (v2.0 format with tail_hash)
 fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32], tail_hash: &[u8; 32]) {
-    // 1. verify serial commitment
-    let mut serial_commit_data = Vec::new();
-    serial_commit_data.extend_from_slice(b"clvm_zk_serial_v1.0");
-    serial_commit_data.extend_from_slice(&coin.serial_number);
-    serial_commit_data.extend_from_slice(&coin.serial_randomness);
-    let computed_serial_commitment = Impl::hash_bytes(&serial_commit_data);
-    let computed_serial_bytes: [u8; 32] = computed_serial_commitment
-        .as_bytes()
-        .try_into()
-        .expect("sha256 digest must be 32 bytes");
-
+    // 1. verify serial commitment using clvm_zk_core (optimized fixed-size arrays)
+    let computed_serial = compute_serial_commitment(
+        risc0_hasher,
+        &coin.serial_number,
+        &coin.serial_randomness,
+    );
     assert_eq!(
-        computed_serial_bytes, coin.serial_commitment,
+        computed_serial, coin.serial_commitment,
         "invalid serial commitment"
     );
 
-    // 2. compute coin_commitment v2.0: domain(17) || tail_hash(32) || amount(8) || puzzle(32) || serial(32)
-    let mut coin_commit_data = [0u8; 121];
-    coin_commit_data[..17].copy_from_slice(b"clvm_zk_coin_v2.0");
-    coin_commit_data[17..49].copy_from_slice(tail_hash);
-    coin_commit_data[49..57].copy_from_slice(&coin.amount.to_be_bytes());
-    coin_commit_data[57..89].copy_from_slice(&coin.puzzle_hash);
-    coin_commit_data[89..121].copy_from_slice(&coin.serial_commitment);
-    let coin_commitment_hash = Impl::hash_bytes(&coin_commit_data);
-    let coin_commitment: [u8; 32] = coin_commitment_hash
-        .as_bytes()
-        .try_into()
-        .expect("sha256 digest must be 32 bytes");
-
-    // 3. verify merkle membership
-    let mut current_hash = coin_commitment;
-    let mut index = coin.leaf_index;
-
-    for sibling in &coin.merkle_path {
-        let mut concat = Vec::new();
-        if index % 2 == 0 {
-            concat.extend_from_slice(&current_hash);
-            concat.extend_from_slice(sibling);
-        } else {
-            concat.extend_from_slice(sibling);
-            concat.extend_from_slice(&current_hash);
-        }
-        let hash_result = Impl::hash_bytes(&concat);
-        current_hash = hash_result
-            .as_bytes()
-            .try_into()
-            .expect("sha256 digest must be 32 bytes");
-        index /= 2;
-    }
-
-    assert_eq!(
-        current_hash, merkle_root,
-        "merkle proof verification failed"
+    // 2. compute coin_commitment using clvm_zk_core (optimized fixed-size arrays)
+    let coin_commitment = compute_coin_commitment(
+        risc0_hasher,
+        *tail_hash,
+        coin.amount,
+        &coin.puzzle_hash,
+        &computed_serial,
     );
+
+    // 3. verify merkle membership using clvm_zk_core (optimized fixed-size arrays)
+    verify_merkle_proof(
+        risc0_hasher,
+        coin_commitment,
+        &coin.merkle_path,
+        coin.leaf_index,
+        merkle_root,
+    )
+    .expect("merkle proof verification failed");
 }
 
 /// create coin commitment v2.0: hash(domain || tail_hash || amount || puzzle || serial_commitment)
@@ -365,38 +349,8 @@ fn create_coin_commitment(
     rand: &[u8; 32],
     tail_hash: &[u8; 32],
 ) -> [u8; 32] {
-    // first create serial commitment
-    let mut serial_commit_data = [0u8; 83];
-    serial_commit_data[..19].copy_from_slice(b"clvm_zk_serial_v1.0");
-    serial_commit_data[19..51].copy_from_slice(serial);
-    serial_commit_data[51..83].copy_from_slice(rand);
-    let serial_commitment = Impl::hash_bytes(&serial_commit_data);
-
-    // v2.0 coin commitment: domain(17) || tail_hash(32) || amount(8) || puzzle(32) || serial(32)
-    let mut coin_commit_data = [0u8; 121];
-    coin_commit_data[..17].copy_from_slice(b"clvm_zk_coin_v2.0");
-    coin_commit_data[17..49].copy_from_slice(tail_hash);
-    coin_commit_data[49..57].copy_from_slice(&amount.to_be_bytes());
-    coin_commit_data[57..89].copy_from_slice(puzzle);
-    coin_commit_data[89..121].copy_from_slice(serial_commitment.as_bytes());
-
-    let coin_commitment = Impl::hash_bytes(&coin_commit_data);
-    coin_commitment
-        .as_bytes()
-        .try_into()
-        .expect("sha256 digest must be 32 bytes")
+    // use clvm_zk_core optimized implementations (fixed-size arrays, no Vec allocations)
+    let serial_commitment = compute_serial_commitment(risc0_hasher, serial, rand);
+    compute_coin_commitment(risc0_hasher, *tail_hash, amount, puzzle, &serial_commitment)
 }
 
-/// compute nullifier: hash(serial_number || program_hash || amount)
-/// matches standard guest nullifier format
-fn compute_nullifier(serial_number: &[u8; 32], program_hash: &[u8; 32], amount: u64) -> [u8; 32] {
-    let mut nullifier_data = Vec::new();
-    nullifier_data.extend_from_slice(serial_number);
-    nullifier_data.extend_from_slice(program_hash);
-    nullifier_data.extend_from_slice(&amount.to_be_bytes());
-    let nullifier = Impl::hash_bytes(&nullifier_data);
-    nullifier
-        .as_bytes()
-        .try_into()
-        .expect("sha256 digest must be 32 bytes")
-}
