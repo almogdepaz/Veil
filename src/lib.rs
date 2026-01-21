@@ -98,7 +98,7 @@ pub struct ClvmZkProver;
 impl ClvmZkProver {
     fn validate_chialisp_syntax(expression: &str) -> Result<(), ClvmZkError> {
         // use clvm_tools_rs for syntax validation (will fail on invalid syntax)
-        use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+        use clvm_zk_core::compile_chialisp_template_hash_default;
         compile_chialisp_template_hash_default(expression)
             .map_err(|e| ClvmZkError::InvalidProgram(format!("Syntax error: {:?}", e)))?;
         Ok(())

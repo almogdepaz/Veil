@@ -3,8 +3,8 @@
 
 use clvm_zk::protocol::{PrivateCoin, Spender};
 use clvm_zk::simulator::*;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 use clvm_zk_core::coin_commitment::XCH_TAIL;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 
 /// Simple test puzzle that returns a fixed value
 fn simple_puzzle() -> &'static str {

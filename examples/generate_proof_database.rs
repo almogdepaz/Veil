@@ -1,7 +1,7 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::with_standard_conditions;
 use clvm_zk_core::coin_commitment::{CoinCommitment, CoinSecrets, XCH_TAIL};
 use clvm_zk_core::merkle::SparseMerkleTree;
+use clvm_zk_core::with_standard_conditions;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::time::Instant;

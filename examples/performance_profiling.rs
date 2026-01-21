@@ -1,5 +1,5 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::{compile_chialisp_template_hash_default, with_standard_conditions};
+use clvm_zk_core::{compile_chialisp_template_hash_default, with_standard_conditions};
 use std::time::{Duration, Instant};
 
 /// Performance profiling example demonstrating optimization techniques

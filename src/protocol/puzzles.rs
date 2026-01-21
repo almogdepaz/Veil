@@ -1,5 +1,5 @@
 use crate::ProgramParameter;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 use k256::ecdsa::{signature::Signer, Signature, SigningKey, VerifyingKey};
 /// Signature-enabled puzzle programs for secure spend authorization
 ///
@@ -205,7 +205,7 @@ pub fn create_password_spend_parameters(password: &str) -> Vec<ProgramParameter>
 pub fn compile_to_template_bytecode(source: &str) -> Result<Vec<u8>, crate::ClvmZkError> {
     // clvm_tools_rs produces template-compatible bytecode (env references, not substituted values)
     // use the wrapper from clvm_zk_core which handles the clvm_tools_rs dependency
-    let (bytecode, _hash) = clvm_zk_core::chialisp::compile_chialisp_to_bytecode(sha2_hash, source)
+    let (bytecode, _hash) = clvm_zk_core::compile_chialisp_to_bytecode(sha2_hash, source)
         .map_err(|e| crate::ClvmZkError::InvalidProgram(format!("compilation error: {:?}", e)))?;
     Ok(bytecode)
 }

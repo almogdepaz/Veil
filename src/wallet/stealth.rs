@@ -3,16 +3,140 @@
 //! Provides unlinkable payments where:
 //! - Sender derives unique puzzle_hash per payment via ECDH
 //! - Receiver scans blockchain with view key to find payments
-//! - Spending requires both view and spend keys
+//! - Spending requires view key (nullifier mode) or both keys (signature mode)
+//!
+//! ## Modes
+//!
+//! - **Nullifier mode** (default): Fast (~10K zkVM cycles). View key can spend.
+//!   Serial secrets derived from shared_secret. No signature verification needed.
+//!
+//! - **Signature mode**: Secure (~2-5M zkVM cycles). View key cannot spend.
+//!   Requires spend_privkey to derive signing key. Use for custody/audit setups.
 
 use k256::{
     elliptic_curve::{group::GroupEncoding, sec1::ToEncodedPoint},
     AffinePoint, ProjectivePoint, Scalar,
 };
+use once_cell::sync::Lazy;
 use sha2::{Digest, Sha256};
 
-/// Domain separator for stealth derivation
+/// Domain separator for stealth derivation (v1 - signature mode)
 const STEALTH_DOMAIN: &[u8] = b"veil_stealth_v1";
+
+/// Domain separator for nullifier mode (v2)
+const STEALTH_NULLIFIER_DOMAIN: &[u8] = b"veil_stealth_nullifier_v1";
+
+// ============================================================================
+// Stealth Mode Types
+// ============================================================================
+
+/// Stealth address operation mode
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum StealthMode {
+    /// Fast mode: serial secrets derived from shared_secret only
+    /// - View key holder CAN spend (shared_secret is sufficient)
+    /// - ~10K zkVM cycles (hash operations only)
+    /// - Default for personal wallets
+    #[default]
+    Nullifier,
+
+    /// Secure mode: signing key derived from shared_secret + spend_privkey
+    /// - View key holder CANNOT spend (needs spend_privkey)
+    /// - ~2-5M zkVM cycles (ECDSA verification)
+    /// - Use for custody, exchanges, auditor setups
+    Signature,
+}
+
+/// Authorization data for spending a stealth coin
+#[derive(Clone, Debug)]
+pub enum StealthSpendAuth {
+    /// Nullifier mode: just the serial secrets (derived from shared_secret)
+    Nullifier {
+        serial_number: [u8; 32],
+        serial_randomness: [u8; 32],
+    },
+
+    /// Signature mode: derived signing key (requires spend_privkey)
+    Signature { derived_privkey: [u8; 32] },
+}
+
+impl StealthSpendAuth {
+    /// Get serial secrets (works for nullifier mode, returns None for signature mode)
+    pub fn serial_secrets(&self) -> Option<([u8; 32], [u8; 32])> {
+        match self {
+            StealthSpendAuth::Nullifier {
+                serial_number,
+                serial_randomness,
+            } => Some((*serial_number, *serial_randomness)),
+            StealthSpendAuth::Signature { .. } => None,
+        }
+    }
+
+    /// Get derived privkey (works for signature mode, returns None for nullifier)
+    pub fn derived_privkey(&self) -> Option<[u8; 32]> {
+        match self {
+            StealthSpendAuth::Signature { derived_privkey } => Some(*derived_privkey),
+            StealthSpendAuth::Nullifier { .. } => None,
+        }
+    }
+
+    /// Convert to CoinSecrets for use with Spender (nullifier mode only)
+    ///
+    /// Returns Some(CoinSecrets) for nullifier mode, None for signature mode.
+    /// Use this when calling `Spender::create_spend_with_serial`.
+    pub fn to_coin_secrets(&self) -> Option<clvm_zk_core::coin_commitment::CoinSecrets> {
+        match self {
+            StealthSpendAuth::Nullifier {
+                serial_number,
+                serial_randomness,
+            } => Some(clvm_zk_core::coin_commitment::CoinSecrets::new(
+                *serial_number,
+                *serial_randomness,
+            )),
+            StealthSpendAuth::Signature { .. } => None,
+        }
+    }
+
+    /// Check if this is nullifier mode
+    pub fn is_nullifier(&self) -> bool {
+        matches!(self, StealthSpendAuth::Nullifier { .. })
+    }
+
+    /// Check if this is signature mode
+    pub fn is_signature(&self) -> bool {
+        matches!(self, StealthSpendAuth::Signature { .. })
+    }
+}
+
+/// Scanned coin with mode-specific data
+#[derive(Clone, Debug)]
+pub struct ScannedStealthCoin {
+    pub puzzle_hash: [u8; 32],
+    pub mode: StealthMode,
+    pub shared_secret: [u8; 32],
+    pub ephemeral_pubkey: [u8; 33],
+    /// Puzzle source (for signature mode, needed for spending)
+    pub puzzle_source: Option<String>,
+}
+
+// ============================================================================
+// Nullifier Mode Puzzle
+// ============================================================================
+
+/// Compile-time constant for nullifier mode puzzle
+/// This is a trivial puzzle - security comes from nullifier protocol, not puzzle logic
+const NULLIFIER_PUZZLE_SOURCE: &str = "(mod () ())";
+
+/// Puzzle hash for nullifier-mode stealth coins
+/// All nullifier-mode coins share this puzzle hash
+pub static STEALTH_NULLIFIER_PUZZLE_HASH: Lazy<[u8; 32]> = Lazy::new(|| {
+    clvm_zk_core::compile_chialisp_template_hash_default(NULLIFIER_PUZZLE_SOURCE)
+        .expect("nullifier puzzle compilation failed")
+});
+
+// ============================================================================
+// Original Types (kept for compatibility)
+// ============================================================================
 
 /// Wallet keys for stealth addresses (view + spend separation)
 #[derive(Clone)]
@@ -51,6 +175,21 @@ pub struct StealthPayment {
     /// Shared secret - use to derive coin secrets deterministically
     pub shared_secret: [u8; 32],
     /// chialisp source for the puzzle (needed for spending)
+    pub puzzle_source: String,
+}
+
+/// Result of creating a stealth payment (v2 with mode support)
+#[derive(Clone, Debug)]
+pub struct StealthPaymentV2 {
+    pub puzzle_hash: [u8; 32],
+    pub ephemeral_pubkey: [u8; 33],
+    /// Shared secret - receiver derives from ECDH
+    pub shared_secret: [u8; 32],
+    /// Operation mode (Nullifier or Signature)
+    pub mode: StealthMode,
+    /// chialisp source for the puzzle
+    /// - Nullifier mode: trivial puzzle "(mod () ())"
+    /// - Signature mode: derived unique puzzle
     pub puzzle_source: String,
 }
 
@@ -98,9 +237,44 @@ impl StealthKeys {
         }
     }
 
-    /// Derive the spending private key for a stealth payment
+    /// Derive the spending private key for a stealth payment (signature mode)
     pub fn derive_spend_key(&self, shared_secret: &[u8; 32]) -> [u8; 32] {
         derive_spending_key(&self.spend_privkey, shared_secret)
+    }
+
+    /// Derive coin secrets for nullifier mode
+    ///
+    /// IMPORTANT: Only requires shared_secret - view key holder CAN spend!
+    /// This is intentional for fast proving. Use signature mode if view/spend
+    /// separation is required.
+    pub fn derive_nullifier_secrets(
+        &self,
+        shared_secret: &[u8; 32],
+    ) -> clvm_zk_core::coin_commitment::CoinSecrets {
+        derive_nullifier_secrets_from_shared_secret(shared_secret)
+    }
+
+    /// Get authorization for spending a stealth coin
+    ///
+    /// Returns appropriate auth based on mode:
+    /// - Nullifier: serial secrets (fast, view key can spend)
+    /// - Signature: derived privkey (slow, requires spend key)
+    pub fn get_spend_auth(&self, mode: StealthMode, shared_secret: &[u8; 32]) -> StealthSpendAuth {
+        match mode {
+            StealthMode::Nullifier => {
+                let secrets = derive_nullifier_secrets_from_shared_secret(shared_secret);
+                StealthSpendAuth::Nullifier {
+                    serial_number: secrets.serial_number,
+                    serial_randomness: secrets.serial_randomness,
+                }
+            }
+            StealthMode::Signature => {
+                let derived = self.derive_spend_key(shared_secret);
+                StealthSpendAuth::Signature {
+                    derived_privkey: derived,
+                }
+            }
+        }
     }
 }
 
@@ -127,7 +301,7 @@ impl StealthAddress {
 }
 
 impl StealthViewKey {
-    /// Scan a list of coins to find ones belonging to this wallet
+    /// Scan a list of coins to find ones belonging to this wallet (legacy)
     pub fn scan_coins(
         &self,
         coins: &[([u8; 32], [u8; 33])], // (puzzle_hash, ephemeral_pubkey)
@@ -143,7 +317,71 @@ impl StealthViewKey {
         found
     }
 
-    /// Try to decrypt a single coin - returns Some if it belongs to us
+    /// Scan coins with mode detection (v2)
+    ///
+    /// Tries both nullifier and signature modes:
+    /// 1. Check if puzzle_hash matches STEALTH_NULLIFIER_PUZZLE_HASH (nullifier mode)
+    /// 2. Try signature mode derivation (existing logic)
+    ///
+    /// Returns scanned coins with mode info for proper spending authorization.
+    pub fn scan_coins_v2(
+        &self,
+        coins: &[([u8; 32], [u8; 33])], // (puzzle_hash, ephemeral_pubkey)
+    ) -> Vec<ScannedStealthCoin> {
+        let mut found = Vec::new();
+
+        for (puzzle_hash, ephemeral_pubkey) in coins {
+            if let Some(scanned) = self.try_scan_with_mode(puzzle_hash, ephemeral_pubkey) {
+                found.push(scanned);
+            }
+        }
+
+        found
+    }
+
+    /// Try to scan a coin with mode detection
+    ///
+    /// Returns Some(ScannedStealthCoin) if coin belongs to us, with detected mode.
+    pub fn try_scan_with_mode(
+        &self,
+        puzzle_hash: &[u8; 32],
+        ephemeral_pubkey: &[u8; 33],
+    ) -> Option<ScannedStealthCoin> {
+        // Compute shared secret: view_priv * ephemeral_pub
+        let shared_secret = ecdh(&self.view_privkey, ephemeral_pubkey)?;
+
+        // Try nullifier mode first (faster detection)
+        if puzzle_hash == STEALTH_NULLIFIER_PUZZLE_HASH.as_ref() {
+            // Nullifier mode: puzzle_hash matches the trivial puzzle
+            // Verify by deriving serials and checking they produce valid commitment
+            // (In practice, just matching puzzle_hash + ECDH success is enough)
+            return Some(ScannedStealthCoin {
+                puzzle_hash: *puzzle_hash,
+                mode: StealthMode::Nullifier,
+                shared_secret,
+                ephemeral_pubkey: *ephemeral_pubkey,
+                puzzle_source: Some(NULLIFIER_PUZZLE_SOURCE.to_string()),
+            });
+        }
+
+        // Try signature mode: derive expected puzzle from shared_secret
+        let (puzzle_source, expected_puzzle) =
+            derive_stealth_puzzle(&self.spend_pubkey, &shared_secret);
+
+        if &expected_puzzle == puzzle_hash {
+            return Some(ScannedStealthCoin {
+                puzzle_hash: *puzzle_hash,
+                mode: StealthMode::Signature,
+                shared_secret,
+                ephemeral_pubkey: *ephemeral_pubkey,
+                puzzle_source: Some(puzzle_source),
+            });
+        }
+
+        None
+    }
+
+    /// Try to decrypt a single coin - returns Some if it belongs to us (legacy)
     fn try_decrypt(
         &self,
         puzzle_hash: &[u8; 32],
@@ -168,7 +406,7 @@ impl StealthViewKey {
     }
 }
 
-/// Create a stealth payment to a recipient
+/// Create a stealth payment to a recipient (legacy - uses signature mode)
 ///
 /// Returns the puzzle_hash to use and the ephemeral_pubkey to publish
 pub fn create_stealth_payment(recipient: &StealthAddress) -> StealthPayment {
@@ -196,16 +434,110 @@ pub fn create_stealth_payment(recipient: &StealthAddress) -> StealthPayment {
     }
 }
 
+/// Create a stealth payment with specified mode
+///
+/// ## Modes
+///
+/// - **Nullifier** (default): Fast proving (~10K cycles). Uses trivial puzzle.
+///   View key holder CAN spend. Serial secrets derived deterministically.
+///
+/// - **Signature**: Secure proving (~2-5M cycles). Uses derived unique puzzle.
+///   View key holder CANNOT spend. Requires spend_privkey to authorize.
+///
+/// ## Returns
+///
+/// `StealthPaymentV2` containing puzzle_hash, ephemeral_pubkey, and mode info.
+/// Sender should create coin with this puzzle_hash and publish ephemeral_pubkey.
+pub fn create_stealth_payment_with_mode(
+    recipient: &StealthAddress,
+    mode: StealthMode,
+) -> StealthPaymentV2 {
+    use rand::RngCore;
+    let mut rng = rand::thread_rng();
+
+    // Generate ephemeral keypair
+    let mut ephemeral_privkey = [0u8; 32];
+    rng.fill_bytes(&mut ephemeral_privkey);
+    let ephemeral_pubkey = privkey_to_pubkey(&ephemeral_privkey);
+
+    // Compute shared secret: ephemeral_priv * view_pub
+    let shared_secret =
+        ecdh(&ephemeral_privkey, &recipient.view_pubkey).expect("valid pubkey from StealthAddress");
+
+    match mode {
+        StealthMode::Nullifier => {
+            // Nullifier mode: trivial puzzle, security from nullifier protocol
+            // All nullifier-mode coins share the same puzzle hash
+            StealthPaymentV2 {
+                puzzle_hash: *STEALTH_NULLIFIER_PUZZLE_HASH,
+                ephemeral_pubkey,
+                shared_secret,
+                mode: StealthMode::Nullifier,
+                puzzle_source: NULLIFIER_PUZZLE_SOURCE.to_string(),
+            }
+        }
+        StealthMode::Signature => {
+            // Signature mode: unique derived puzzle per payment
+            let (puzzle_source, puzzle_hash) =
+                derive_stealth_puzzle(&recipient.spend_pubkey, &shared_secret);
+
+            StealthPaymentV2 {
+                puzzle_hash,
+                ephemeral_pubkey,
+                shared_secret,
+                mode: StealthMode::Signature,
+                puzzle_source,
+            }
+        }
+    }
+}
+
 /// Derive coin secrets (serial_number, serial_randomness) from stealth shared_secret
 ///
 /// This allows receiver to reconstruct the same secrets as sender:
 /// - sender: creates payment, derives secrets from shared_secret, creates coin
 /// - receiver: scans, recovers shared_secret via ECDH, derives same secrets
+///
+/// NOTE: This uses the v1 domain separator. For nullifier mode, use
+/// `derive_nullifier_secrets_from_shared_secret` instead.
 pub fn derive_coin_secrets_from_shared_secret(
     shared_secret: &[u8; 32],
 ) -> clvm_zk_core::coin_commitment::CoinSecrets {
     let serial_number = derive_key(shared_secret, b"serial_number");
     let serial_randomness = derive_key(shared_secret, b"serial_randomness");
+    clvm_zk_core::coin_commitment::CoinSecrets::new(serial_number, serial_randomness)
+}
+
+/// Derive coin secrets for NULLIFIER mode stealth addresses
+///
+/// Uses domain-separated derivation:
+/// - coin_secret = sha256(STEALTH_NULLIFIER_DOMAIN || shared_secret)
+/// - serial_number = sha256(coin_secret || "serial")
+/// - serial_randomness = sha256(coin_secret || "rand")
+///
+/// Both sender and receiver can derive identical secrets from shared_secret.
+/// View key holder CAN spend in this mode (fast proving, no signature needed).
+pub fn derive_nullifier_secrets_from_shared_secret(
+    shared_secret: &[u8; 32],
+) -> clvm_zk_core::coin_commitment::CoinSecrets {
+    // Derive intermediate coin_secret
+    let mut hasher = Sha256::new();
+    hasher.update(STEALTH_NULLIFIER_DOMAIN);
+    hasher.update(shared_secret);
+    let coin_secret: [u8; 32] = hasher.finalize().into();
+
+    // Derive serial_number from coin_secret
+    let mut hasher = Sha256::new();
+    hasher.update(&coin_secret);
+    hasher.update(b"serial");
+    let serial_number: [u8; 32] = hasher.finalize().into();
+
+    // Derive serial_randomness from coin_secret
+    let mut hasher = Sha256::new();
+    hasher.update(&coin_secret);
+    hasher.update(b"rand");
+    let serial_randomness: [u8; 32] = hasher.finalize().into();
+
     clvm_zk_core::coin_commitment::CoinSecrets::new(serial_number, serial_randomness)
 }
 

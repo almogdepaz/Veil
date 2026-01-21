@@ -1,5 +1,5 @@
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
 use clvm_zk_core::coin_commitment::{SerialCommitment, XCH_TAIL};
+use clvm_zk_core::compile_chialisp_template_hash_default;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -338,7 +338,7 @@ mod tests {
         assert_eq!(coin.amount, amount);
 
         let expected_hash =
-            clvm_zk_core::chialisp::compile_chialisp_template_hash_default(puzzle_code).unwrap();
+            clvm_zk_core::compile_chialisp_template_hash_default(puzzle_code).unwrap();
         assert_eq!(coin.puzzle_hash, expected_hash);
     }
 

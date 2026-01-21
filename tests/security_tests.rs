@@ -1,7 +1,7 @@
 mod common;
 use crate::common::BATCH_SIZE;
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 use tokio::task;
 
 /// Test proof integrity attacks - tampering with proofs should cause verification to fail

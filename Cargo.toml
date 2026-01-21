@@ -59,6 +59,7 @@ k256 = { version = "0.13", features = ["ecdsa", "sha256"] }  # For ECDSA signatu
 rs_merkle = "1.5"  # For merkle tree proof generation on host
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }  # For ECDH key exchange in encrypted notes
 chacha20poly1305 = "0.10"  # For authenticated encryption of payment notes
+once_cell = "1.18"  # For lazy static initialization
 
 # Backend implementations
 clvm-zk-risc0 = { path = "backends/risc0", optional = true }

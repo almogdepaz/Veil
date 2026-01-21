@@ -3,7 +3,7 @@ use crate::simulator::{CLVMZkSimulator, CoinMetadata, CoinType};
 use crate::wallet::{CLVMHDWallet, Network, WalletError};
 use crate::{ClvmZkError, ClvmZkProver, ProgramParameter};
 use clap::{Parser, Subcommand};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 use clvm_zk_core::{atom_to_number, ClvmParser};
 use rand::{thread_rng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -127,6 +127,9 @@ pub enum SimAction {
         /// Coin indices to spend (comma-separated, e.g. "0,1,2" or "auto" for automatic selection)
         #[arg(long)]
         coins: String,
+        /// Stealth address mode: "nullifier" (fast, default) or "signature" (secure)
+        #[arg(long, default_value = "nullifier")]
+        stealth_mode: String,
     },
     /// Spend coins to create a puzzle-locked coin
     #[command(name = "spend-to-puzzle")]
@@ -1023,8 +1026,9 @@ fn run_simulator_command(data_dir: &Path, action: SimAction) -> Result<(), ClvmZ
             to,
             amount,
             coins,
+            stealth_mode,
         } => {
-            send_command(data_dir, &from, &to, amount, &coins)?;
+            send_command(data_dir, &from, &to, amount, &coins, &stealth_mode)?;
         }
 
         SimAction::SpendToPuzzle {
@@ -1437,7 +1441,19 @@ fn send_command(
     to: &str,
     amount: u64,
     coin_indices: &str,
+    stealth_mode: &str,
 ) -> Result<(), ClvmZkError> {
+    // Parse stealth mode
+    let mode = match stealth_mode.to_lowercase().as_str() {
+        "nullifier" | "n" | "fast" => crate::wallet::StealthMode::Nullifier,
+        "signature" | "s" | "secure" => crate::wallet::StealthMode::Signature,
+        _ => {
+            return Err(ClvmZkError::InvalidProgram(format!(
+                "invalid stealth mode '{}': use 'nullifier' (fast) or 'signature' (secure)",
+                stealth_mode
+            )));
+        }
+    };
     let mut state = SimulatorState::load(data_dir)?;
 
     // validate wallets exist
@@ -1594,14 +1610,25 @@ fn send_command(
                     }
                 };
 
-                // Create stealth payment - derives unique puzzle_hash via ECDH
-                let stealth_payment = crate::wallet::create_stealth_payment(&recipient_stealth);
+                // Create stealth payment with mode - derives puzzle_hash via ECDH
+                let stealth_payment =
+                    crate::wallet::create_stealth_payment_with_mode(&recipient_stealth, mode);
 
-                // Derive coin secrets deterministically from shared_secret
-                // This allows receiver to reconstruct the same secrets during scan
-                let secrets = crate::wallet::derive_coin_secrets_from_shared_secret(
-                    &stealth_payment.shared_secret,
-                );
+                // Derive coin secrets based on mode
+                // Nullifier: uses domain-separated derivation for fast proving
+                // Signature: uses legacy derivation (requires signature verification)
+                let secrets = match mode {
+                    crate::wallet::StealthMode::Nullifier => {
+                        crate::wallet::derive_nullifier_secrets_from_shared_secret(
+                            &stealth_payment.shared_secret,
+                        )
+                    }
+                    crate::wallet::StealthMode::Signature => {
+                        crate::wallet::derive_coin_secrets_from_shared_secret(
+                            &stealth_payment.shared_secret,
+                        )
+                    }
+                };
 
                 // Create coin with stealth-derived puzzle_hash and deterministic secrets
                 let puzzle_hash = stealth_payment.puzzle_hash;
@@ -1619,13 +1646,20 @@ fn send_command(
                     CoinMetadata {
                         owner: to.to_string(),
                         coin_type: CoinType::Regular,
-                        notes: format!("stealth payment from {}", from),
+                        notes: format!("stealth payment from {} ({:?} mode)", from, mode),
                     },
                 );
 
                 // NOTE: coin is NOT added to recipient's wallet directly
                 // recipient must run 'sim scan' to discover via stealth scanning
-                println!("created stealth payment for '{}' with amount {} (recipient must scan to receive)", to, amount);
+                let mode_str = match mode {
+                    crate::wallet::StealthMode::Nullifier => "nullifier (fast)",
+                    crate::wallet::StealthMode::Signature => "signature (secure)",
+                };
+                println!(
+                    "created stealth payment for '{}' with amount {} [{} mode] (recipient must scan to receive)",
+                    to, amount, mode_str
+                );
             }
 
             // handle change if any
@@ -1715,18 +1749,18 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
         .map(|(puzzle_hash, eph, _info)| (**puzzle_hash, *eph))
         .collect();
 
-    // Scan using stealth view key
-    let found = view_key.scan_coins(&scan_input);
+    // Scan using stealth view key (v2 - auto-detects mode)
+    let found = view_key.scan_coins_v2(&scan_input);
 
     let mut found_count = 0;
     let mut total_amount = 0u64;
 
-    for (puzzle_hash, stealth_data) in found {
+    for scanned in found {
         // Skip if already in wallet
-        if existing_puzzle_hashes.contains(&puzzle_hash) {
+        if existing_puzzle_hashes.contains(&scanned.puzzle_hash) {
             println!(
                 "  found coin {} (already in wallet, skipping)",
-                hex::encode(&puzzle_hash[..4])
+                hex::encode(&scanned.puzzle_hash[..4])
             );
             continue;
         }
@@ -1734,21 +1768,36 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
         // Find the matching coin info in scannable_coins
         let coin_info = scannable_coins
             .iter()
-            .find(|(ph, eph, _)| **ph == puzzle_hash && *eph == stealth_data.ephemeral_pubkey)
+            .find(|(ph, eph, _)| **ph == scanned.puzzle_hash && *eph == scanned.ephemeral_pubkey)
             .map(|(_, _, info)| *info);
 
         if let Some(info) = coin_info {
-            println!("  found stealth coin: {} mojos", info.coin.amount);
+            let mode_str = match scanned.mode {
+                crate::wallet::StealthMode::Nullifier => "nullifier",
+                crate::wallet::StealthMode::Signature => "signature",
+            };
+            println!(
+                "  found stealth coin: {} mojos [{} mode]",
+                info.coin.amount, mode_str
+            );
 
-            // Derive secrets from shared_secret - same derivation sender used
-            let secrets =
-                crate::wallet::derive_coin_secrets_from_shared_secret(&stealth_data.shared_secret);
+            // Derive secrets based on detected mode
+            let secrets = match scanned.mode {
+                crate::wallet::StealthMode::Nullifier => {
+                    crate::wallet::derive_nullifier_secrets_from_shared_secret(
+                        &scanned.shared_secret,
+                    )
+                }
+                crate::wallet::StealthMode::Signature => {
+                    crate::wallet::derive_coin_secrets_from_shared_secret(&scanned.shared_secret)
+                }
+            };
 
             // Reconstruct the coin for the wallet
             let coin = info.coin.clone();
 
             // Use puzzle_source from stealth scanning (has embedded derived pubkey)
-            let program = stealth_data.puzzle_source.clone();
+            let program = scanned.puzzle_source.clone().unwrap_or_default();
 
             let wallet_coin = crate::wallet::WalletPrivateCoin {
                 coin,

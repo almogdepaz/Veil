@@ -131,7 +131,7 @@ impl CoinCommitment {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CoinSecrets {
     /// the serial number - used as input to nullifier computation when spending
-    /// nullifier = hash(serial_number || program_hash)
+    /// nullifier = hash(serial_number || program_hash || amount)
     pub serial_number: [u8; 32],
 
     /// randomness used to blind the serial commitment

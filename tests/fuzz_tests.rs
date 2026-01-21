@@ -1,6 +1,6 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
 mod common;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 
 use common::{test_expression, TestResult};
 use tokio::task;

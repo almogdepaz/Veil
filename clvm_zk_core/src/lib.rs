@@ -2,7 +2,7 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 
 use k256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 
@@ -10,17 +10,112 @@ use k256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 
 pub mod backend_utils;
-pub mod chialisp;
 pub mod clvm_parser;
 pub mod coin_commitment;
 pub mod merkle;
 pub mod operators;
 pub mod types;
 
-pub use chialisp::*;
 pub use clvm_parser::*;
 pub use operators::*;
 pub use types::*;
+
+// ============================================================================
+// Chialisp compilation utilities (previously in chialisp/mod.rs)
+// ============================================================================
+
+/// Standard Chia condition codes as defconstant declarations.
+/// Prepend this to chialisp source for readable condition opcodes.
+pub const STANDARD_CONDITION_CODES: &str = r#"
+(defconstant AGG_SIG_UNSAFE 49)
+(defconstant AGG_SIG_ME 50)
+(defconstant CREATE_COIN 51)
+(defconstant RESERVE_FEE 52)
+(defconstant CREATE_COIN_ANNOUNCEMENT 60)
+(defconstant ASSERT_COIN_ANNOUNCEMENT 61)
+(defconstant CREATE_PUZZLE_ANNOUNCEMENT 62)
+(defconstant ASSERT_PUZZLE_ANNOUNCEMENT 63)
+(defconstant ASSERT_MY_COIN_ID 70)
+(defconstant ASSERT_MY_PARENT_ID 71)
+(defconstant ASSERT_MY_PUZZLEHASH 72)
+(defconstant ASSERT_MY_AMOUNT 73)
+"#;
+
+/// Prepend standard condition codes to chialisp source.
+/// Use this when you want CREATE_COIN etc. to be available without defining them.
+pub fn with_standard_conditions(source: &str) -> String {
+    if let Some(mod_pos) = source.find("(mod") {
+        if let Some(paren_start) = source[mod_pos..].find('(').map(|p| mod_pos + p) {
+            if let Some(param_start) = source[paren_start + 1..].find('(') {
+                let param_start = paren_start + 1 + param_start;
+                let mut depth = 1;
+                let mut param_end = param_start + 1;
+                for (i, c) in source[param_start + 1..].char_indices() {
+                    match c {
+                        '(' => depth += 1,
+                        ')' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                param_end = param_start + 1 + i + 1;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let mut result =
+                    String::with_capacity(source.len() + STANDARD_CONDITION_CODES.len());
+                result.push_str(&source[..param_end]);
+                result.push_str(STANDARD_CONDITION_CODES);
+                result.push_str(&source[param_end..]);
+                return result;
+            }
+        }
+    }
+    format!("{}{}", STANDARD_CONDITION_CODES, source)
+}
+
+/// Compilation error types
+#[derive(Debug, Clone)]
+pub enum CompileError {
+    ParseError(String),
+}
+
+/// Compile chialisp source to bytecode and program hash
+pub fn compile_chialisp_to_bytecode(
+    hasher: Hasher,
+    source: &str,
+) -> Result<(Vec<u8>, [u8; 32]), CompileError> {
+    let bytecode = clvm_tools_rs::compile_chialisp(source).map_err(|e| {
+        CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e))
+    })?;
+    let program_hash = hasher(&bytecode);
+    Ok((bytecode, program_hash))
+}
+
+/// Compile chialisp source to get program hash only
+pub fn compile_chialisp_template_hash(
+    hasher: Hasher,
+    source: &str,
+) -> Result<[u8; 32], CompileError> {
+    let bytecode = clvm_tools_rs::compile_chialisp(source).map_err(|e| {
+        CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e))
+    })?;
+    Ok(hasher(&bytecode))
+}
+
+/// Compile chialisp to get template hash using default SHA-256 hasher
+#[cfg(feature = "sha2-hasher")]
+pub fn compile_chialisp_template_hash_default(source: &str) -> Result<[u8; 32], CompileError> {
+    let bytecode = clvm_tools_rs::compile_chialisp(source).map_err(|e| {
+        CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e))
+    })?;
+    Ok(hash_data(&bytecode))
+}
+
+// ============================================================================
+// End chialisp utilities
+// ============================================================================
 
 // re-export for convenience
 pub use types::AdditionalCoinInput;
@@ -640,7 +735,7 @@ pub fn create_veil_evaluator(
 
 #[cfg(test)]
 mod security_tests {
-    use crate::chialisp::compile_chialisp_to_bytecode;
+    use crate::compile_chialisp_to_bytecode;
     use crate::hash_data;
 
     #[test]

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 use once_cell::sync::Lazy;
 use std::env;
 use std::sync::Once;
