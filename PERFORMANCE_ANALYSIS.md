@@ -562,4 +562,34 @@ condition.args.push(coin_commitment.to_vec());
 - settlement recursive verification (risc0's env::verify): ~320-350s is dominated by proof composition overhead, which is inherent to risc0 architecture
 - measurement variance: ±30s variation across runs due to system load
 
+## iteration 10: attempted bytecode slice optimization (FAILED - no benefit)
+
+**hypothesis**: the 81-byte `DELEGATED_PUZZLE_BYTECODE.to_vec()` copy could be avoided by using borrowed slices.
+
+**attempted change**:
+```rust
+// BEFORE
+let (instance_bytecode, program_hash) = if ... {
+    (DELEGATED_PUZZLE_BYTECODE.to_vec(), DELEGATED_PUZZLE_HASH)
+} else { ... };
+
+// ATTEMPTED
+let compiled;
+let (instance_bytecode, program_hash): (&[u8], [u8; 32]) = if ... {
+    (DELEGATED_PUZZLE_BYTECODE, DELEGATED_PUZZLE_HASH)  // no .to_vec()
+} else {
+    compiled = compile_chialisp_to_bytecode(...)?;
+    (&compiled.0, compiled.1)
+};
+```
+
+**results - NO BENEFIT**:
+- run 1: conditional 28s, settlement 355s, total 407s
+- run 2: conditional 27s, settlement 326s, total 383s
+- baseline: conditional 25-27s, settlement 316-345s, total 357-395s
+
+**analysis**: 81-byte copy is negligible in ~25s proof. optimization adds code complexity (lifetime management) with zero measurable benefit.
+
+**verdict**: REVERTED - micro-optimization unmeasurable, not worth complexity
+
 **ralph loop objective achieved**: completed all obvious no-tradeoff optimizations.
