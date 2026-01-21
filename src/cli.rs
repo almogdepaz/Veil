@@ -776,9 +776,9 @@ struct StoredOffer {
     change_rand: [u8; 32],
     // asset type identifiers (v2.0)
     #[serde(default)]
-    offered_tail_hash: [u8; 32],    // asset type maker is offering
+    offered_tail_hash: [u8; 32], // asset type maker is offering
     #[serde(default)]
-    requested_tail_hash: [u8; 32],  // asset type maker is requesting
+    requested_tail_hash: [u8; 32], // asset type maker is requesting
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1085,7 +1085,14 @@ fn run_simulator_command(data_dir: &Path, action: SimAction) -> Result<(), ClvmZ
             request_tail,
             coins,
         } => {
-            offer_create_command(data_dir, &maker, offer, request, request_tail.as_deref(), &coins)?;
+            offer_create_command(
+                data_dir,
+                &maker,
+                offer,
+                request,
+                request_tail.as_deref(),
+                &coins,
+            )?;
         }
 
         SimAction::OfferTake {
@@ -1228,11 +1235,10 @@ fn wallet_command(data_dir: &Path, name: &str, action: WalletAction) -> Result<(
             // TODO: derive from seed for HD wallet compatibility
             let mut note_encryption_private = [0u8; 32];
             rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut note_encryption_private);
-            let note_encryption_public =
-                x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(
-                    note_encryption_private,
-                ))
-                .to_bytes();
+            let note_encryption_public = x25519_dalek::PublicKey::from(
+                &x25519_dalek::StaticSecret::from(note_encryption_private),
+            )
+            .to_bytes();
 
             let wallet = WalletData {
                 name: name.to_string(),
@@ -1637,9 +1643,12 @@ fn send_command(
                 };
 
                 // create stealth payment (nullifier mode) - derives puzzle_hash via ECDH
-                let sender_hd = state.wallets.get(from).unwrap().get_hd_wallet().map_err(|e| {
-                    ClvmZkError::InvalidProgram(format!("hd wallet error: {}", e))
-                })?;
+                let sender_hd = state
+                    .wallets
+                    .get(from)
+                    .unwrap()
+                    .get_hd_wallet()
+                    .map_err(|e| ClvmZkError::InvalidProgram(format!("hd wallet error: {}", e)))?;
                 let sender_account = sender_hd.derive_account(0).map_err(|e| {
                     ClvmZkError::InvalidProgram(format!("account derivation error: {}", e))
                 })?;
@@ -2263,8 +2272,9 @@ fn offer_create_command(
     // parse requested tail_hash if provided
     let requested_tail_hash: [u8; 32] = match request_tail_hex {
         Some(hex_str) => {
-            let bytes = hex::decode(hex_str)
-                .map_err(|e| ClvmZkError::InvalidProgram(format!("invalid request-tail hex: {}", e)))?;
+            let bytes = hex::decode(hex_str).map_err(|e| {
+                ClvmZkError::InvalidProgram(format!("invalid request-tail hex: {}", e))
+            })?;
             if bytes.len() != 32 {
                 return Err(ClvmZkError::InvalidProgram(format!(
                     "request-tail must be 32 bytes (64 hex chars), got {} bytes",
@@ -2279,9 +2289,10 @@ fn offer_create_command(
     };
 
     // get wallet
-    let wallet = state.wallets.get(maker_name).ok_or_else(|| {
-        ClvmZkError::InvalidProgram(format!("wallet '{}' not found", maker_name))
-    })?;
+    let wallet = state
+        .wallets
+        .get(maker_name)
+        .ok_or_else(|| ClvmZkError::InvalidProgram(format!("wallet '{}' not found", maker_name)))?;
 
     // parse coins - for offer creation we need exactly one coin
     let spend_coins = parse_coin_indices(coins, wallet)?;
@@ -2467,7 +2478,8 @@ fn offer_take_command(
     if taker_coin.to_private_coin().tail_hash != offer.requested_tail_hash {
         return Err(ClvmZkError::InvalidProgram(format!(
             "asset type mismatch: maker requests {:?}, taker has {:?}",
-            offer.requested_tail_hash, taker_coin.to_private_coin().tail_hash
+            offer.requested_tail_hash,
+            taker_coin.to_private_coin().tail_hash
         )));
     }
 

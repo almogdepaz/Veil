@@ -51,7 +51,10 @@ fn main() {
             }
             println!("];");
             println!();
-            println!("const DELEGATED_PUZZLE_SOURCE: &str = r#\"{}\"#;", delegated_puzzle);
+            println!(
+                "const DELEGATED_PUZZLE_SOURCE: &str = r#\"{}\"#;",
+                delegated_puzzle
+            );
             println!();
             println!("bytecode length: {} bytes", bytecode.len());
             println!("puzzle hash: {}", hex::encode(hash));
