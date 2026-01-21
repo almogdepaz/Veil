@@ -822,9 +822,10 @@ pub fn enforce_ring_balance(
             }
         }
 
-        // enforce conservation of value
-        if input_sum != total_output_amount {
-            return Err("balance check failed: input != output");
+        // prevent inflation: output cannot exceed input
+        // allows burning/locking (output < input) for fees, conditional spends, etc.
+        if total_output_amount > input_sum {
+            return Err("inflation: output exceeds input");
         }
 
         input_sum

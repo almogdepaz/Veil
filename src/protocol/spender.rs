@@ -243,6 +243,81 @@ impl Spender {
         Ok(spend_bundle)
     }
 
+    /// create conditional spend proof (not directly submittable to blockchain)
+    ///
+    /// conditional spend proofs are locked - they can only be settled by wrapping
+    /// them in a Settlement proof that validates the trade logic.
+    ///
+    /// this is used for creating offers:
+    /// - maker creates ConditionalSpend with output encoding offer terms
+    /// - taker wraps it in Settlement proof that validates payment/goods exchange
+    ///
+    /// # v2.0 coin commitments
+    /// uses v2.0 format with tail_hash for CAT support
+    pub fn create_conditional_spend(
+        coin: &PrivateCoin,
+        puzzle_code: &str,
+        solution_params: &[ProgramParameter],
+        secrets: &CoinSecrets,
+        merkle_path: Vec<[u8; 32]>,
+        merkle_root: [u8; 32],
+        leaf_index: usize,
+    ) -> Result<PrivateSpendBundle, ProtocolError> {
+        coin.validate()
+            .map_err(|e| ProtocolError::ProofGenerationFailed(format!("invalid coin: {e}")))?;
+
+        let coin_commitment = CoinCommitment::compute(
+            &coin.tail_hash,
+            coin.amount,
+            &coin.puzzle_hash,
+            &coin.serial_commitment,
+            crate::crypto_utils::hash_data_default,
+        );
+
+        // pass tail_hash: None for XCH, Some for CATs
+        let tail_hash = if coin.tail_hash == XCH_TAIL {
+            None
+        } else {
+            Some(coin.tail_hash)
+        };
+
+        let zkvm_result = crate::ClvmZkProver::prove_with_serial_commitment(
+            puzzle_code,
+            solution_params,
+            secrets,
+            merkle_path,
+            coin_commitment.0,
+            coin.serial_commitment.0,
+            merkle_root,
+            leaf_index,
+            coin.puzzle_hash,
+            coin.amount,
+            tail_hash,
+        )
+        .map_err(|e| ProtocolError::ProofGenerationFailed(format!("zk proof failed: {e}")))?;
+
+        // single-coin spend should have exactly one nullifier
+        if zkvm_result.proof_output.nullifiers.is_empty() {
+            return Err(ProtocolError::InvalidNullifier(
+                "no nullifier in proof".to_string(),
+            ));
+        }
+
+        // create bundle with ConditionalSpend type (prevents direct submission)
+        let spend_bundle = PrivateSpendBundle::new_with_type(
+            zkvm_result.proof_bytes,
+            zkvm_result.proof_output.nullifiers[0], // single nullifier for conditional spend
+            zkvm_result.proof_output.clvm_res.output.clone(),
+            crate::protocol::ProofType::ConditionalSpend,
+        );
+
+        spend_bundle
+            .validate()
+            .map_err(|e| ProtocolError::ProofGenerationFailed(format!("invalid bundle: {e}")))?;
+
+        Ok(spend_bundle)
+    }
+
     /// verify that a spend bundle contains the expected nullifier
     pub fn verify_nullifier(
         bundle: &PrivateSpendBundle,

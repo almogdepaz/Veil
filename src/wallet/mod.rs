@@ -6,24 +6,15 @@ pub mod types;
 
 pub use hd_wallet::{AccountKeys, CLVMHDWallet, ValidationError, WalletPrivateCoin};
 pub use stealth::{
-    // Payment creation
-    create_stealth_payment,
-    create_stealth_payment_with_mode,
-    // Serial derivation
-    derive_coin_secrets_from_shared_secret,
+    create_stealth_payment_hd,
     derive_nullifier_secrets_from_shared_secret,
-    // Mode types (v2)
+    derive_stealth_tag,
     ScannedStealthCoin,
-    // Core types
     StealthAddress,
-    StealthCoinData,
     StealthKeys,
-    StealthMode,
     StealthPayment,
-    StealthPaymentV2,
     StealthSpendAuth,
     StealthViewKey,
-    // Constants
     STEALTH_NULLIFIER_PUZZLE_HASH,
 };
 pub use types::{Network, WalletError};

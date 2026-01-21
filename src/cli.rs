@@ -105,6 +105,9 @@ pub enum SimAction {
         /// Asset ID (tail_hash) - hex string. Omit for XCH.
         #[arg(long)]
         tail: Option<String>,
+        /// Use delegated puzzle (required for offers)
+        #[arg(long)]
+        delegated: bool,
     },
     /// Wallet operations
     Wallet {
@@ -180,6 +183,9 @@ pub enum SimAction {
         /// Amount maker is requesting
         #[arg(long)]
         request: u64,
+        /// Asset ID (tail_hash) maker is requesting - hex string. Omit for XCH.
+        #[arg(long)]
+        request_tail: Option<String>,
         /// Coin indices to use (comma-separated or "auto")
         #[arg(long)]
         coins: String,
@@ -768,6 +774,11 @@ struct StoredOffer {
     change_puzzle: [u8; 32],
     change_serial: [u8; 32],
     change_rand: [u8; 32],
+    // asset type identifiers (v2.0)
+    #[serde(default)]
+    offered_tail_hash: [u8; 32],    // asset type maker is offering
+    #[serde(default)]
+    requested_tail_hash: [u8; 32],  // asset type maker is requesting
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -784,6 +795,11 @@ struct WalletData {
     stealth_view_pubkey: Option<Vec<u8>>,
     #[serde(default)]
     stealth_spend_pubkey: Option<Vec<u8>>,
+    // x25519 encryption keys for ECDH payment derivation in offers
+    #[serde(default)]
+    note_encryption_public: Option<[u8; 32]>,
+    #[serde(default)]
+    note_encryption_private: Option<[u8; 32]>,
 }
 
 /// wrapper around WalletPrivateCoin with additional CLI-specific state
@@ -1005,8 +1021,9 @@ fn run_simulator_command(data_dir: &Path, action: SimAction) -> Result<(), ClvmZ
             amount,
             count,
             tail,
+            delegated,
         } => {
-            faucet_command(data_dir, &wallet, amount, count, tail)?;
+            faucet_command(data_dir, &wallet, amount, count, tail, delegated)?;
         }
 
         SimAction::Wallet { name, action } => {
@@ -1065,9 +1082,10 @@ fn run_simulator_command(data_dir: &Path, action: SimAction) -> Result<(), ClvmZ
             maker,
             offer,
             request,
+            request_tail,
             coins,
         } => {
-            offer_create_command(data_dir, &maker, offer, request, &coins)?;
+            offer_create_command(data_dir, &maker, offer, request, request_tail.as_deref(), &coins)?;
         }
 
         SimAction::OfferTake {
@@ -1092,6 +1110,7 @@ fn faucet_command(
     amount: u64,
     count: u32,
     tail_hex: Option<String>,
+    use_delegated: bool,
 ) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
@@ -1121,8 +1140,12 @@ fn faucet_command(
         )));
     }
 
-    // create simple faucet puzzle (always spendable)
-    let (program, puzzle_hash) = create_faucet_puzzle(amount);
+    // create puzzle (faucet or delegated)
+    let (program, puzzle_hash) = if use_delegated {
+        crate::protocol::create_delegated_puzzle()?
+    } else {
+        create_faucet_puzzle(amount)
+    };
 
     // generate coins for the wallet
     let wallet = state.wallets.get_mut(wallet_name).unwrap();
@@ -1201,6 +1224,16 @@ fn wallet_command(data_dir: &Path, name: &str, action: WalletAction) -> Result<(
             // Get stealth address from account keys
             let stealth_address = account_keys.stealth_keys.stealth_address();
 
+            // generate x25519 encryption keys for ECDH payment derivation in offers
+            // TODO: derive from seed for HD wallet compatibility
+            let mut note_encryption_private = [0u8; 32];
+            rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut note_encryption_private);
+            let note_encryption_public =
+                x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(
+                    note_encryption_private,
+                ))
+                .to_bytes();
+
             let wallet = WalletData {
                 name: name.to_string(),
                 seed,
@@ -1210,6 +1243,8 @@ fn wallet_command(data_dir: &Path, name: &str, action: WalletAction) -> Result<(
                 coins: Vec::new(),
                 stealth_view_pubkey: Some(stealth_address.view_pubkey.to_vec()),
                 stealth_spend_pubkey: Some(stealth_address.spend_pubkey.to_vec()),
+                note_encryption_public: Some(note_encryption_public),
+                note_encryption_private: Some(note_encryption_private),
             };
 
             state.wallets.insert(name.to_string(), wallet);
@@ -1443,17 +1478,8 @@ fn send_command(
     coin_indices: &str,
     stealth_mode: &str,
 ) -> Result<(), ClvmZkError> {
-    // Parse stealth mode
-    let mode = match stealth_mode.to_lowercase().as_str() {
-        "nullifier" | "n" | "fast" => crate::wallet::StealthMode::Nullifier,
-        "signature" | "s" | "secure" => crate::wallet::StealthMode::Signature,
-        _ => {
-            return Err(ClvmZkError::InvalidProgram(format!(
-                "invalid stealth mode '{}': use 'nullifier' (fast) or 'signature' (secure)",
-                stealth_mode
-            )));
-        }
-    };
+    // nullifier mode only (signature mode removed)
+    let _ = stealth_mode; // ignored for now, always nullifier
     let mut state = SimulatorState::load(data_dir)?;
 
     // validate wallets exist
@@ -1610,25 +1636,23 @@ fn send_command(
                     }
                 };
 
-                // Create stealth payment with mode - derives puzzle_hash via ECDH
-                let stealth_payment =
-                    crate::wallet::create_stealth_payment_with_mode(&recipient_stealth, mode);
+                // create stealth payment (nullifier mode) - derives puzzle_hash via ECDH
+                let sender_hd = state.wallets.get(from).unwrap().get_hd_wallet().map_err(|e| {
+                    ClvmZkError::InvalidProgram(format!("hd wallet error: {}", e))
+                })?;
+                let sender_account = sender_hd.derive_account(0).map_err(|e| {
+                    ClvmZkError::InvalidProgram(format!("account derivation error: {}", e))
+                })?;
+                let stealth_payment = crate::wallet::create_stealth_payment_hd(
+                    &sender_account.stealth_keys,
+                    0, // ephemeral_index
+                    &recipient_stealth,
+                );
 
-                // Derive coin secrets based on mode
-                // Nullifier: uses domain-separated derivation for fast proving
-                // Signature: uses legacy derivation (requires signature verification)
-                let secrets = match mode {
-                    crate::wallet::StealthMode::Nullifier => {
-                        crate::wallet::derive_nullifier_secrets_from_shared_secret(
-                            &stealth_payment.shared_secret,
-                        )
-                    }
-                    crate::wallet::StealthMode::Signature => {
-                        crate::wallet::derive_coin_secrets_from_shared_secret(
-                            &stealth_payment.shared_secret,
-                        )
-                    }
-                };
+                // derive coin secrets using nullifier mode (fast proving)
+                let secrets = crate::wallet::derive_nullifier_secrets_from_shared_secret(
+                    &stealth_payment.shared_secret,
+                );
 
                 // Create coin with stealth-derived puzzle_hash and deterministic secrets
                 let puzzle_hash = stealth_payment.puzzle_hash;
@@ -1646,19 +1670,15 @@ fn send_command(
                     CoinMetadata {
                         owner: to.to_string(),
                         coin_type: CoinType::Regular,
-                        notes: format!("stealth payment from {} ({:?} mode)", from, mode),
+                        notes: format!("stealth payment from {} (nullifier mode)", from),
                     },
                 );
 
                 // NOTE: coin is NOT added to recipient's wallet directly
                 // recipient must run 'sim scan' to discover via stealth scanning
-                let mode_str = match mode {
-                    crate::wallet::StealthMode::Nullifier => "nullifier (fast)",
-                    crate::wallet::StealthMode::Signature => "signature (secure)",
-                };
                 println!(
-                    "created stealth payment for '{}' with amount {} [{} mode] (recipient must scan to receive)",
-                    to, amount, mode_str
+                    "created stealth payment for '{}' with amount {} [nullifier mode] (recipient must scan to receive)",
+                    to, amount
                 );
             }
 
@@ -1749,8 +1769,8 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
         .map(|(puzzle_hash, eph, _info)| (**puzzle_hash, *eph))
         .collect();
 
-    // Scan using stealth view key (v2 - auto-detects mode)
-    let found = view_key.scan_coins_v2(&scan_input);
+    // scan using stealth view key (nullifier mode only)
+    let found = view_key.scan_coins(&scan_input);
 
     let mut found_count = 0;
     let mut total_amount = 0u64;
@@ -1772,32 +1792,20 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
             .map(|(_, _, info)| *info);
 
         if let Some(info) = coin_info {
-            let mode_str = match scanned.mode {
-                crate::wallet::StealthMode::Nullifier => "nullifier",
-                crate::wallet::StealthMode::Signature => "signature",
-            };
             println!(
-                "  found stealth coin: {} mojos [{} mode]",
-                info.coin.amount, mode_str
+                "  found stealth coin: {} mojos [nullifier mode]",
+                info.coin.amount
             );
 
-            // Derive secrets based on detected mode
-            let secrets = match scanned.mode {
-                crate::wallet::StealthMode::Nullifier => {
-                    crate::wallet::derive_nullifier_secrets_from_shared_secret(
-                        &scanned.shared_secret,
-                    )
-                }
-                crate::wallet::StealthMode::Signature => {
-                    crate::wallet::derive_coin_secrets_from_shared_secret(&scanned.shared_secret)
-                }
-            };
+            // derive secrets using nullifier mode (fast proving)
+            let secrets =
+                crate::wallet::derive_nullifier_secrets_from_shared_secret(&scanned.shared_secret);
 
-            // Reconstruct the coin for the wallet
+            // reconstruct the coin for the wallet
             let coin = info.coin.clone();
 
-            // Use puzzle_source from stealth scanning (has embedded derived pubkey)
-            let program = scanned.puzzle_source.clone().unwrap_or_default();
+            // use puzzle_source from stealth scanning
+            let program = scanned.puzzle_source.clone();
 
             let wallet_coin = crate::wallet::WalletPrivateCoin {
                 coin,
@@ -2241,41 +2249,190 @@ fn observer_command(data_dir: &Path, action: ObserverAction) -> Result<(), ClvmZ
     Ok(())
 }
 
-// Offer commands - stub implementation (full offers feature not yet merged)
+// Offer commands - create conditional spend proof for atomic swaps
 fn offer_create_command(
-    _data_dir: &Path,
-    _maker_name: &str,
-    _offered_amount: u64,
-    _requested_amount: u64,
-    _coins: &str,
+    data_dir: &Path,
+    maker_name: &str,
+    offered_amount: u64,
+    requested_amount: u64,
+    request_tail_hex: Option<&str>,
+    coins: &str,
 ) -> Result<(), ClvmZkError> {
-    // TODO: offers feature requires additional protocol infrastructure
-    // - note_encryption_public in WalletData
-    // - create_delegated_puzzle
-    // - create_settlement_assertion_puzzle
-    // - Spender::create_conditional_spend
-    Err(ClvmZkError::InvalidProgram(
-        "offer feature not yet implemented in this branch".to_string(),
-    ))
+    let mut state = SimulatorState::load(data_dir)?;
+
+    // parse requested tail_hash if provided
+    let requested_tail_hash: [u8; 32] = match request_tail_hex {
+        Some(hex_str) => {
+            let bytes = hex::decode(hex_str)
+                .map_err(|e| ClvmZkError::InvalidProgram(format!("invalid request-tail hex: {}", e)))?;
+            if bytes.len() != 32 {
+                return Err(ClvmZkError::InvalidProgram(format!(
+                    "request-tail must be 32 bytes (64 hex chars), got {} bytes",
+                    bytes.len()
+                )));
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            arr
+        }
+        None => [0u8; 32], // default to XCH
+    };
+
+    // get wallet
+    let wallet = state.wallets.get(maker_name).ok_or_else(|| {
+        ClvmZkError::InvalidProgram(format!("wallet '{}' not found", maker_name))
+    })?;
+
+    // parse coins - for offer creation we need exactly one coin
+    let spend_coins = parse_coin_indices(coins, wallet)?;
+    if spend_coins.len() != 1 {
+        return Err(ClvmZkError::InvalidProgram(
+            "offer creation requires exactly one coin (for now)".to_string(),
+        ));
+    }
+    let spend_coin = &spend_coins[0];
+    let total_input = spend_coin.amount();
+
+    if total_input < offered_amount {
+        return Err(ClvmZkError::InvalidProgram(format!(
+            "insufficient funds: coin has {}, offering {}",
+            total_input, offered_amount
+        )));
+    }
+
+    println!("generating conditional offer proof (this may take a moment)...");
+
+    // use maker's static encryption public key for payment
+    let maker_pubkey = wallet.note_encryption_public.ok_or_else(|| {
+        ClvmZkError::InvalidProgram(format!(
+            "maker wallet '{}' has no encryption key (old wallet, recreate it)",
+            maker_name
+        ))
+    })?;
+
+    // compute change amount
+    let change_amount = total_input - offered_amount;
+
+    // generate change coin secrets
+    let mut change_serial = [0u8; 32];
+    let mut change_rand = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut change_serial);
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut change_rand);
+
+    // use delegated puzzle for maker's change
+    let (_, change_puzzle) = crate::protocol::create_delegated_puzzle()?;
+
+    // get settlement assertion puzzle
+    let (_assertion_program, _assertion_hash) =
+        crate::protocol::create_settlement_assertion_puzzle().map_err(|e| {
+            ClvmZkError::InvalidProgram(format!("failed to create assertion puzzle: {:?}", e))
+        })?;
+
+    // create assertion parameters
+    let assertion_params = crate::protocol::create_settlement_assertion_params(
+        offered_amount,
+        requested_amount,
+        &maker_pubkey,
+        change_amount,
+        &change_puzzle,
+        &change_serial,
+        &change_rand,
+    );
+
+    // get delegated puzzle (settlement-specific - directly embeds assertion logic)
+    let (delegated_code, delegated_hash) = crate::protocol::create_delegated_puzzle()?;
+
+    // verify coin uses delegated puzzle
+    if spend_coin.puzzle_hash() != delegated_hash {
+        return Err(ClvmZkError::InvalidProgram(format!(
+            "coin must use delegated puzzle for offers. expected: {}, got: {}",
+            hex::encode(delegated_hash),
+            hex::encode(spend_coin.puzzle_hash())
+        )));
+    }
+
+    // delegated puzzle takes same 7 params as settlement assertion
+    let delegated_params = assertion_params;
+
+    // get merkle path for spend coin
+    let (merkle_path, leaf_index) = state
+        .simulator
+        .get_merkle_path_and_index(&spend_coin.to_private_coin())
+        .ok_or_else(|| ClvmZkError::InvalidProgram("coin not in merkle tree".to_string()))?;
+
+    let merkle_root = state
+        .simulator
+        .get_merkle_root()
+        .ok_or_else(|| ClvmZkError::InvalidProgram("merkle tree has no root".to_string()))?;
+
+    // create conditional spend proof using delegated puzzle
+    let conditional_proof = crate::protocol::Spender::create_conditional_spend(
+        &spend_coin.to_private_coin(),
+        &delegated_code,
+        &delegated_params,
+        &spend_coin.secrets(),
+        merkle_path,
+        merkle_root,
+        leaf_index,
+    )
+    .map_err(|e| ClvmZkError::InvalidProgram(format!("conditional proof failed: {:?}", e)))?;
+
+    // mark coin as spent
+    let serial = spend_coin.serial_number();
+    if let Some(w) = state.wallets.get_mut(maker_name) {
+        for wc in &mut w.coins {
+            if wc.serial_number() == serial {
+                wc.spent = true;
+            }
+        }
+    }
+
+    // TODO: track maker's change coin for when settlement completes
+    // (currently maker will receive change but won't have secrets to spend it)
+    // need to store change_secrets in wallet after settlement
+
+    // store the offer
+    let offer_id = state.pending_offers.len();
+    state.pending_offers.push(StoredOffer {
+        id: offer_id,
+        maker: maker_name.to_string(),
+        offered: offered_amount,
+        requested: requested_amount,
+        maker_pubkey,
+        maker_bundle: conditional_proof.clone(),
+        created_at: 0,
+        change_amount,
+        change_puzzle,
+        change_serial,
+        change_rand,
+        offered_tail_hash: spend_coin.to_private_coin().tail_hash,
+        requested_tail_hash,
+    });
+
+    state.save(data_dir)?;
+
+    println!("✅ conditional offer created successfully");
+    println!("   offer id: {}", offer_id);
+    println!("   maker: {}", maker_name);
+    println!("   offering: {} mojos", offered_amount);
+    println!("   requesting: {} mojos", requested_amount);
+    println!("   change: {} mojos (returned to maker)", change_amount);
+    println!("   proof type: ConditionalSpend (locked until settlement)");
+    println!(
+        "   proof generated: {} bytes",
+        conditional_proof.proof_size()
+    );
+    println!();
+    println!("takers can view with: sim offer-list");
+    println!(
+        "takers can take with: sim offer-take <taker> --offer-id {} --coins <coins>",
+        offer_id
+    );
+
+    Ok(())
 }
 
 fn offer_take_command(
-    _data_dir: &Path,
-    _taker_name: &str,
-    _offer_id: usize,
-    _coins: &str,
-) -> Result<(), ClvmZkError> {
-    // TODO: settlement feature requires additional protocol infrastructure
-    // - crate::protocol::SettlementParams
-    // - crate::protocol::prove_settlement
-    // - state.simulator.process_settlement
-    Err(ClvmZkError::InvalidProgram(
-        "offer settlement not yet implemented in this branch".to_string(),
-    ))
-}
-
-#[allow(dead_code)]
-fn offer_take_command_impl(
     data_dir: &Path,
     taker_name: &str,
     offer_id: usize,
@@ -2305,6 +2462,14 @@ fn offer_take_command_impl(
     }
     let taker_coin = &spend_coins[0];
     let total_input = taker_coin.amount();
+
+    // validate taker's coin matches maker's requested asset type
+    if taker_coin.to_private_coin().tail_hash != offer.requested_tail_hash {
+        return Err(ClvmZkError::InvalidProgram(format!(
+            "asset type mismatch: maker requests {:?}, taker has {:?}",
+            offer.requested_tail_hash, taker_coin.to_private_coin().tail_hash
+        )));
+    }
 
     if total_input < offer.requested {
         return Err(ClvmZkError::InvalidProgram(format!(
@@ -2365,9 +2530,11 @@ fn offer_take_command_impl(
         goods_rand,
         change_serial,
         change_rand,
-        // v2.0: tail_hash identifies asset type (XCH = zeros for both in this example)
-        taker_tail_hash: [0u8; 32],
-        goods_tail_hash: [0u8; 32],
+        // v2.0: tail_hash identifies asset type
+        // taker coin must match maker's requested asset type
+        taker_tail_hash: taker_coin.to_private_coin().tail_hash,
+        // goods (what taker receives) match maker's offered asset type
+        goods_tail_hash: offer.offered_tail_hash,
     };
 
     // generate settlement proof
