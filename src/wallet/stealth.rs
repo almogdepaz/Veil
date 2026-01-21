@@ -528,13 +528,13 @@ pub fn derive_nullifier_secrets_from_shared_secret(
 
     // Derive serial_number from coin_secret
     let mut hasher = Sha256::new();
-    hasher.update(&coin_secret);
+    hasher.update(coin_secret);
     hasher.update(b"serial");
     let serial_number: [u8; 32] = hasher.finalize().into();
 
     // Derive serial_randomness from coin_secret
     let mut hasher = Sha256::new();
-    hasher.update(&coin_secret);
+    hasher.update(coin_secret);
     hasher.update(b"rand");
     let serial_randomness: [u8; 32] = hasher.finalize().into();
 
