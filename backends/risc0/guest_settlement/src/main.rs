@@ -107,9 +107,9 @@ fn main() {
     let shared_secret = taker_secret.diffie_hellman(&maker_public);
 
     // 8. derive payment puzzle from ECDH
-    let mut payment_puzzle_data = Vec::new();
-    payment_puzzle_data.extend_from_slice(b"ecdh_payment_v1");
-    payment_puzzle_data.extend_from_slice(shared_secret.as_bytes());
+    let mut payment_puzzle_data = [0u8; 47]; // 15 bytes domain + 32 bytes secret
+    payment_puzzle_data[..15].copy_from_slice(b"ecdh_payment_v1");
+    payment_puzzle_data[15..].copy_from_slice(shared_secret.as_bytes());
     let payment_puzzle = Impl::hash_bytes(&payment_puzzle_data);
     let payment_puzzle_bytes: [u8; 32] = payment_puzzle
         .as_bytes()
