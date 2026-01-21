@@ -756,3 +756,82 @@ mod security_tests {
         assert_ne!(hash1, hash3);
     }
 }
+
+// ============================================================================
+// ring spend balance enforcement
+// ============================================================================
+
+/// enforce balance and tail_hash consistency for ring spends
+///
+/// verifies:
+/// - sum(input amounts) == sum(output CREATE_COIN amounts)
+/// - all coins have same tail_hash (single-asset ring)
+///
+/// # security
+/// prevents inflation/deflation attacks where attacker spends N coins
+/// but creates outputs totaling more/less than N
+///
+/// # returns
+/// (total_input_amount, total_output_amount) after validation
+pub fn enforce_ring_balance(private_inputs: &Input, conditions: &[Condition]) -> (u64, u64) {
+    // track output amounts from CREATE_COIN conditions
+    let mut total_output_amount: u64 = 0;
+
+    for condition in conditions {
+        if condition.opcode == 51 {
+            // CREATE_COIN
+            let amount = match condition.args.len() {
+                2 => {
+                    // transparent mode: CREATE_COIN(puzzle_hash, amount)
+                    if condition.args[1].len() >= 8 {
+                        u64::from_be_bytes(condition.args[1][..8].try_into().unwrap())
+                    } else {
+                        0
+                    }
+                }
+                4 => {
+                    // private mode: CREATE_COIN(puzzle_hash, amount, serial, rand)
+                    if condition.args[1].len() >= 8 {
+                        u64::from_be_bytes(condition.args[1][..8].try_into().unwrap())
+                    } else {
+                        0
+                    }
+                }
+                _ => 0,
+            };
+            total_output_amount += amount;
+        }
+    }
+
+    // sum input amounts and verify tail_hash consistency
+    let total_input_amount = if let Some(commitment_data) = &private_inputs.serial_commitment_data {
+        let mut input_sum = commitment_data.amount; // primary coin
+
+        if let Some(additional_coins) = &private_inputs.additional_coins {
+            let primary_tail_hash = private_inputs.tail_hash.unwrap_or([0u8; 32]);
+
+            for coin in additional_coins {
+                // enforce single-asset ring (defense in depth)
+                assert_eq!(
+                    coin.tail_hash, primary_tail_hash,
+                    "ring spend: all coins must have same tail_hash"
+                );
+
+                input_sum += coin.serial_commitment_data.amount;
+            }
+        }
+
+        // enforce conservation of value
+        assert_eq!(
+            input_sum, total_output_amount,
+            "balance check failed: input {} != output {}",
+            input_sum, total_output_amount
+        );
+
+        input_sum
+    } else {
+        0 // no serial commitment = simple program execution
+    };
+
+    (total_input_amount, total_output_amount)
+}
