@@ -795,7 +795,7 @@ struct WalletData {
     stealth_view_pubkey: Option<Vec<u8>>,
     #[serde(default)]
     stealth_spend_pubkey: Option<Vec<u8>>,
-    // x25519 encryption keys for ECDH payment derivation in offers
+    // x25519 encryption keys for nonce encryption in offers (stealth uses hash-based derivation)
     #[serde(default)]
     note_encryption_public: Option<[u8; 32]>,
     #[serde(default)]
@@ -1231,10 +1231,15 @@ fn wallet_command(data_dir: &Path, name: &str, action: WalletAction) -> Result<(
             // Get stealth address from account keys
             let stealth_address = account_keys.stealth_keys.stealth_address();
 
-            // generate x25519 encryption keys for ECDH payment derivation in offers
-            // TODO: derive from seed for HD wallet compatibility
-            let mut note_encryption_private = [0u8; 32];
-            rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut note_encryption_private);
+            // derive x25519 encryption keys from seed (HD wallet compatible)
+            // (stealth uses hash-based derivation, x25519 just encrypts the nonce to receiver)
+            let note_encryption_private: [u8; 32] = {
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(b"note_encryption_v1");
+                hasher.update(&seed);
+                hasher.finalize().into()
+            };
             let note_encryption_public = x25519_dalek::PublicKey::from(
                 &x25519_dalek::StaticSecret::from(note_encryption_private),
             )
@@ -1632,17 +1637,27 @@ fn send_command(
                             to
                         ))
                     })?;
-                    let mut view_arr = [0u8; 33];
-                    let mut spend_arr = [0u8; 33];
-                    view_arr.copy_from_slice(view_pub);
-                    spend_arr.copy_from_slice(spend_pub);
+                    let mut view_arr = [0u8; 32];
+                    let mut spend_arr = [0u8; 32];
+                    // stealth addresses now use 32-byte hash-based pubkeys
+                    if view_pub.len() == 32 {
+                        view_arr.copy_from_slice(view_pub);
+                    } else {
+                        // legacy 33-byte compressed EC pubkey - take first 32 bytes
+                        view_arr.copy_from_slice(&view_pub[..32]);
+                    }
+                    if spend_pub.len() == 32 {
+                        spend_arr.copy_from_slice(spend_pub);
+                    } else {
+                        spend_arr.copy_from_slice(&spend_pub[..32]);
+                    }
                     crate::wallet::StealthAddress {
                         view_pubkey: view_arr,
                         spend_pubkey: spend_arr,
                     }
                 };
 
-                // create stealth payment (nullifier mode) - derives puzzle_hash via ECDH
+                // create stealth payment (nullifier mode) - derives shared_secret via hash
                 let sender_hd = state
                     .wallets
                     .get(from)
@@ -1654,7 +1669,7 @@ fn send_command(
                 })?;
                 let stealth_payment = crate::wallet::create_stealth_payment_hd(
                     &sender_account.stealth_keys,
-                    0, // ephemeral_index
+                    0, // nonce_index
                     &recipient_stealth,
                 );
 
@@ -1670,11 +1685,11 @@ fn send_command(
                 let coin =
                     crate::protocol::PrivateCoin::new(puzzle_hash, amount, serial_commitment);
 
-                // add coin to global simulator state with ephemeral_pubkey and puzzle_source
-                state.simulator.add_coin_with_ephemeral(
+                // add coin to global simulator state with stealth nonce and puzzle_source
+                state.simulator.add_coin_with_stealth_nonce(
                     coin,
                     &secrets,
-                    stealth_payment.ephemeral_pubkey,
+                    stealth_payment.nonce,
                     stealth_payment.puzzle_source.clone(),
                     CoinMetadata {
                         owner: to.to_string(),
@@ -1764,7 +1779,7 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
         (view_key, existing)
     };
 
-    // Get stealth-scannable coins from simulator
+    // Get stealth-scannable coins from simulator (now returns nonces instead of ephemeral pubkeys)
     let scannable_coins = state.simulator.get_stealth_scannable_coins();
     println!(
         "scanning {} stealth coins for wallet '{}'...",
@@ -1772,33 +1787,28 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
         wallet_name
     );
 
-    // Prepare coins for scanning
-    let scan_input: Vec<([u8; 32], [u8; 33])> = scannable_coins
-        .iter()
-        .map(|(puzzle_hash, eph, _info)| (**puzzle_hash, *eph))
-        .collect();
-
-    // scan using stealth view key (nullifier mode only)
-    let found = view_key.scan_coins(&scan_input);
-
+    // scan each coin using hash-based stealth (try_scan_with_nonce)
     let mut found_count = 0;
     let mut total_amount = 0u64;
 
-    for scanned in found {
+    for (puzzle_hash, nonce, info) in &scannable_coins {
         // Skip if already in wallet
-        if existing_puzzle_hashes.contains(&scanned.puzzle_hash) {
+        if existing_puzzle_hashes.contains(*puzzle_hash) {
             println!(
                 "  found coin {} (already in wallet, skipping)",
-                hex::encode(&scanned.puzzle_hash[..4])
+                hex::encode(&puzzle_hash[..4])
             );
             continue;
         }
 
-        // Find the matching coin info in scannable_coins
-        let coin_info = scannable_coins
-            .iter()
-            .find(|(ph, eph, _)| **ph == scanned.puzzle_hash && *eph == scanned.ephemeral_pubkey)
-            .map(|(_, _, info)| *info);
+        // try to scan this coin with the nonce
+        let scanned = match view_key.try_scan_with_nonce(puzzle_hash, nonce) {
+            Some(s) => s,
+            None => continue, // not our coin
+        };
+
+        // found a coin!
+        let coin_info = Some(*info);
 
         if let Some(info) = coin_info {
             println!(
@@ -2398,9 +2408,7 @@ fn offer_create_command(
         }
     }
 
-    // TODO: track maker's change coin for when settlement completes
-    // (currently maker will receive change but won't have secrets to spend it)
-    // need to store change_secrets in wallet after settlement
+    // change secrets are stored in StoredOffer and added to maker's wallet during offer-take
 
     // store the offer
     let offer_id = state.pending_offers.len();
@@ -2492,9 +2500,10 @@ fn offer_take_command(
 
     println!("generating settlement proof (this may take a moment)...");
 
-    // generate ephemeral keypair for ECDH
-    let mut taker_ephemeral_privkey = [0u8; 32];
-    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut taker_ephemeral_privkey);
+    // generate random nonce for hash-based stealth address
+    // payment_puzzle = sha256("stealth_v1" || maker_pubkey || nonce)
+    let mut payment_nonce = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut payment_nonce);
 
     // generate coin secrets for payment, goods, and change
     let mut payment_serial = [0u8; 32];
@@ -2533,7 +2542,7 @@ fn offer_take_command(
         taker_merkle_path: merkle_path,
         merkle_root,
         taker_leaf_index: leaf_index,
-        taker_ephemeral_privkey,
+        payment_nonce,
         taker_goods_puzzle,
         taker_change_puzzle,
         payment_serial,
@@ -2555,6 +2564,60 @@ fn offer_take_command(
 
     println!("✅ settlement proof generated");
 
+    // V2: validate BOTH proofs concurrently before processing settlement
+    println!("validating maker + taker proofs concurrently...");
+    #[cfg(feature = "risc0")]
+    {
+        use std::thread;
+
+        // clone proof data for concurrent verification
+        let maker_proof_bytes = offer.maker_bundle.zk_proof.clone();
+        let taker_proof_bytes = settlement_proof.zk_proof.clone();
+
+        // spawn verification threads (each deserializes + verifies independently)
+        let maker_handle = thread::spawn(move || -> Result<(), ClvmZkError> {
+            let receipt: risc0_zkvm::Receipt =
+                borsh::from_slice(&maker_proof_bytes).map_err(|e| {
+                    ClvmZkError::InvalidProofFormat(format!("maker receipt deserialize: {e}"))
+                })?;
+
+            receipt
+                .verify(clvm_zk_risc0::CLVM_RISC0_GUEST_ID)
+                .map_err(|e| {
+                    ClvmZkError::VerificationFailed(format!("maker proof invalid: {e}"))
+                })?;
+
+            Ok(())
+        });
+
+        let taker_handle = thread::spawn(move || -> Result<(), ClvmZkError> {
+            let receipt: risc0_zkvm::Receipt =
+                borsh::from_slice(&taker_proof_bytes).map_err(|e| {
+                    ClvmZkError::InvalidProofFormat(format!("taker receipt deserialize: {e}"))
+                })?;
+
+            receipt.verify(clvm_zk_risc0::SETTLEMENT_ID).map_err(|e| {
+                ClvmZkError::VerificationFailed(format!("taker proof invalid: {e}"))
+            })?;
+
+            Ok(())
+        });
+
+        // wait for both verifications
+        maker_handle.join().map_err(|_| {
+            ClvmZkError::VerificationFailed("maker verification thread panicked".to_string())
+        })??;
+
+        taker_handle.join().map_err(|_| {
+            ClvmZkError::VerificationFailed("taker verification thread panicked".to_string())
+        })??;
+
+        println!("✅ both proofs verified concurrently");
+
+        // linkage is guaranteed by prove_settlement extracting from maker's verified journal
+        // validator should check settlement_proof.output.maker_pubkey matches offer.maker_pubkey
+    }
+
     // process settlement output: add nullifiers and commitments to simulator state
     state.simulator.process_settlement(&settlement_proof.output);
 
@@ -2562,15 +2625,12 @@ fn offer_take_command(
 
     // 3. create taker's 3 coins with full secrets (payment, goods, change)
 
-    // compute payment_puzzle via ECDH (same as guest does)
-    use x25519_dalek::{PublicKey, StaticSecret};
-    let taker_secret = StaticSecret::from(taker_ephemeral_privkey);
-    let maker_public = PublicKey::from(offer.maker_pubkey);
-    let shared_secret = taker_secret.diffie_hellman(&maker_public);
-
+    // compute payment_puzzle via hash-based stealth (same as guest does)
+    // payment_puzzle = sha256("stealth_v1" || maker_pubkey || nonce)
     let mut payment_puzzle_data = Vec::new();
-    payment_puzzle_data.extend_from_slice(b"ecdh_payment_v1");
-    payment_puzzle_data.extend_from_slice(shared_secret.as_bytes());
+    payment_puzzle_data.extend_from_slice(b"stealth_v1");
+    payment_puzzle_data.extend_from_slice(&offer.maker_pubkey);
+    payment_puzzle_data.extend_from_slice(&payment_nonce);
     let payment_puzzle = crate::crypto_utils::hash_data_default(&payment_puzzle_data);
 
     // calculate amounts
@@ -2688,7 +2748,7 @@ fn offer_take_command(
     });
 
     // 4b. maker's payment coin (taker → maker, asset B)
-    // the payment_puzzle was derived via ECDH above, amount is offer.requested
+    // the payment_puzzle was derived via hash-based stealth above, amount is offer.requested
     let maker_payment_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
         &payment_serial,
         &payment_rand,

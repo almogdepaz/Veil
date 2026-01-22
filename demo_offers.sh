@@ -30,7 +30,13 @@ DATA_DIR="/tmp/clvm-zk-offers-demo"
 rm -rf "$DATA_DIR"
 mkdir -p "$DATA_DIR"
 
-CARGO_CMD="cargo run --no-default-features --features risc0 --quiet -- --data-dir $DATA_DIR"
+# build once at the start
+echo "building clvm-zk (risc0 backend)..."
+cargo build --no-default-features --features risc0 --release --quiet
+
+# use pre-built binary directly (no rebuild checks on each command)
+BINARY="./target/release/clvm-zk"
+CARGO_CMD="$BINARY --data-dir $DATA_DIR"
 
 echo -e "${GREEN}[1/8]${NC} initializing simulator..."
 $CARGO_CMD sim init

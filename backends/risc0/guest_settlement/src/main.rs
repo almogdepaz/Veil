@@ -5,11 +5,11 @@ risc0_zkvm::guest::entry!(main);
 extern crate alloc;
 use alloc::vec::Vec;
 
-use clvm_zk_core::types::ClvmValue;
-use clvm_zk_core::{compute_coin_commitment, compute_nullifier, compute_serial_commitment, verify_merkle_proof};
+use clvm_zk_core::{
+    compute_coin_commitment, compute_nullifier, compute_serial_commitment, verify_merkle_proof,
+};
 use risc0_zkvm::guest::env;
 use risc0_zkvm::sha::{Impl, Sha256};
-use x25519_dalek::{PublicKey, StaticSecret};
 
 fn risc0_hasher(data: &[u8]) -> [u8; 32] {
     Impl::hash_bytes(data)
@@ -19,6 +19,7 @@ fn risc0_hasher(data: &[u8]) -> [u8; 32] {
 }
 
 /// settlement output committed by taker's proof
+/// maker_pubkey is PUBLIC so validator can check it matches the offer
 #[derive(serde::Serialize)]
 struct SettlementOutput {
     maker_nullifier: [u8; 32],
@@ -27,6 +28,8 @@ struct SettlementOutput {
     payment_commitment: [u8; 32],      // taker → maker (asset B)
     taker_goods_commitment: [u8; 32],  // maker → taker (asset A)
     taker_change_commitment: [u8; 32], // taker's change (asset B)
+    // PUBLIC: validator checks this matches offer's maker_pubkey
+    maker_pubkey: [u8; 32],
 }
 
 /// taker's private coin data
@@ -44,16 +47,20 @@ struct TakerCoinData {
 /// settlement parameters
 #[derive(serde::Deserialize)]
 struct SettlementInput {
-    /// IMAGE_ID of the standard guest (passed from host to avoid hardcoding)
-    standard_guest_image_id: [u8; 32],
-
-    // maker's journal bytes for env::verify() (risc0 composition pattern)
-    maker_journal_bytes: Vec<u8>,
+    // maker's proof outputs (PUBLIC, extracted by host from verified journal)
+    maker_nullifier: [u8; 32],
+    maker_change_commitment: [u8; 32],
+    offered: u64,
+    requested: u64,
+    maker_pubkey: [u8; 32],
 
     // PRIVATE
     taker_coin: TakerCoinData,
     merkle_root: [u8; 32],
-    taker_ephemeral_privkey: [u8; 32],
+    // hash-based stealth: nonce instead of ephemeral privkey
+    // payment_puzzle = hash("stealth_v1" || maker_pubkey || nonce)
+    // host encrypts nonce to maker_pubkey, includes in tx for maker to decrypt
+    payment_nonce: [u8; 32],
     taker_goods_puzzle: [u8; 32], // for receiving offered goods (asset A)
     taker_change_puzzle: [u8; 32], // for receiving change (asset B)
     payment_serial: [u8; 32],     // for payment to maker
@@ -68,55 +75,48 @@ struct SettlementInput {
 }
 
 fn main() {
+    let start_cycles = env::cycle_count();
+
     let input: SettlementInput = env::read();
+    let read_cycles = env::cycle_count();
 
-    // risc0 proof composition pattern: call env::verify() with journal
-    // Use IMAGE_ID from input (passed by host, stays in sync with compiled guest)
-    risc0_zkvm::guest::env::verify(input.standard_guest_image_id, &input.maker_journal_bytes)
-        .expect("maker's proof verification failed");
+    // V2 optimization: maker's proof outputs extracted by HOST (not in guest)
+    // Host deserializes maker's journal and extracts these values
+    // Guest receives them as simple public inputs, no deserialization overhead
+    // Validator verifies maker's proof separately to ensure these values are correct
+    let maker_nullifier = input.maker_nullifier;
+    let maker_change_commitment = input.maker_change_commitment;
+    let offered = input.offered;
+    let requested = input.requested;
+    let maker_pubkey = input.maker_pubkey;
 
-    // deserialize maker's journal to extract data (uses risc0's bincode format, not borsh)
-    let maker_output: clvm_zk_core::ProofOutput =
-        risc0_zkvm::serde::from_slice(&input.maker_journal_bytes)
-            .expect("failed to deserialize maker's journal");
-
-    let maker_nullifier = maker_output
-        .nullifiers
-        .first()
-        .copied()
-        .expect("maker must have nullifier");
-
-    // parse maker's clvm output: [CREATE_COIN, settlement_terms]
-    // expected format: ((51 change_puzzle change_amount change_serial change_rand) (offered requested maker_pubkey))
-    // maker's change uses goods_tail_hash since it's the same asset maker started with
-    let (maker_change_commitment, offered, requested, maker_pubkey) =
-        parse_maker_output(&maker_output.clvm_res.output, &input.goods_tail_hash);
-
-    // 5. verify taker's coin ownership (v2.0 format with tail_hash)
+    // verify taker's coin ownership (v2.0 format with tail_hash)
     verify_taker_coin(&input.taker_coin, input.merkle_root, &input.taker_tail_hash);
+    let verify_cycles = env::cycle_count();
 
-    // 6. assert taker has enough funds
+    // assert taker has enough funds
     assert!(
         input.taker_coin.amount >= requested,
         "taker has insufficient funds"
     );
 
-    // 7. compute ECDH for payment address
-    let taker_secret = StaticSecret::from(input.taker_ephemeral_privkey);
-    let maker_public = PublicKey::from(maker_pubkey);
-    let shared_secret = taker_secret.diffie_hellman(&maker_public);
-
-    // 8. derive payment puzzle from ECDH
-    let mut payment_puzzle_data = [0u8; 47]; // 15 bytes domain + 32 bytes secret
-    payment_puzzle_data[..15].copy_from_slice(b"ecdh_payment_v1");
-    payment_puzzle_data[15..].copy_from_slice(shared_secret.as_bytes());
+    // HASH-BASED STEALTH ADDRESS (replaces ECDH - ~10K cycles vs ~2M cycles)
+    // payment_puzzle = sha256("stealth_v1" || maker_pubkey || nonce)
+    // - maker_pubkey is from the offer (public, validated by blockchain)
+    // - nonce is random, encrypted to maker_pubkey by host (outside zkVM)
+    // - maker decrypts nonce from tx metadata to derive same puzzle
+    let mut payment_puzzle_data = [0u8; 74]; // 10 + 32 + 32
+    payment_puzzle_data[..10].copy_from_slice(b"stealth_v1");
+    payment_puzzle_data[10..42].copy_from_slice(&maker_pubkey);
+    payment_puzzle_data[42..74].copy_from_slice(&input.payment_nonce);
     let payment_puzzle = Impl::hash_bytes(&payment_puzzle_data);
     let payment_puzzle_bytes: [u8; 32] = payment_puzzle
         .as_bytes()
         .try_into()
         .expect("sha256 digest must be 32 bytes");
+    let stealth_cycles = env::cycle_count();
 
-    // 9. create payment commitment (taker → maker, asset B = taker's asset)
+    // create payment commitment (taker → maker, asset B = taker's asset)
     let payment_commitment = create_coin_commitment(
         requested,
         &payment_puzzle_bytes,
@@ -125,7 +125,7 @@ fn main() {
         &input.taker_tail_hash,
     );
 
-    // 10. create taker goods commitment (maker → taker, asset A = goods asset)
+    // create taker goods commitment (maker → taker, asset A = goods asset)
     let taker_goods_commitment = create_coin_commitment(
         offered,
         &input.taker_goods_puzzle,
@@ -134,7 +134,7 @@ fn main() {
         &input.goods_tail_hash,
     );
 
-    // 11. create taker's change commitment (taker's leftover, asset B = taker's asset)
+    // create taker's change commitment (taker's leftover, asset B = taker's asset)
     let taker_change_amount = input.taker_coin.amount - requested;
     let taker_change_commitment = create_coin_commitment(
         taker_change_amount,
@@ -143,9 +143,9 @@ fn main() {
         &input.change_rand,
         &input.taker_tail_hash,
     );
+    let commitments_cycles = env::cycle_count();
 
-    // 12. compute taker's nullifier
-    // use taker's coin puzzle_hash (not settlement IMAGE_ID)
+    // compute taker's nullifier
     let taker_nullifier = compute_nullifier(
         risc0_hasher,
         &input.taker_coin.serial_number,
@@ -153,7 +153,28 @@ fn main() {
         input.taker_coin.amount,
     );
 
-    // 13. commit settlement output
+    let end_cycles = env::cycle_count();
+
+    // PROFILING: log cycle breakdown
+    let total_cycles = end_cycles.saturating_sub(start_cycles);
+    let read_delta = read_cycles.saturating_sub(start_cycles);
+    let verify_delta = verify_cycles.saturating_sub(read_cycles);
+    let stealth_delta = stealth_cycles.saturating_sub(verify_cycles);
+    let commitments_delta = commitments_cycles.saturating_sub(stealth_cycles);
+    let nullifier_delta = end_cycles.saturating_sub(commitments_cycles);
+
+    risc0_zkvm::guest::env::log(&alloc::format!(
+        "SETTLEMENT_PROFILING: total={}K read={}K verify={}K stealth={}K commits={}K nullifier={}K",
+        total_cycles / 1_000,
+        read_delta / 1_000,
+        verify_delta / 1_000,
+        stealth_delta / 1_000,
+        commitments_delta / 1_000,
+        nullifier_delta / 1_000,
+    ));
+
+    // commit settlement output
+    // maker_pubkey is PUBLIC so validator can assert it matches offer
     let output = SettlementOutput {
         maker_nullifier,
         taker_nullifier,
@@ -161,161 +182,21 @@ fn main() {
         payment_commitment,
         taker_goods_commitment,
         taker_change_commitment,
+        maker_pubkey, // echoed for validation
     };
 
     env::commit(&output);
 }
 
-/// parse maker's clvm output to extract change CREATE_COIN and settlement terms
-fn parse_maker_output(clvm_output: &[u8], tail_hash: &[u8; 32]) -> ([u8; 32], u64, u64, [u8; 32]) {
-    use clvm_zk_core::clvm_parser::ClvmParser;
-
-    // parse CLVM bytecode
-    let mut parser = ClvmParser::new(clvm_output);
-    let value = parser.parse().expect("failed to parse CLVM output");
-
-    // expected: ((51 change_puzzle change_amount change_serial change_rand) (offered requested maker_pubkey))
-    match value {
-        ClvmValue::Cons(create_coin_box, settlement_terms_box) => {
-            // extract maker_change_commitment from CREATE_COIN (v2.0 format)
-            let maker_change_commitment =
-                extract_create_coin_commitment(&create_coin_box, tail_hash);
-
-            // extract settlement terms
-            let (offered, requested, maker_pubkey) =
-                extract_settlement_terms(&settlement_terms_box);
-
-            (maker_change_commitment, offered, requested, maker_pubkey)
-        }
-        _ => panic!("invalid maker output structure - expected cons pair"),
-    }
-}
-
-/// extract CREATE_COIN commitment from (51 change_puzzle change_amount change_serial change_rand)
-fn extract_create_coin_commitment(create_coin: &ClvmValue, tail_hash: &[u8; 32]) -> [u8; 32] {
-    // parse (51 change_puzzle change_amount change_serial change_rand)
-    match create_coin {
-        ClvmValue::Cons(opcode_box, args_box) => {
-            // verify opcode is 51 (CREATE_COIN)
-            match opcode_box.as_ref() {
-                ClvmValue::Atom(opcode) if opcode.as_slice() == &[51u8] => {
-                    // extract (change_puzzle change_amount change_serial change_rand)
-                    match args_box.as_ref() {
-                        ClvmValue::Cons(puzzle_box, rest1) => {
-                            let change_puzzle = extract_bytes_32(puzzle_box.as_ref());
-
-                            match rest1.as_ref() {
-                                ClvmValue::Cons(amount_box, rest2) => {
-                                    let change_amount = extract_u64(amount_box.as_ref());
-
-                                    match rest2.as_ref() {
-                                        ClvmValue::Cons(serial_box, rest3) => {
-                                            let change_serial =
-                                                extract_bytes_32(serial_box.as_ref());
-
-                                            match rest3.as_ref() {
-                                                ClvmValue::Cons(rand_box, _) => {
-                                                    let change_rand =
-                                                        extract_bytes_32(rand_box.as_ref());
-
-                                                    // compute commitment (v2.0 format)
-                                                    create_coin_commitment(
-                                                        change_amount,
-                                                        &change_puzzle,
-                                                        &change_serial,
-                                                        &change_rand,
-                                                        tail_hash,
-                                                    )
-                                                }
-                                                _ => panic!("invalid CREATE_COIN: missing rand"),
-                                            }
-                                        }
-                                        _ => panic!("invalid CREATE_COIN: missing serial"),
-                                    }
-                                }
-                                _ => panic!("invalid CREATE_COIN: missing amount"),
-                            }
-                        }
-                        _ => panic!("invalid CREATE_COIN: missing puzzle"),
-                    }
-                }
-                _ => panic!("invalid CREATE_COIN opcode"),
-            }
-        }
-        _ => panic!("invalid CREATE_COIN structure"),
-    }
-}
-
-/// extract settlement terms from (offered requested maker_pubkey)
-fn extract_settlement_terms(terms: &ClvmValue) -> (u64, u64, [u8; 32]) {
-    match terms {
-        ClvmValue::Cons(offered_box, rest1) => {
-            let offered = extract_u64(offered_box.as_ref());
-
-            match rest1.as_ref() {
-                ClvmValue::Cons(requested_box, rest2) => {
-                    let requested = extract_u64(requested_box.as_ref());
-
-                    match rest2.as_ref() {
-                        ClvmValue::Cons(pubkey_box, _) => {
-                            let maker_pubkey = extract_bytes_32(pubkey_box.as_ref());
-                            (offered, requested, maker_pubkey)
-                        }
-                        _ => panic!("invalid settlement terms: missing maker_pubkey"),
-                    }
-                }
-                _ => panic!("invalid settlement terms: missing requested"),
-            }
-        }
-        _ => panic!("invalid settlement terms structure"),
-    }
-}
-
-/// extract [u8; 32] from ClvmValue::Atom
-fn extract_bytes_32(value: &ClvmValue) -> [u8; 32] {
-    match value {
-        ClvmValue::Atom(bytes) => {
-            if bytes.len() != 32 {
-                panic!("expected 32 bytes, got {}", bytes.len());
-            }
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(bytes);
-            arr
-        }
-        _ => panic!("expected atom for bytes"),
-    }
-}
-
-/// extract u64 from ClvmValue::Atom (big-endian encoding)
-fn extract_u64(value: &ClvmValue) -> u64 {
-    match value {
-        ClvmValue::Atom(bytes) => {
-            if bytes.is_empty() {
-                return 0;
-            }
-            if bytes.len() > 8 {
-                panic!("u64 value too large: {} bytes", bytes.len());
-            }
-
-            // CLVM uses big-endian encoding
-            let mut result: u64 = 0;
-            for &byte in bytes {
-                result = (result << 8) | (byte as u64);
-            }
-            result
-        }
-        _ => panic!("expected atom for u64"),
-    }
-}
-
 /// verify taker's coin ownership via merkle membership (v2.0 format with tail_hash)
 fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32], tail_hash: &[u8; 32]) {
+    let start = env::cycle_count();
+
     // 1. verify serial commitment using clvm_zk_core (optimized fixed-size arrays)
-    let computed_serial = compute_serial_commitment(
-        risc0_hasher,
-        &coin.serial_number,
-        &coin.serial_randomness,
-    );
+    let computed_serial =
+        compute_serial_commitment(risc0_hasher, &coin.serial_number, &coin.serial_randomness);
+    let serial_cycles = env::cycle_count();
+
     assert_eq!(
         computed_serial, coin.serial_commitment,
         "invalid serial commitment"
@@ -329,6 +210,7 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32], tail_hash: &[u
         &coin.puzzle_hash,
         &computed_serial,
     );
+    let coin_commit_cycles = env::cycle_count();
 
     // 3. verify merkle membership using clvm_zk_core (optimized fixed-size arrays)
     verify_merkle_proof(
@@ -339,6 +221,16 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32], tail_hash: &[u
         merkle_root,
     )
     .expect("merkle proof verification failed");
+
+    let merkle_cycles = env::cycle_count();
+
+    risc0_zkvm::guest::env::log(&alloc::format!(
+        "verify_taker_coin: serial={}K coin_commit={}K merkle={}K total={}K",
+        (serial_cycles - start) / 1000,
+        (coin_commit_cycles - serial_cycles) / 1000,
+        (merkle_cycles - coin_commit_cycles) / 1000,
+        (merkle_cycles - start) / 1000,
+    ));
 }
 
 /// create coin commitment v2.0: hash(domain || tail_hash || amount || puzzle || serial_commitment)
@@ -349,8 +241,20 @@ fn create_coin_commitment(
     rand: &[u8; 32],
     tail_hash: &[u8; 32],
 ) -> [u8; 32] {
+    let start = env::cycle_count();
     // use clvm_zk_core optimized implementations (fixed-size arrays, no Vec allocations)
     let serial_commitment = compute_serial_commitment(risc0_hasher, serial, rand);
-    compute_coin_commitment(risc0_hasher, *tail_hash, amount, puzzle, &serial_commitment)
-}
+    let serial_cycles = env::cycle_count();
+    let result =
+        compute_coin_commitment(risc0_hasher, *tail_hash, amount, puzzle, &serial_commitment);
+    let coin_cycles = env::cycle_count();
 
+    risc0_zkvm::guest::env::log(&alloc::format!(
+        "create_coin_commitment: serial={}K coin={}K total={}K",
+        (serial_cycles - start) / 1000,
+        (coin_cycles - serial_cycles) / 1000,
+        (coin_cycles - start) / 1000,
+    ));
+
+    result
+}

@@ -79,7 +79,7 @@ Run the full stealth payment demo:
 7. Bob sends back to alice
 8. Shows timing and final balances
 
-- Scan operations: instant (ECDH computation only, no zkVM)
+- Scan operations: instant (hash computation only, no zkVM)
 
 **Output:** Persistent state in `simulator_data/state.json` with all ZK proofs.
 
@@ -174,16 +174,16 @@ cargo run-sp1 -- sim wallet alice balance       # Show balance only
 
 ## stealth addresses
 
-dual-key stealth address protocol for unlinkable payments:
+hash-based stealth address protocol for unlinkable payments:
 
-- each wallet has a **stealth address** (66 bytes = view_pubkey + spend_pubkey)
-- alice sends to bob → derives unique puzzle_hash via ECDH, stores ephemeral_pubkey on-chain
+- each wallet has a **stealth address** (64 bytes = view_pubkey + spend_pubkey, hash-based)
+- alice sends to bob → derives shared_secret via hash(pubkey || nonce), stores nonce on-chain
 - bob runs `sim scan bob` → uses view key to find payments belonging to him
-- each payment creates a unique puzzle_hash (unlinkable to stealth address)
+- all payments use same puzzle_hash (unlinkability from unique nonces + serial numbers)
 
 **view/spend separation:**
-- **view key**: can scan for payments, see amounts (give to auditors)
-- **spend key**: required to actually spend coins
+- **view key**: can scan for payments, see amounts
+- **spend key**: in nullifier mode, view key can also spend (by design for fast proving)
 
 see [STEALTH_ADDRESSES.md](STEALTH_ADDRESSES.md) for full protocol documentation.
 

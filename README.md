@@ -138,7 +138,7 @@ CREATE_COIN(coin_commitment)  // hides puzzle_hash, amount, serial
 
 ### Stealth addresses
 
-ECDH-based unlinkable receiving. Sender derives unique puzzle_hash from receiver's stealth address. Receiver scans with view key.
+Hash-based unlinkable receiving. Sender derives shared_secret from receiver's pubkey + random nonce. Receiver scans with view key. ~200x faster than ECDH in zkVM.
 
 See [STEALTH_ADDRESSES.md](STEALTH_ADDRESSES.md), [nullifier.md](nullifier.md).
 

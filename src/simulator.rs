@@ -129,7 +129,7 @@ impl CLVMZkSimulator {
             coin: coin.clone(),
             metadata,
             created_at_height: self.block_height,
-            ephemeral_pubkey: None,
+            stealth_nonce: None,
             puzzle_source: None,
         };
 
@@ -152,12 +152,12 @@ impl CLVMZkSimulator {
         serial_number
     }
 
-    /// Add coin with ephemeral pubkey for stealth address scanning
-    pub fn add_coin_with_ephemeral(
+    /// Add coin with stealth nonce for hash-based stealth address scanning
+    pub fn add_coin_with_stealth_nonce(
         &mut self,
         coin: PrivateCoin,
         secrets: &clvm_zk_core::coin_commitment::CoinSecrets,
-        ephemeral_pubkey: [u8; 33],
+        stealth_nonce: [u8; 32],
         puzzle_source: String,
         metadata: CoinMetadata,
     ) -> [u8; 32] {
@@ -166,7 +166,7 @@ impl CLVMZkSimulator {
             coin: coin.clone(),
             metadata,
             created_at_height: self.block_height,
-            ephemeral_pubkey: Some(ephemeral_pubkey.to_vec()),
+            stealth_nonce: Some(stealth_nonce.to_vec()),
             puzzle_source: Some(puzzle_source),
         };
 
@@ -403,14 +403,16 @@ impl CLVMZkSimulator {
                 }
 
                 // Add to utxo_set
+                // NOTE: stealth outputs use separate add_coin_with_stealth_nonce flow
+                // ZK proof outputs don't include stealth metadata (nonces are out-of-band)
                 self.utxo_set.insert(
                     secrets.serial_number,
                     CoinInfo {
                         coin,
                         metadata,
                         created_at_height: self.block_height,
-                        ephemeral_pubkey: None, // TODO: support stealth outputs in spends
-                        puzzle_source: None,    // TODO: support stealth outputs in spends
+                        stealth_nonce: None,
+                        puzzle_source: None,
                     },
                 );
             }
@@ -440,16 +442,16 @@ impl CLVMZkSimulator {
         self.utxo_set.iter()
     }
 
-    /// Get all coins with ephemeral pubkeys for stealth scanning
-    /// Returns (puzzle_hash, ephemeral_pubkey, coin_info) for each stealth coin
-    pub fn get_stealth_scannable_coins(&self) -> Vec<(&[u8; 32], [u8; 33], &CoinInfo)> {
+    /// Get all coins with stealth nonces for hash-based stealth scanning
+    /// Returns (puzzle_hash, stealth_nonce, coin_info) for each stealth coin
+    pub fn get_stealth_scannable_coins(&self) -> Vec<(&[u8; 32], [u8; 32], &CoinInfo)> {
         self.utxo_set
             .iter()
             .filter_map(|(_serial, info)| {
-                info.ephemeral_pubkey.as_ref().and_then(|eph| {
-                    if eph.len() == 33 {
-                        let mut arr = [0u8; 33];
-                        arr.copy_from_slice(eph);
+                info.stealth_nonce.as_ref().and_then(|nonce| {
+                    if nonce.len() == 32 {
+                        let mut arr = [0u8; 32];
+                        arr.copy_from_slice(nonce);
                         Some((&info.coin.puzzle_hash, arr, info))
                     } else {
                         None
@@ -666,9 +668,10 @@ pub struct CoinInfo {
     pub coin: PrivateCoin,
     pub metadata: CoinMetadata,
     pub created_at_height: u64,
-    /// ephemeral pubkey for stealth address scanning (33 bytes compressed secp256k1)
-    #[serde(default)]
-    pub ephemeral_pubkey: Option<Vec<u8>>,
+    /// stealth nonce for hash-based stealth address scanning (32 bytes)
+    /// sender transmits this encrypted; receiver decrypts to derive shared_secret
+    #[serde(default, alias = "ephemeral_pubkey")]
+    pub stealth_nonce: Option<Vec<u8>>,
     /// chialisp source for stealth coins (needed for spending)
     #[serde(default)]
     pub puzzle_source: Option<String>,

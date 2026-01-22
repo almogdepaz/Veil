@@ -285,7 +285,7 @@ pub fn create_settlement_assertion_puzzle() -> Result<(String, [u8; 32]), crate:
 /// # arguments
 /// * `offered` - amount maker is offering to taker
 /// * `requested` - amount maker requests in return
-/// * `maker_pubkey` - maker's x25519 public key for ECDH payment derivation
+/// * `maker_pubkey` - maker's public key for hash-based stealth payment derivation
 /// * `change_amount` - amount maker gets as change (coin_amount - offered)
 /// * `change_puzzle` - puzzle hash for maker's change coin
 /// * `change_serial` - serial number for maker's change coin

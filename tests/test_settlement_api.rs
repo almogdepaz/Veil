@@ -91,6 +91,7 @@ fn test_settlement_output_size() {
         payment_commitment: [4u8; 32],
         taker_goods_commitment: [5u8; 32],
         taker_change_commitment: [6u8; 32],
+        maker_pubkey: [7u8; 32], // for validator to check against offer
     };
 
     assert_eq!(output.maker_nullifier, [1u8; 32]);
@@ -99,6 +100,7 @@ fn test_settlement_output_size() {
     assert_eq!(output.payment_commitment, [4u8; 32]);
     assert_eq!(output.taker_goods_commitment, [5u8; 32]);
     assert_eq!(output.taker_change_commitment, [6u8; 32]);
+    assert_eq!(output.maker_pubkey, [7u8; 32]);
 
-    println!("✓ SettlementOutput has 6 output commitments (6 * 32 = 192 bytes)");
+    println!("✓ SettlementOutput has 7 fields (6 commitments + maker_pubkey = 224 bytes)");
 }

@@ -8,6 +8,8 @@ use clvm_zk::protocol::{PrivateCoin, Spender};
 use clvm_zk::simulator::*;
 use clvm_zk_core::compile_chialisp_template_hash_default;
 
+// balance enforcement tests require real ZK verification (mock just passes everything)
+#[cfg(not(feature = "mock"))]
 #[tokio::test]
 async fn test_ring_spend_rejects_inflation_attack() {
     // EXPLOIT TEST: spend 300 XCH, create 1000 XCH
@@ -94,6 +96,7 @@ async fn test_ring_spend_rejects_inflation_attack() {
     }
 }
 
+#[cfg(not(feature = "mock"))]
 #[tokio::test]
 async fn test_ring_spend_rejects_no_outputs() {
     // spend 300 XCH, create 0 outputs
@@ -222,6 +225,7 @@ async fn test_ring_spend_accepts_balanced() {
     }
 }
 
+#[cfg(not(feature = "mock"))]
 #[tokio::test]
 async fn test_ring_spend_rejects_deflation() {
     // spend 300 XCH, create 100 XCH

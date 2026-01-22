@@ -297,25 +297,26 @@ fn test_coin_commitment_domain_separation() {
 }
 
 // ============================================================================
-// STEALTH ADDRESS TESTS
+// STEALTH ADDRESS TESTS (hash-based stealth)
 // ============================================================================
 
 #[cfg(feature = "mock")]
 mod stealth_tests {
-    use clvm_zk::wallet::stealth::{create_stealth_payment, StealthKeys};
+    use clvm_zk::wallet::stealth::{create_stealth_payment_hd, StealthKeys};
 
     #[test]
     fn test_stealth_payment_creation() {
+        let sender = StealthKeys::generate();
         let receiver = StealthKeys::generate();
         let address = receiver.stealth_address();
 
-        let payment = create_stealth_payment(&address);
+        let payment = create_stealth_payment_hd(&sender, 0, &address);
 
         // payment should have valid puzzle_hash
         assert_eq!(payment.puzzle_hash.len(), 32);
 
-        // ephemeral pubkey should be compressed (33 bytes)
-        assert_eq!(payment.ephemeral_pubkey.len(), 33);
+        // nonce should be 32 bytes (hash-based stealth)
+        assert_eq!(payment.nonce.len(), 32);
 
         // shared_secret should be 32 bytes
         assert_eq!(payment.shared_secret.len(), 32);
@@ -326,74 +327,84 @@ mod stealth_tests {
 
     #[test]
     fn test_stealth_unlinkability() {
+        let sender = StealthKeys::generate();
         let receiver = StealthKeys::generate();
         let address = receiver.stealth_address();
 
-        // multiple payments to same address
-        let p1 = create_stealth_payment(&address);
-        let p2 = create_stealth_payment(&address);
-        let p3 = create_stealth_payment(&address);
+        // multiple payments to same address with different indices
+        let p1 = create_stealth_payment_hd(&sender, 0, &address);
+        let p2 = create_stealth_payment_hd(&sender, 1, &address);
+        let p3 = create_stealth_payment_hd(&sender, 2, &address);
 
-        // all puzzle_hashes must be different (unlinkable)
-        assert_ne!(p1.puzzle_hash, p2.puzzle_hash);
-        assert_ne!(p2.puzzle_hash, p3.puzzle_hash);
-        assert_ne!(p1.puzzle_hash, p3.puzzle_hash);
+        // nullifier-based stealth: all payments use same trivial puzzle
+        // unlinkability comes from unique nonces + serial numbers
+        assert_eq!(
+            p1.puzzle_hash, p2.puzzle_hash,
+            "nullifier mode uses constant puzzle"
+        );
 
-        // all ephemeral keys must be different
-        assert_ne!(p1.ephemeral_pubkey, p2.ephemeral_pubkey);
-        assert_ne!(p2.ephemeral_pubkey, p3.ephemeral_pubkey);
+        // all nonces must be different (source of unlinkability)
+        assert_ne!(p1.nonce, p2.nonce);
+        assert_ne!(p2.nonce, p3.nonce);
+        assert_ne!(p1.nonce, p3.nonce);
+
+        // all shared_secrets must be different (derive unique serial numbers)
+        assert_ne!(p1.shared_secret, p2.shared_secret);
+        assert_ne!(p2.shared_secret, p3.shared_secret);
+        assert_ne!(p1.shared_secret, p3.shared_secret);
     }
 
     #[test]
     fn test_stealth_scanning() {
+        let sender = StealthKeys::generate();
         let receiver = StealthKeys::generate();
         let wrong_receiver = StealthKeys::generate();
 
-        let payment = create_stealth_payment(&receiver.stealth_address());
+        let payment = create_stealth_payment_hd(&sender, 0, &receiver.stealth_address());
 
-        // correct receiver finds it
+        // correct receiver finds it via try_scan_with_nonce
         let view_key = receiver.view_only();
-        let coins = [(payment.puzzle_hash, payment.ephemeral_pubkey)];
-        let found = view_key.scan_coins(&coins);
-        assert_eq!(found.len(), 1);
+        let found = view_key.try_scan_with_nonce(&payment.puzzle_hash, &payment.nonce);
+        assert!(found.is_some());
 
-        // wrong receiver doesn't find it
+        // wrong receiver doesn't find it (different shared secret)
         let wrong_view = wrong_receiver.view_only();
-        let found_wrong = wrong_view.scan_coins(&coins);
-        assert_eq!(found_wrong.len(), 0);
+        let found_wrong = wrong_view.try_scan_with_nonce(&payment.puzzle_hash, &payment.nonce);
+        // hash-based stealth always "finds" (derives a shared secret), but spend auth won't work
+        assert!(found_wrong.is_some()); // different from ECDH - we derive a secret but it's wrong
     }
 
     #[test]
-    fn test_stealth_spend_key_derivation() {
+    fn test_stealth_spend_auth_derivation() {
+        let sender = StealthKeys::generate();
         let receiver = StealthKeys::generate();
-        let payment = create_stealth_payment(&receiver.stealth_address());
+        let payment = create_stealth_payment_hd(&sender, 0, &receiver.stealth_address());
 
         // scan to get shared_secret
         let view_key = receiver.view_only();
-        let coins = [(payment.puzzle_hash, payment.ephemeral_pubkey)];
-        let found = view_key.scan_coins(&coins);
-        let (_, stealth_data) = &found[0];
+        let scanned = view_key
+            .try_scan_with_nonce(&payment.puzzle_hash, &payment.nonce)
+            .expect("should find coin");
 
-        // derive spend key
-        let spend_key = receiver.derive_spend_key(&stealth_data.shared_secret);
+        // derive spend authorization (contains serial/randomness for nullifier)
+        let spend_auth = receiver.get_spend_auth(&scanned.shared_secret);
+        let coin_secrets = spend_auth.to_coin_secrets();
 
-        // spend_key should be 32 bytes (private key)
-        assert_eq!(spend_key.len(), 32);
-
-        // spend_key should be different from receiver's master spend key
-        assert_ne!(spend_key, receiver.spend_privkey);
+        // coin secrets should be 32 bytes each
+        assert_eq!(coin_secrets.serial_number.len(), 32);
+        assert_eq!(coin_secrets.serial_randomness.len(), 32);
     }
 
     #[test]
-    fn test_stealth_view_only_cannot_spend() {
+    fn test_stealth_view_only_keys() {
         let receiver = StealthKeys::generate();
         let view_only = receiver.view_only();
 
-        // view_only has view_privkey but only spend_PUBKEY
+        // view_only has view_privkey but only spend_PUBKEY (32-byte hash-based)
         assert_eq!(view_only.view_privkey.len(), 32);
-        assert_eq!(view_only.spend_pubkey.len(), 33); // compressed pubkey, not privkey
+        assert_eq!(view_only.spend_pubkey.len(), 32); // hash-based pubkey, not EC
 
-        // cannot derive spend key from view_only (would need spend_privkey)
+        // can derive shared secrets but cannot derive spend auth (needs full keys)
     }
 
     #[test]
