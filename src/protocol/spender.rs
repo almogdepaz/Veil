@@ -85,9 +85,13 @@ impl Spender {
         )>,
         merkle_root: [u8; 32],
     ) -> Result<PrivateSpendBundle, ProtocolError> {
-        eprintln!("\n=== SPENDER: CREATE_RING_SPEND ===");
-        eprintln!("  num_coins: {}", coins.len());
-        eprintln!("  merkle_root: {}", hex::encode(merkle_root));
+        // debug logging only enabled via RUST_LOG or similar
+        #[cfg(feature = "debug-logging")]
+        {
+            eprintln!("\n=== SPENDER: CREATE_RING_SPEND ===");
+            eprintln!("  num_coins: {}", coins.len());
+            eprintln!("  merkle_root: {}", hex::encode(merkle_root));
+        }
 
         if coins.is_empty() {
             return Err(ProtocolError::ProofGenerationFailed(
@@ -127,20 +131,23 @@ impl Spender {
             crate::crypto_utils::hash_data_default,
         );
 
-        eprintln!("\n  --- PRIMARY COIN (idx 0) ---");
-        eprintln!("    tail_hash: {}", hex::encode(primary_coin.tail_hash));
-        eprintln!("    amount: {}", primary_coin.amount);
-        eprintln!("    puzzle_hash: {}", hex::encode(primary_coin.puzzle_hash));
-        eprintln!(
-            "    serial_commitment: {}",
-            hex::encode(primary_coin.serial_commitment.as_bytes())
-        );
-        eprintln!(
-            "    coin_commitment: {}",
-            hex::encode(primary_coin_commitment.0)
-        );
-        eprintln!("    leaf_index: {}", primary_leaf_idx);
-        eprintln!("    merkle_path length: {}", primary_path.len());
+        #[cfg(feature = "debug-logging")]
+        {
+            eprintln!("\n  --- PRIMARY COIN (idx 0) ---");
+            eprintln!("    tail_hash: {}", hex::encode(primary_coin.tail_hash));
+            eprintln!("    amount: {}", primary_coin.amount);
+            eprintln!("    puzzle_hash: {}", hex::encode(primary_coin.puzzle_hash));
+            eprintln!(
+                "    serial_commitment: {}",
+                hex::encode(primary_coin.serial_commitment.as_bytes())
+            );
+            eprintln!(
+                "    coin_commitment: {}",
+                hex::encode(primary_coin_commitment.0)
+            );
+            eprintln!("    leaf_index: {}", primary_leaf_idx);
+            eprintln!("    merkle_path length: {}", primary_path.len());
+        }
 
         // pass tail_hash: None for XCH, Some for CATs
         let tail_hash = if primary_tail == XCH_TAIL {
@@ -151,7 +158,7 @@ impl Spender {
 
         // construct additional_coins for ring
         let mut additional_coins = Vec::new();
-        for (i, (coin, puzzle_code, params, secrets, merkle_path, leaf_index)) in
+        for (_i, (coin, puzzle_code, params, secrets, merkle_path, leaf_index)) in
             coins.iter().skip(1).enumerate()
         {
             coin.validate().map_err(|e| {
@@ -166,21 +173,24 @@ impl Spender {
                 crate::crypto_utils::hash_data_default,
             );
 
-            eprintln!("\n  --- ADDITIONAL COIN (idx {}) ---", i + 1);
-            eprintln!("    tail_hash: {}", hex::encode(coin.tail_hash));
-            eprintln!("    amount: {}", coin.amount);
-            eprintln!("    puzzle_hash: {}", hex::encode(coin.puzzle_hash));
-            eprintln!(
-                "    serial_commitment: {}",
-                hex::encode(coin.serial_commitment.as_bytes())
-            );
-            eprintln!("    coin_commitment: {}", hex::encode(coin_commitment.0));
-            eprintln!("    leaf_index: {}", leaf_index);
-            eprintln!("    merkle_path length: {}", merkle_path.len());
-            eprintln!(
-                "    secrets.serial_number: {}",
-                hex::encode(secrets.serial_number)
-            );
+            #[cfg(feature = "debug-logging")]
+            {
+                eprintln!("\n  --- ADDITIONAL COIN (idx {}) ---", _i + 1);
+                eprintln!("    tail_hash: {}", hex::encode(coin.tail_hash));
+                eprintln!("    amount: {}", coin.amount);
+                eprintln!("    puzzle_hash: {}", hex::encode(coin.puzzle_hash));
+                eprintln!(
+                    "    serial_commitment: {}",
+                    hex::encode(coin.serial_commitment.as_bytes())
+                );
+                eprintln!("    coin_commitment: {}", hex::encode(coin_commitment.0));
+                eprintln!("    leaf_index: {}", leaf_index);
+                eprintln!("    merkle_path length: {}", merkle_path.len());
+                eprintln!(
+                    "    secrets.serial_number: {}",
+                    hex::encode(secrets.serial_number)
+                );
+            }
 
             additional_coins.push(AdditionalCoinInput {
                 chialisp_source: puzzle_code.to_string(),

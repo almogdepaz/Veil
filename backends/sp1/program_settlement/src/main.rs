@@ -1,6 +1,5 @@
 #![no_main]
-
-risc0_zkvm::guest::entry!(main);
+sp1_zkvm::entrypoint!(main);
 
 extern crate alloc;
 use alloc::vec::Vec;
@@ -8,14 +7,12 @@ use alloc::vec::Vec;
 use clvm_zk_core::{
     compute_coin_commitment, compute_nullifier, compute_serial_commitment, verify_merkle_proof,
 };
-use risc0_zkvm::guest::env;
-use risc0_zkvm::sha::{Impl, Sha256};
+use sha2::{Digest, Sha256};
 
-fn risc0_hasher(data: &[u8]) -> [u8; 32] {
-    Impl::hash_bytes(data)
-        .as_bytes()
-        .try_into()
-        .expect("sha256 digest must be 32 bytes")
+fn sp1_hasher(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
 }
 
 /// settlement output committed by taker's proof
@@ -75,10 +72,7 @@ struct SettlementInput {
 }
 
 fn main() {
-    // let start_cycles = env::cycle_count();
-
-    let input: SettlementInput = env::read();
-    // let read_cycles = env::cycle_count();
+    let input: SettlementInput = sp1_zkvm::io::read();
 
     // V2 optimization: maker's proof outputs extracted by HOST (not in guest)
     // Host deserializes maker's journal and extracts these values
@@ -92,7 +86,6 @@ fn main() {
 
     // verify taker's coin ownership (v2.0 format with tail_hash)
     verify_taker_coin(&input.taker_coin, input.merkle_root, &input.taker_tail_hash);
-    // let verify_cycles = env::cycle_count();
 
     // assert taker has enough funds
     assert!(
@@ -105,16 +98,11 @@ fn main() {
     // - maker_pubkey is from the offer (public, validated by blockchain)
     // - nonce is random, encrypted to maker_pubkey by host (outside zkVM)
     // - maker decrypts nonce from tx metadata to derive same puzzle
-    let mut payment_puzzle_data = [0u8; 74]; // 10 + 32 + 32
-    payment_puzzle_data[..10].copy_from_slice(b"stealth_v1");
-    payment_puzzle_data[10..42].copy_from_slice(&maker_pubkey);
-    payment_puzzle_data[42..74].copy_from_slice(&input.payment_nonce);
-    let payment_puzzle = Impl::hash_bytes(&payment_puzzle_data);
-    let payment_puzzle_bytes: [u8; 32] = payment_puzzle
-        .as_bytes()
-        .try_into()
-        .expect("sha256 digest must be 32 bytes");
-    // let stealth_cycles = env::cycle_count();
+    let mut payment_puzzle_hasher = Sha256::new();
+    payment_puzzle_hasher.update(b"stealth_v1");
+    payment_puzzle_hasher.update(&maker_pubkey);
+    payment_puzzle_hasher.update(&input.payment_nonce);
+    let payment_puzzle_bytes: [u8; 32] = payment_puzzle_hasher.finalize().into();
 
     // create payment commitment (taker → maker, asset B = taker's asset)
     let payment_commitment = create_coin_commitment(
@@ -143,35 +131,14 @@ fn main() {
         &input.change_rand,
         &input.taker_tail_hash,
     );
-    // let commitments_cycles = env::cycle_count();
 
     // compute taker's nullifier
     let taker_nullifier = compute_nullifier(
-        risc0_hasher,
+        sp1_hasher,
         &input.taker_coin.serial_number,
         &input.taker_coin.puzzle_hash,
         input.taker_coin.amount,
     );
-
-    // let end_cycles = env::cycle_count();
-
-    // // PROFILING: log cycle breakdown
-    // let total_cycles = end_cycles.saturating_sub(start_cycles);
-    // let read_delta = read_cycles.saturating_sub(start_cycles);
-    // let verify_delta = verify_cycles.saturating_sub(read_cycles);
-    // let stealth_delta = stealth_cycles.saturating_sub(verify_cycles);
-    // let commitments_delta = commitments_cycles.saturating_sub(stealth_cycles);
-    // let nullifier_delta = end_cycles.saturating_sub(commitments_cycles);
-    //
-    // risc0_zkvm::guest::env::log(&alloc::format!(
-    //     "SETTLEMENT_PROFILING: total={}K read={}K verify={}K stealth={}K commits={}K nullifier={}K",
-    //     total_cycles / 1_000,
-    //     read_delta / 1_000,
-    //     verify_delta / 1_000,
-    //     stealth_delta / 1_000,
-    //     commitments_delta / 1_000,
-    //     nullifier_delta / 1_000,
-    // ));
 
     // commit settlement output
     // maker_pubkey is PUBLIC so validator can assert it matches offer
@@ -185,17 +152,14 @@ fn main() {
         maker_pubkey, // echoed for validation
     };
 
-    env::commit(&output);
+    sp1_zkvm::io::commit(&output);
 }
 
 /// verify taker's coin ownership via merkle membership (v2.0 format with tail_hash)
 fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32], tail_hash: &[u8; 32]) {
-    let start = env::cycle_count();
-
     // 1. verify serial commitment using clvm_zk_core (optimized fixed-size arrays)
     let computed_serial =
-        compute_serial_commitment(risc0_hasher, &coin.serial_number, &coin.serial_randomness);
-    let serial_cycles = env::cycle_count();
+        compute_serial_commitment(sp1_hasher, &coin.serial_number, &coin.serial_randomness);
 
     assert_eq!(
         computed_serial, coin.serial_commitment,
@@ -204,33 +168,22 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32], tail_hash: &[u
 
     // 2. compute coin_commitment using clvm_zk_core (optimized fixed-size arrays)
     let coin_commitment = compute_coin_commitment(
-        risc0_hasher,
+        sp1_hasher,
         *tail_hash,
         coin.amount,
         &coin.puzzle_hash,
         &computed_serial,
     );
-    let coin_commit_cycles = env::cycle_count();
 
     // 3. verify merkle membership using clvm_zk_core (optimized fixed-size arrays)
     verify_merkle_proof(
-        risc0_hasher,
+        sp1_hasher,
         coin_commitment,
         &coin.merkle_path,
         coin.leaf_index,
         merkle_root,
     )
     .expect("merkle proof verification failed");
-
-    let merkle_cycles = env::cycle_count();
-
-    risc0_zkvm::guest::env::log(&alloc::format!(
-        "verify_taker_coin: serial={}K coin_commit={}K merkle={}K total={}K",
-        (serial_cycles - start) / 1000,
-        (coin_commit_cycles - serial_cycles) / 1000,
-        (merkle_cycles - coin_commit_cycles) / 1000,
-        (merkle_cycles - start) / 1000,
-    ));
 }
 
 /// create coin commitment v2.0: hash(domain || tail_hash || amount || puzzle || serial_commitment)
@@ -241,20 +194,7 @@ fn create_coin_commitment(
     rand: &[u8; 32],
     tail_hash: &[u8; 32],
 ) -> [u8; 32] {
-    let start = env::cycle_count();
     // use clvm_zk_core optimized implementations (fixed-size arrays, no Vec allocations)
-    let serial_commitment = compute_serial_commitment(risc0_hasher, serial, rand);
-    let serial_cycles = env::cycle_count();
-    let result =
-        compute_coin_commitment(risc0_hasher, *tail_hash, amount, puzzle, &serial_commitment);
-    let coin_cycles = env::cycle_count();
-
-    risc0_zkvm::guest::env::log(&alloc::format!(
-        "create_coin_commitment: serial={}K coin={}K total={}K",
-        (serial_cycles - start) / 1000,
-        (coin_cycles - serial_cycles) / 1000,
-        (coin_cycles - start) / 1000,
-    ));
-
-    result
+    let serial_commitment = compute_serial_commitment(sp1_hasher, serial, rand);
+    compute_coin_commitment(sp1_hasher, *tail_hash, amount, puzzle, &serial_commitment)
 }

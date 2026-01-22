@@ -6,6 +6,15 @@
 //! - receiver decrypts nonce and derives same shared_secret
 //! - spending uses nullifier protocol (view key can spend)
 //!
+//! # ⚠️ CRITICAL SECURITY WARNING
+//!
+//! **VIEW KEY HOLDERS CAN SPEND COINS IN NULLIFIER MODE.**
+//!
+//! this is by design for fast proving (~200x faster than ECDH). serial secrets derive
+//! from shared_secret, which view key holders can compute. do NOT share view keys with
+//! anyone you wouldn't trust with your funds. for audit-only access, use a different
+//! approach (signature-based custody mode is not yet implemented).
+//!
 //! ## security model
 //!
 //! - **nullifier mode** (only mode): fast (~10K zkVM cycles). view key holder CAN spend.

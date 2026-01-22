@@ -37,4 +37,6 @@ pub use puzzles::{
 pub use recursive::{AggregatedOutput, AggregatedProof};
 pub use settlement::{prove_settlement, SettlementOutput, SettlementParams, SettlementProof};
 pub use spender::Spender;
-pub use structures::{PrivateCoin, PrivateSpendBundle, ProofType, ProtocolError};
+pub use structures::{
+    CreatedCoinOutput, PrivateCoin, PrivateSpendBundle, ProofType, ProtocolError,
+};

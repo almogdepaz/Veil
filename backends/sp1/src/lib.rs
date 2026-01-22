@@ -4,6 +4,10 @@ pub mod recursive;
 pub use methods::*;
 pub use recursive::RecursiveAggregator;
 
+// re-export for settlement.rs
+pub use bincode;
+pub use sp1_sdk;
+
 pub use clvm_zk_core::{
     ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
 };

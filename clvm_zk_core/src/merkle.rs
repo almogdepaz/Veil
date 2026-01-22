@@ -2,11 +2,23 @@
 //!
 //! provides authenticated membership proofs for coins in the utxo set.
 //! uses a sparse merkle tree where leaves are coin commitments.
+//!
+//! ## security bounds
+//!
+//! tree depth is bounded to prevent DoS attacks via excessive proof sizes.
+//! max depth of 64 supports 2^64 leaves which is more than sufficient.
 
 extern crate alloc;
 
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
+
+/// minimum allowed tree depth (2^1 = 2 leaves)
+pub const MIN_TREE_DEPTH: usize = 1;
+
+/// maximum allowed tree depth (2^64 leaves - more than enough for any blockchain)
+/// this prevents DoS via excessively deep proofs
+pub const MAX_TREE_DEPTH: usize = 64;
 
 /// sparse merkle tree for tracking coin commitments
 ///
@@ -29,7 +41,26 @@ pub struct SparseMerkleTree {
 
 impl SparseMerkleTree {
     /// create new sparse merkle tree with given depth
+    ///
+    /// # panics
+    /// panics if depth is outside [MIN_TREE_DEPTH, MAX_TREE_DEPTH] bounds.
+    /// use `try_new` for fallible construction.
     pub fn new(depth: usize, hasher: fn(&[u8]) -> [u8; 32]) -> Self {
+        Self::try_new(depth, hasher).expect("tree depth out of bounds")
+    }
+
+    /// create new sparse merkle tree with given depth, fallible version
+    ///
+    /// # errors
+    /// returns error if depth < MIN_TREE_DEPTH or depth > MAX_TREE_DEPTH
+    pub fn try_new(depth: usize, hasher: fn(&[u8]) -> [u8; 32]) -> Result<Self, &'static str> {
+        if depth < MIN_TREE_DEPTH {
+            return Err("tree depth too small (minimum 1)");
+        }
+        if depth > MAX_TREE_DEPTH {
+            return Err("tree depth too large (maximum 64)");
+        }
+
         // precompute empty node hashes for each level
         let mut empty_hashes = Vec::with_capacity(depth + 1);
 
@@ -47,12 +78,12 @@ impl SparseMerkleTree {
 
         let root = empty_hashes[depth];
 
-        Self {
+        Ok(Self {
             leaves: Vec::new(),
             root,
             depth,
             empty_hashes,
-        }
+        })
     }
 
     /// insert a new coin commitment and return its leaf index
@@ -352,6 +383,30 @@ mod tests {
         for i in 0..4 {
             let proof = tree.generate_proof(i, test_hasher).unwrap();
             assert!(tree.verify_proof(&proof, test_hasher));
+        }
+    }
+
+    #[test]
+    fn test_depth_bounds_validation() {
+        // minimum depth should work
+        assert!(SparseMerkleTree::try_new(MIN_TREE_DEPTH, test_hasher).is_ok());
+
+        // maximum depth should work
+        assert!(SparseMerkleTree::try_new(MAX_TREE_DEPTH, test_hasher).is_ok());
+
+        // zero depth should fail
+        assert!(SparseMerkleTree::try_new(0, test_hasher).is_err());
+
+        // exceeding max depth should fail
+        assert!(SparseMerkleTree::try_new(MAX_TREE_DEPTH + 1, test_hasher).is_err());
+    }
+
+    #[test]
+    fn test_reasonable_depths() {
+        // test common depths work
+        for depth in [4, 8, 16, 20, 32] {
+            let tree = SparseMerkleTree::try_new(depth, test_hasher);
+            assert!(tree.is_ok(), "depth {} should be valid", depth);
         }
     }
 }

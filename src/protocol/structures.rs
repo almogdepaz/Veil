@@ -15,7 +15,18 @@ pub enum ProofType {
     Settlement = 2,
 }
 
+/// represents a created coin output from a proof
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CreatedCoinOutput {
+    /// private coin - only commitment revealed
+    Private { commitment: [u8; 32] },
+    /// transparent coin - puzzle_hash and amount visible
+    Transparent { puzzle_hash: [u8; 32], amount: u64 },
+}
+
 /// errors that can happen in the protocol
+///
+/// can be converted to/from `ClvmZkError` for unified error handling
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolError {
     #[error("Invalid spend secret: {0}")]
@@ -30,6 +41,33 @@ pub enum ProtocolError {
     InvalidProofType(String),
     #[error("Proof extraction failed: {0}")]
     ProofExtractionFailed(String),
+}
+
+impl From<ProtocolError> for clvm_zk_core::ClvmZkError {
+    fn from(err: ProtocolError) -> Self {
+        match err {
+            ProtocolError::InvalidSpendSecret(msg) => clvm_zk_core::ClvmZkError::InvalidInput(msg),
+            ProtocolError::ProofGenerationFailed(msg) => {
+                clvm_zk_core::ClvmZkError::ProofGenerationFailed(msg)
+            }
+            ProtocolError::InvalidNullifier(msg) => clvm_zk_core::ClvmZkError::NullifierError(msg),
+            ProtocolError::SerializationError(msg) => {
+                clvm_zk_core::ClvmZkError::SerializationError(msg)
+            }
+            ProtocolError::InvalidProofType(msg) => {
+                clvm_zk_core::ClvmZkError::InvalidProofFormat(msg)
+            }
+            ProtocolError::ProofExtractionFailed(msg) => {
+                clvm_zk_core::ClvmZkError::VerificationError(msg)
+            }
+        }
+    }
+}
+
+impl From<clvm_zk_core::ClvmZkError> for ProtocolError {
+    fn from(err: clvm_zk_core::ClvmZkError) -> Self {
+        ProtocolError::ProofGenerationFailed(err.to_string())
+    }
 }
 
 /// a private coin that can be spent with zk proofs
@@ -292,11 +330,77 @@ impl PrivateSpendBundle {
         self.proof_type == ProofType::ConditionalSpend
     }
 
-    /// extract public outputs from proof (implementation depends on proof format)
+    /// extract public outputs from proof by parsing the CLVM conditions
+    ///
+    /// returns a vec of serialized conditions, each condition as raw bytes.
+    /// for more structured access, use `extract_conditions()` instead.
     pub fn extract_public_outputs(&self) -> Result<Vec<Vec<u8>>, ProtocolError> {
-        // for now, return empty vec - this will be implemented when we add
-        // structured proof output format
-        Ok(vec![])
+        if self.public_conditions.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // parse CLVM conditions
+        let conditions =
+            clvm_zk_core::deserialize_clvm_output_to_conditions(&self.public_conditions)
+                .map_err(|e| ProtocolError::ProofExtractionFailed(e.to_string()))?;
+
+        // return each condition's args as separate output blobs
+        Ok(conditions.into_iter().flat_map(|c| c.args).collect())
+    }
+
+    /// extract structured conditions from proof output
+    ///
+    /// returns parsed `Condition` structs with opcode and args.
+    pub fn extract_conditions(&self) -> Result<Vec<clvm_zk_core::Condition>, ProtocolError> {
+        if self.public_conditions.is_empty() {
+            return Ok(vec![]);
+        }
+
+        clvm_zk_core::deserialize_clvm_output_to_conditions(&self.public_conditions)
+            .map_err(|e| ProtocolError::ProofExtractionFailed(e.to_string()))
+    }
+
+    /// extract CREATE_COIN outputs (coin commitments or puzzle_hash + amount pairs)
+    ///
+    /// returns tuples of (puzzle_hash_or_commitment, amount_option)
+    /// - for private coins: (coin_commitment, None) - commitment is 32 bytes
+    /// - for transparent coins: (puzzle_hash, Some(amount)) - puzzle_hash + amount
+    pub fn extract_created_coins(&self) -> Result<Vec<CreatedCoinOutput>, ProtocolError> {
+        let conditions = self.extract_conditions()?;
+        let mut outputs = Vec::new();
+
+        for condition in conditions {
+            if condition.opcode == 51 {
+                // CREATE_COIN
+                match condition.args.len() {
+                    1 => {
+                        // private coin: single arg is coin_commitment
+                        if condition.args[0].len() == 32 {
+                            let mut commitment = [0u8; 32];
+                            commitment.copy_from_slice(&condition.args[0]);
+                            outputs.push(CreatedCoinOutput::Private { commitment });
+                        }
+                    }
+                    2 | 4 => {
+                        // transparent coin: puzzle_hash + amount (or with serial data)
+                        if condition.args[0].len() == 32 {
+                            let mut puzzle_hash = [0u8; 32];
+                            puzzle_hash.copy_from_slice(&condition.args[0]);
+                            let amount =
+                                clvm_zk_core::parse_variable_length_amount(&condition.args[1])
+                                    .unwrap_or(0);
+                            outputs.push(CreatedCoinOutput::Transparent {
+                                puzzle_hash,
+                                amount,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(outputs)
     }
 }
 
@@ -408,5 +512,35 @@ mod tests {
 
         let empty_nullifiers_bundle = PrivateSpendBundle::new(vec![0x01], vec![], vec![0x03]);
         assert!(empty_nullifiers_bundle.validate().is_err());
+    }
+
+    #[test]
+    fn test_extract_public_outputs_empty() {
+        let bundle = PrivateSpendBundle::new(vec![0x01], vec![[0x42; 32]], vec![]);
+        let outputs = bundle.extract_public_outputs().unwrap();
+        assert!(outputs.is_empty());
+    }
+
+    #[test]
+    fn test_extract_conditions_empty() {
+        let bundle = PrivateSpendBundle::new(vec![0x01], vec![[0x42; 32]], vec![]);
+        let conditions = bundle.extract_conditions().unwrap();
+        assert!(conditions.is_empty());
+    }
+
+    #[test]
+    fn test_created_coin_output_types() {
+        // test private variant
+        let private = CreatedCoinOutput::Private {
+            commitment: [0x42; 32],
+        };
+        assert!(matches!(private, CreatedCoinOutput::Private { .. }));
+
+        // test transparent variant
+        let transparent = CreatedCoinOutput::Transparent {
+            puzzle_hash: [0x13; 32],
+            amount: 1000,
+        };
+        assert!(matches!(transparent, CreatedCoinOutput::Transparent { .. }));
     }
 }

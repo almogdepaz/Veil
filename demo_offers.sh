@@ -10,6 +10,13 @@
 
 set -e  # exit on error
 
+# backend selection (default: risc0)
+BACKEND="${1:-risc0}"
+if [[ "$BACKEND" != "risc0" && "$BACKEND" != "sp1" ]]; then
+    echo "usage: $0 [risc0|sp1]"
+    exit 1
+fi
+
 # colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -19,6 +26,7 @@ NC='\033[0m' # no color
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}         CLVM-ZK OFFERS DEMO (ATOMIC SWAPS)${NC}"
+echo -e "${BLUE}           backend: ${YELLOW}${BACKEND}${BLUE}${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -31,8 +39,8 @@ rm -rf "$DATA_DIR"
 mkdir -p "$DATA_DIR"
 
 # build once at the start
-echo "building clvm-zk (risc0 backend)..."
-cargo build --no-default-features --features risc0 --release --quiet
+echo "building clvm-zk ($BACKEND backend)..."
+cargo build --no-default-features --features $BACKEND --release --quiet
 
 # use pre-built binary directly (no rebuild checks on each command)
 BINARY="./target/release/clvm-zk"
@@ -110,9 +118,9 @@ echo "privacy properties:"
 echo "  - amounts are hidden in ZK proofs"
 echo "  - only commitments visible on-chain"
 echo "  - nullifiers prevent double-spending"
-echo "  - ECDH payment derivation hides recipient"
+echo "  - hash-based stealth addresses hide recipient"
 echo ""
 echo -e "${YELLOW}view final state:${NC}"
-echo "  cargo run --no-default-features --features risc0 -- --data-dir $DATA_DIR sim status"
-echo "  cargo run --no-default-features --features risc0 -- --data-dir $DATA_DIR sim wallet alice show"
-echo "  cargo run --no-default-features --features risc0 -- --data-dir $DATA_DIR sim wallet bob show"
+echo "  cargo run --no-default-features --features $BACKEND -- --data-dir $DATA_DIR sim status"
+echo "  cargo run --no-default-features --features $BACKEND -- --data-dir $DATA_DIR sim wallet alice show"
+echo "  cargo run --no-default-features --features $BACKEND -- --data-dir $DATA_DIR sim wallet bob show"

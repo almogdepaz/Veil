@@ -39,7 +39,7 @@ pub fn main() {
 
     // aggregate all child proofs (base proofs only)
     for expected_data in input.expected_outputs.iter() {
-        // collect nullifiers
+        // collect nullifiers (check for duplicates)
         for nullifier in &expected_data.nullifiers {
             assert!(
                 !all_nullifiers.contains(nullifier),

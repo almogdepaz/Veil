@@ -2,6 +2,26 @@
 
 dual-key stealth address protocol using hash-based derivation for zkVM efficiency.
 
+---
+
+## ⚠️ CRITICAL SECURITY WARNING: VIEW KEY = SPEND KEY
+
+**in nullifier mode (the only implemented mode), anyone with your view key CAN SPEND YOUR COINS.**
+
+this is a fundamental design tradeoff for ~200x faster zkVM proving:
+- serial secrets (serial_number, serial_randomness) derive from shared_secret
+- shared_secret derives from view_privkey + nonce
+- view key holder knows view_privkey → can compute shared_secret → can derive serial secrets → can spend
+
+**implications:**
+- **DO NOT give view key to auditors** if you want audit-only access
+- **DO NOT share view key** with anyone you wouldn't trust with your funds
+- view/spend separation is NOT enforced in this mode
+
+**future mitigation:** signature-based custody mode (not yet implemented) would provide true view/spend separation by requiring ECDSA signature verification in-circuit.
+
+---
+
 ## overview
 
 stealth addresses allow a sender to create a payment that only the intended receiver can find and spend, without requiring any interaction. the receiver publishes a single stealth address and can receive unlimited unlinkable payments to it.

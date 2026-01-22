@@ -10,6 +10,7 @@ members = [
     "backends/sp1",                # sp1 backend implementation
     "backends/sp1/program",        # sp1 guest
     "backends/sp1/program_recursive", # sp1 recursive aggregation guest
+    "backends/sp1/program_settlement", # sp1 settlement guest
     "backends/mock"                # mock backend for testing
 ]
 
@@ -41,6 +42,9 @@ mock = ["dep:clvm-zk-mock", "clvm-zk-core/sha2-hasher"]  # mock backend for test
 
 # testing utilities (enabled by default for tests)
 testing = ["clvm-zk-core/sha2-hasher"]
+
+# optional debug logging (disabled by default for production)
+debug-logging = []
 
 [dependencies]
 # Core dependencies

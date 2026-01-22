@@ -1,6 +1,6 @@
 use crate::protocol::{PrivateCoin, PrivateSpendBundle, ProofType, ProtocolError};
 use clvm_zk_core::coin_commitment::CoinSecrets;
-#[cfg(feature = "risc0")]
+#[cfg(any(feature = "risc0", feature = "sp1"))]
 use clvm_zk_core::types::ClvmValue;
 use serde::{Deserialize, Serialize};
 
@@ -269,15 +269,131 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
         Ok(SettlementProof::new(proof_bytes, output))
     }
 
-    #[cfg(not(feature = "risc0"))]
+    #[cfg(feature = "sp1")]
+    {
+        use clvm_zk_sp1::bincode;
+        use clvm_zk_sp1::sp1_sdk::{ProverClient, SP1ProofWithPublicValues, SP1Stdin};
+        use clvm_zk_sp1::SETTLEMENT_SP1_ELF;
+        use sha2::{Digest, Sha256};
+
+        // compute serial commitment
+        let mut serial_commit_data = Vec::new();
+        serial_commit_data.extend_from_slice(b"clvm_zk_serial_v1.0");
+        serial_commit_data.extend_from_slice(&params.taker_secrets.serial_number);
+        serial_commit_data.extend_from_slice(&params.taker_secrets.serial_randomness);
+        let serial_commitment: [u8; 32] = Sha256::digest(&serial_commit_data).into();
+
+        // deserialize maker's proof to extract settlement terms
+        let maker_proof: SP1ProofWithPublicValues =
+            bincode::deserialize(&params.maker_proof.zk_proof).map_err(|e| {
+                ProtocolError::ProofGenerationFailed(format!(
+                    "failed to deserialize maker's proof: {e}"
+                ))
+            })?;
+
+        // decode maker's public values to extract settlement terms
+        let mut public_values = maker_proof.public_values.clone();
+        let maker_output: clvm_zk_core::ProofOutput = public_values.read();
+
+        let maker_nullifier = maker_output.nullifiers.first().copied().ok_or_else(|| {
+            ProtocolError::ProofGenerationFailed("maker has no nullifier".to_string())
+        })?;
+
+        // parse maker's CLVM output to extract settlement terms
+        let (maker_change_commitment, offered, requested, maker_pubkey) =
+            parse_maker_clvm_output(&maker_output.clvm_res.output, &params.goods_tail_hash)?;
+
+        // prepare settlement input for guest
+        #[derive(serde::Serialize)]
+        struct SettlementInput {
+            maker_nullifier: [u8; 32],
+            maker_change_commitment: [u8; 32],
+            offered: u64,
+            requested: u64,
+            maker_pubkey: [u8; 32],
+            taker_coin: TakerCoinData,
+            merkle_root: [u8; 32],
+            payment_nonce: [u8; 32],
+            taker_goods_puzzle: [u8; 32],
+            taker_change_puzzle: [u8; 32],
+            payment_serial: [u8; 32],
+            payment_rand: [u8; 32],
+            goods_serial: [u8; 32],
+            goods_rand: [u8; 32],
+            change_serial: [u8; 32],
+            change_rand: [u8; 32],
+            taker_tail_hash: [u8; 32],
+            goods_tail_hash: [u8; 32],
+        }
+
+        #[derive(serde::Serialize)]
+        struct TakerCoinData {
+            amount: u64,
+            puzzle_hash: [u8; 32],
+            serial_commitment: [u8; 32],
+            serial_number: [u8; 32],
+            serial_randomness: [u8; 32],
+            merkle_path: Vec<[u8; 32]>,
+            leaf_index: usize,
+        }
+
+        let input = SettlementInput {
+            maker_nullifier,
+            maker_change_commitment,
+            offered,
+            requested,
+            maker_pubkey,
+            taker_coin: TakerCoinData {
+                amount: params.taker_coin.amount,
+                puzzle_hash: params.taker_coin.puzzle_hash,
+                serial_commitment,
+                serial_number: params.taker_secrets.serial_number,
+                serial_randomness: params.taker_secrets.serial_randomness,
+                merkle_path: params.taker_merkle_path,
+                leaf_index: params.taker_leaf_index,
+            },
+            merkle_root: params.merkle_root,
+            payment_nonce: params.payment_nonce,
+            taker_goods_puzzle: params.taker_goods_puzzle,
+            taker_change_puzzle: params.taker_change_puzzle,
+            payment_serial: params.payment_serial,
+            payment_rand: params.payment_rand,
+            goods_serial: params.goods_serial,
+            goods_rand: params.goods_rand,
+            change_serial: params.change_serial,
+            change_rand: params.change_rand,
+            taker_tail_hash: params.taker_tail_hash,
+            goods_tail_hash: params.goods_tail_hash,
+        };
+
+        let mut stdin = SP1Stdin::new();
+        stdin.write(&input);
+
+        let client = ProverClient::from_env();
+        let (pk, _vk) = client.setup(SETTLEMENT_SP1_ELF);
+
+        let mut proof = client.prove(&pk, &stdin).run().map_err(|e| {
+            ProtocolError::ProofGenerationFailed(format!("sp1 settlement proof failed: {e}"))
+        })?;
+
+        let output: SettlementOutput = proof.public_values.read();
+
+        let proof_bytes = bincode::serialize(&proof).map_err(|e| {
+            ProtocolError::ProofGenerationFailed(format!("failed to serialize proof: {e}"))
+        })?;
+
+        return Ok(SettlementProof::new(proof_bytes, output));
+    }
+
+    #[cfg(not(any(feature = "risc0", feature = "sp1")))]
     {
         Err(ProtocolError::ProofGenerationFailed(
-            "settlement proving requires risc0 backend".to_string(),
+            "settlement proving requires risc0 or sp1 backend".to_string(),
         ))
     }
 }
 
-#[cfg(feature = "risc0")]
+#[cfg(any(feature = "risc0", feature = "sp1"))]
 /// parse maker's CLVM output to extract settlement terms (HOST-side parsing)
 /// expected format: ((51 change_puzzle change_amount change_serial change_rand) (offered requested maker_pubkey))
 fn parse_maker_clvm_output(
@@ -313,7 +429,7 @@ fn parse_maker_clvm_output(
     }
 }
 
-#[cfg(feature = "risc0")]
+#[cfg(any(feature = "risc0", feature = "sp1"))]
 fn extract_create_coin_commitment_host(
     create_coin: &ClvmValue,
     tail_hash: &[u8; 32],
@@ -406,7 +522,7 @@ fn extract_create_coin_commitment_host(
     }
 }
 
-#[cfg(feature = "risc0")]
+#[cfg(any(feature = "risc0", feature = "sp1"))]
 fn extract_settlement_terms_host(terms: &ClvmValue) -> Result<(u64, u64, [u8; 32]), ProtocolError> {
     use clvm_zk_core::types::ClvmValue;
 
@@ -439,7 +555,7 @@ fn extract_settlement_terms_host(terms: &ClvmValue) -> Result<(u64, u64, [u8; 32
     }
 }
 
-#[cfg(feature = "risc0")]
+#[cfg(any(feature = "risc0", feature = "sp1"))]
 fn extract_bytes_32_host(value: &ClvmValue) -> Result<[u8; 32], ProtocolError> {
     use clvm_zk_core::types::ClvmValue;
 
@@ -461,7 +577,7 @@ fn extract_bytes_32_host(value: &ClvmValue) -> Result<[u8; 32], ProtocolError> {
     }
 }
 
-#[cfg(feature = "risc0")]
+#[cfg(any(feature = "risc0", feature = "sp1"))]
 fn extract_u64_host(value: &ClvmValue) -> Result<u64, ProtocolError> {
     use clvm_zk_core::types::ClvmValue;
 

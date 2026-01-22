@@ -115,8 +115,8 @@ fn main() {
 
     let private_inputs: Input = env::read();
 
-    // PROFILING: measure compilation cycles
-    let compile_start = env::cycle_count();
+    // // PROFILING: measure compilation cycles
+    // let compile_start = env::cycle_count();
 
     // optimize: check if this is a known precompiled puzzle
     // avoids expensive guest-side compilation for standard puzzles
@@ -130,7 +130,7 @@ fn main() {
                 .expect("Chialisp compilation failed")
         };
 
-    let compile_cycles = env::cycle_count().saturating_sub(compile_start);
+    // let compile_cycles = env::cycle_count().saturating_sub(compile_start);
 
     // Create VeilEvaluator with RISC-0 crypto functions
     let evaluator = create_veil_evaluator(risc0_hasher, risc0_verify_bls, risc0_verify_ecdsa);
@@ -138,8 +138,8 @@ fn main() {
     // Serialize parameters to CLVM args format
     let args = serialize_params_to_clvm(&private_inputs.program_parameters);
 
-    // PROFILING: measure execution cycles
-    let exec_start = env::cycle_count();
+    // // PROFILING: measure execution cycles
+    // let exec_start = env::cycle_count();
 
     // Run CLVM bytecode and parse conditions from output
     let max_cost = 1_000_000_000; // 1 billion cost units
@@ -147,7 +147,7 @@ fn main() {
         run_clvm_with_conditions(&evaluator, &instance_bytecode, &args, max_cost)
             .expect("CLVM execution failed");
 
-    let exec_cycles = env::cycle_count().saturating_sub(exec_start);
+    // let exec_cycles = env::cycle_count().saturating_sub(exec_start);
 
     // ============================================================================
     // BALANCE ENFORCEMENT (critical security check)
@@ -332,18 +332,18 @@ fn main() {
         cost: total_cycles,
     };
 
-    // PROFILING: encode cycle counts in public_values for analysis
-    // format: single vec containing [compile_cycles (8 bytes), exec_cycles (8 bytes), total_cycles (8 bytes)]
-    let mut profiling_data = Vec::new();
-    profiling_data.extend_from_slice(&compile_cycles.to_le_bytes());
-    profiling_data.extend_from_slice(&exec_cycles.to_le_bytes());
-    profiling_data.extend_from_slice(&total_cycles.to_le_bytes());
+    // // PROFILING: encode cycle counts in public_values for analysis
+    // // format: single vec containing [compile_cycles (8 bytes), exec_cycles (8 bytes), total_cycles (8 bytes)]
+    // let mut profiling_data = Vec::new();
+    // profiling_data.extend_from_slice(&compile_cycles.to_le_bytes());
+    // profiling_data.extend_from_slice(&exec_cycles.to_le_bytes());
+    // profiling_data.extend_from_slice(&total_cycles.to_le_bytes());
 
     env::commit(&ProofOutput {
         program_hash,
         nullifiers,
         clvm_res: clvm_output,
         proof_type: 0, // Transaction type (default)
-        public_values: vec![profiling_data],
+        public_values: vec![],
     });
 }

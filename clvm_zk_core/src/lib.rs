@@ -81,6 +81,14 @@ pub enum CompileError {
     ParseError(String),
 }
 
+impl From<CompileError> for ClvmZkError {
+    fn from(err: CompileError) -> Self {
+        match err {
+            CompileError::ParseError(msg) => ClvmZkError::CompilationError(msg),
+        }
+    }
+}
+
 /// Compile chialisp source to bytecode and program hash
 pub fn compile_chialisp_to_bytecode(
     hasher: Hasher,
@@ -248,7 +256,14 @@ pub fn verify_ecdsa_signature_with_hasher(
         Err(_) => return Err("invalid public key format - failed to parse"),
     };
 
-    // parse the signature - handle variable length by padding if needed
+    // parse the signature - ECDSA signatures must be exactly 64 bytes (r || s, each 32 bytes)
+    //
+    // SECURITY: we do NOT pad short signatures with zeros as this could accept
+    // truncated/malformed signatures. signatures are binary data, not integers,
+    // so trailing zeros are significant.
+    //
+    // if CLVM is stripping trailing zeros from signatures, the signature encoding
+    // should use DER format or be explicitly prefixed with length bytes.
     let signature = if signature_bytes.len() == 64 {
         // 64-byte compact format (r || s, each 32 bytes)
         match Signature::try_from(signature_bytes) {
@@ -256,23 +271,23 @@ pub fn verify_ecdsa_signature_with_hasher(
             Err(_) => return Err("invalid compact signature format"),
         }
     } else if signature_bytes.len() < 64 {
-        // Pad with trailing zeros to get to 64 bytes (CLVM may have stripped trailing zeros)
-        let mut padded = signature_bytes.to_vec();
-        padded.resize(64, 0); // pad to 64 bytes with trailing zeros
-        match Signature::try_from(padded.as_slice()) {
-            Ok(sig) => sig,
-            Err(_) => return Err("invalid padded signature format"),
-        }
+        // reject short signatures - don't pad with zeros
+        return Err("signature too short - expected exactly 64 bytes for ECDSA compact format");
     } else {
-        return Err("signature too long - expected at most 64 bytes");
+        return Err("signature too long - expected exactly 64 bytes for ECDSA compact format");
     };
 
-    // check if message is already a hash (32 bytes) or raw message
+    // the message to verify is expected to be pre-hashed (32 bytes)
+    // or a raw message that needs hashing.
+    //
+    // SECURITY NOTE: if message is exactly 32 bytes, we assume it's a pre-hash.
+    // this is a common convention but callers should be aware of this behavior.
+    // to verify a 32-byte raw message, hash it first before passing.
     let message_hash = if message_bytes.len() == 32 {
-        // assume it's already a hash, use directly
+        // treat as pre-hashed message
         message_bytes.to_vec()
     } else {
-        // hash the message using the provided hasher
+        // hash the raw message
         hasher(message_bytes).to_vec()
     };
 
@@ -907,7 +922,15 @@ where
 // merkle proof verification
 // ============================================================================
 
+/// maximum allowed merkle proof depth (matches merkle.rs MAX_TREE_DEPTH)
+/// prevents DoS via excessively long proofs that waste cycles
+pub const MAX_MERKLE_PROOF_DEPTH: usize = 64;
+
 /// verify merkle proof for a leaf at given index
+///
+/// # security bounds
+/// merkle_path length is bounded to MAX_MERKLE_PROOF_DEPTH (64) to prevent
+/// DoS attacks via excessively long proofs.
 pub fn verify_merkle_proof<H>(
     hasher: H,
     leaf_hash: [u8; 32],
@@ -918,6 +941,11 @@ pub fn verify_merkle_proof<H>(
 where
     H: Fn(&[u8]) -> [u8; 32],
 {
+    // validate merkle path depth to prevent DoS
+    if merkle_path.len() > MAX_MERKLE_PROOF_DEPTH {
+        return Err("merkle proof too deep (max 64 levels)");
+    }
+
     let mut current_hash = leaf_hash;
     let mut current_index = leaf_index;
 

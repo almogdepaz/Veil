@@ -1,7 +1,7 @@
 //! core types for clvm evaluation
 
 extern crate alloc;
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{boxed::Box, string::String, string::ToString, vec::Vec};
 
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +60,9 @@ pub enum ClvmValue {
 }
 
 /// unified error type for clvm-zk operations
+///
+/// this is the primary error type for the clvm-zk crate. other error types
+/// (CompileError, ProtocolError, etc.) can be converted to this type.
 #[derive(Debug, thiserror::Error)]
 pub enum ClvmZkError {
     #[error("Serialization error: {0}")]
@@ -91,6 +94,28 @@ pub enum ClvmZkError {
 
     #[error("Invalid proof format: {0}")]
     InvalidProofFormat(String),
+
+    #[error("Compilation error: {0}")]
+    CompilationError(String),
+
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
+    #[error("Merkle proof error: {0}")]
+    MerkleError(String),
+
+    #[error("Cryptographic error: {0}")]
+    CryptoError(String),
+
+    #[error("Nullifier error: {0}")]
+    NullifierError(String),
+}
+
+impl ClvmZkError {
+    /// create from a static str (useful in no_std contexts)
+    pub fn from_static(msg: &'static str) -> Self {
+        ClvmZkError::ClvmError(msg.to_string())
+    }
 }
 
 /// common zkvm backend types
