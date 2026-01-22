@@ -42,9 +42,9 @@ fn test_settlement_mock() {
         compile_chialisp_template_hash_default(&offer_puzzle).expect("compile puzzle");
 
     // taker puzzle - simple balanced spend
-    let taker_out_puzzle = [20u8; 32];
-    let taker_serial = [21u8; 32];
-    let taker_rand = [22u8; 32];
+    let _taker_out_puzzle = [20u8; 32];
+    let _taker_serial = [21u8; 32];
+    let _taker_rand = [22u8; 32];
 
     let taker_puzzle = with_standard_conditions(
         "(mod (out_puzzle out_amount out_serial out_rand)
