@@ -2391,7 +2391,7 @@ fn offer_create_command(
         &spend_coin.to_private_coin(),
         &delegated_code,
         &delegated_params,
-        &spend_coin.secrets(),
+        spend_coin.secrets(),
         merkle_path,
         merkle_root,
         leaf_index,

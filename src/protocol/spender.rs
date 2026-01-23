@@ -158,9 +158,7 @@ impl Spender {
 
         // construct additional_coins for ring
         let mut additional_coins = Vec::new();
-        for (_i, (coin, puzzle_code, params, secrets, merkle_path, leaf_index)) in
-            coins.iter().skip(1).enumerate()
-        {
+        for (coin, puzzle_code, params, secrets, merkle_path, leaf_index) in coins.iter().skip(1) {
             coin.validate().map_err(|e| {
                 ProtocolError::ProofGenerationFailed(format!("invalid coin in ring: {e}"))
             })?;

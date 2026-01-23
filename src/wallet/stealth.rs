@@ -147,8 +147,8 @@ impl StealthKeys {
     pub fn derive_nonce(&self, nonce_index: u32) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(b"veil_stealth_nonce_v1");
-        hasher.update(&self.view_privkey);
-        hasher.update(&nonce_index.to_le_bytes());
+        hasher.update(self.view_privkey);
+        hasher.update(nonce_index.to_le_bytes());
         hasher.finalize().into()
     }
 
