@@ -30,17 +30,17 @@ echo -e "${BLUE}           backend: ${YELLOW}${BACKEND}${BLUE}${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
-# start total timer
-DEMO_START=$SECONDS
-
 # setup
 DATA_DIR="/tmp/clvm-zk-offers-demo"
 rm -rf "$DATA_DIR"
 mkdir -p "$DATA_DIR"
 
-# build once at the start
+# build once at the start (not timed)
 echo "building clvm-zk ($BACKEND backend)..."
 cargo build --no-default-features --features $BACKEND --release --quiet
+
+# start total timer AFTER compilation
+DEMO_START=$SECONDS
 
 # use pre-built binary directly (no rebuild checks on each command)
 BINARY="./target/release/clvm-zk"

@@ -2618,6 +2618,59 @@ fn offer_take_command(
         // validator should check settlement_proof.output.maker_pubkey matches offer.maker_pubkey
     }
 
+    #[cfg(feature = "sp1")]
+    {
+        use clvm_zk_sp1::bincode;
+        use clvm_zk_sp1::sp1_sdk::{ProverClient, SP1ProofWithPublicValues};
+        use std::thread;
+
+        // clone proof data for concurrent verification
+        let maker_proof_bytes = offer.maker_bundle.zk_proof.clone();
+        let taker_proof_bytes = settlement_proof.zk_proof.clone();
+
+        // spawn verification threads
+        let maker_handle = thread::spawn(move || -> Result<(), ClvmZkError> {
+            let proof: SP1ProofWithPublicValues = bincode::deserialize(&maker_proof_bytes)
+                .map_err(|e| {
+                    ClvmZkError::InvalidProofFormat(format!("maker proof deserialize: {e}"))
+                })?;
+
+            let client = ProverClient::from_env();
+            let (_, vk) = client.setup(clvm_zk_sp1::CLVM_ZK_SP1_ELF);
+            client.verify(&proof, &vk).map_err(|e| {
+                ClvmZkError::VerificationFailed(format!("maker proof invalid: {e}"))
+            })?;
+
+            Ok(())
+        });
+
+        let taker_handle = thread::spawn(move || -> Result<(), ClvmZkError> {
+            let proof: SP1ProofWithPublicValues = bincode::deserialize(&taker_proof_bytes)
+                .map_err(|e| {
+                    ClvmZkError::InvalidProofFormat(format!("taker proof deserialize: {e}"))
+                })?;
+
+            let client = ProverClient::from_env();
+            let (_, vk) = client.setup(clvm_zk_sp1::SETTLEMENT_SP1_ELF);
+            client.verify(&proof, &vk).map_err(|e| {
+                ClvmZkError::VerificationFailed(format!("taker proof invalid: {e}"))
+            })?;
+
+            Ok(())
+        });
+
+        // wait for both verifications
+        maker_handle.join().map_err(|_| {
+            ClvmZkError::VerificationFailed("maker verification thread panicked".to_string())
+        })??;
+
+        taker_handle.join().map_err(|_| {
+            ClvmZkError::VerificationFailed("taker verification thread panicked".to_string())
+        })??;
+
+        println!("✅ both proofs verified concurrently");
+    }
+
     // process settlement output: add nullifiers and commitments to simulator state
     state.simulator.process_settlement(&settlement_proof.output);
 
