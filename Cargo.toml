@@ -16,7 +16,7 @@ members = [
 
 # Workspace-level dependencies to ensure canonical paths
 [workspace.dependencies]
-clvm_tools_rs = { path = "../clvm_tools_rs", default-features = false }
+clvm_tools_rs = { git = "https://github.com/Chia-Network/clvm_tools_rs.git", branch = "no_std", default-features = false }
 
 [package]
 name = "clvm-zk"
