@@ -4,7 +4,6 @@ pub mod recursive;
 pub use methods::*;
 pub use recursive::RecursiveAggregator;
 
-use borsh;
 use clvm_zk_core::backend_utils::{
     convert_proving_error, validate_nullifier_proof_output, validate_proof_output,
 };
@@ -25,6 +24,7 @@ impl Risc0Backend {
         Ok(Self {})
     }
 
+    #[allow(clippy::const_is_empty)]
     fn is_risc0_available() -> bool {
         !CLVM_RISC0_GUEST_ELF.is_empty()
     }

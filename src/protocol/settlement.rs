@@ -382,7 +382,7 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
             ProtocolError::ProofGenerationFailed(format!("failed to serialize proof: {e}"))
         })?;
 
-        return Ok(SettlementProof::new(proof_bytes, output));
+        Ok(SettlementProof::new(proof_bytes, output))
     }
 
     #[cfg(not(any(feature = "risc0", feature = "sp1")))]
@@ -441,7 +441,7 @@ fn extract_create_coin_commitment_host(
     match create_coin {
         ClvmValue::Cons(opcode_box, args_box) => {
             match opcode_box.as_ref() {
-                ClvmValue::Atom(opcode) if opcode.as_slice() == &[51u8] => {
+                ClvmValue::Atom(opcode) if opcode.as_slice() == [51u8] => {
                     match args_box.as_ref() {
                         ClvmValue::Cons(puzzle_box, rest1) => {
                             let change_puzzle = extract_bytes_32_host(puzzle_box.as_ref())?;
