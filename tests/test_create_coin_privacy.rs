@@ -1,6 +1,8 @@
-/// Test 51 transformation for output privacy
+/// Test CREATE_COIN (opcode 51) transformation for output privacy
 #[cfg(feature = "mock")]
-use clvm_zk_core::{extract_coin_commitments, hash_data, ProgramParameter};
+use clvm_zk_core::{
+    extract_coin_commitments, hash_data, with_standard_conditions, ProgramParameter,
+};
 
 #[cfg(feature = "mock")]
 use clvm_zk_mock::MockBackend;
@@ -16,11 +18,11 @@ fn test_create_coin_private_mode() {
     let recipient_puzzle = [0x42u8; 32];
     let amount: u64 = 1000;
 
-    // Chialisp program with 4-arg 51 (private mode)
-    let program = r#"
-        (mod (recipient amount serial_num serial_rand)
-            (list (list 51 recipient amount serial_num serial_rand)))
-    "#;
+    // Chialisp program with 4-arg CREATE_COIN - private mode
+    let program = with_standard_conditions(
+        "(mod (recipient amount serial_num serial_rand)
+            (list (list CREATE_COIN recipient amount serial_num serial_rand)))",
+    );
 
     // Parameters: recipient, amount, serial_number, serial_randomness
     let params = vec![
@@ -33,7 +35,7 @@ fn test_create_coin_private_mode() {
     // Generate proof
     let backend = MockBackend::new().expect("failed to create backend");
     let result = backend
-        .prove_chialisp_program(program, &params)
+        .prove_chialisp_program(&program, &params)
         .expect("proof generation failed");
 
     // Extract coin commitments from proof output
@@ -53,7 +55,7 @@ fn test_create_coin_private_mode() {
 
     assert_eq!(commitments[0], expected_commitment, "commitment mismatch");
 
-    println!("✓ 51 private mode working");
+    println!("✓ CREATE_COIN private mode working");
     println!("  coin_commitment: {}", hex::encode(commitments[0]));
 }
 
@@ -72,12 +74,12 @@ fn test_create_coin_multiple_outputs() {
     let amount2: u64 = 300;
 
     // Chialisp program creating 2 coins
-    let program = r#"
-        (mod (r1 a1 s1 sr1 r2 a2 s2 sr2)
+    let program = with_standard_conditions(
+        "(mod (r1 a1 s1 sr1 r2 a2 s2 sr2)
             (list
-                (list 51 r1 a1 s1 sr1)
-                (list 51 r2 a2 s2 sr2)))
-    "#;
+                (list CREATE_COIN r1 a1 s1 sr1)
+                (list CREATE_COIN r2 a2 s2 sr2)))",
+    );
 
     let params = vec![
         ProgramParameter::Bytes(recipient1.to_vec()),
@@ -92,7 +94,7 @@ fn test_create_coin_multiple_outputs() {
 
     let backend = MockBackend::new().expect("failed to create backend");
     let result = backend
-        .prove_chialisp_program(program, &params)
+        .prove_chialisp_program(&program, &params)
         .expect("proof generation failed");
 
     let commitments =
@@ -108,7 +110,7 @@ fn test_create_coin_multiple_outputs() {
     assert_eq!(commitments[0], expected1, "commitment 1 mismatch");
     assert_eq!(commitments[1], expected2, "commitment 2 mismatch");
 
-    println!("✓ 51 multiple outputs working");
+    println!("✓ CREATE_COIN multiple outputs working");
     println!("  commitment 1: {}", hex::encode(commitments[0]));
     println!("  commitment 2: {}", hex::encode(commitments[1]));
 }
@@ -116,14 +118,14 @@ fn test_create_coin_multiple_outputs() {
 #[test]
 #[cfg(feature = "mock")]
 fn test_create_coin_transparent_mode() {
-    // Test backward compatibility: 2-arg 51 should pass through unchanged
+    // Test backward compatibility: 2-arg CREATE_COIN should pass through unchanged
     let recipient = [0x33u8; 32];
     let amount: u64 = 777;
 
-    let program = r#"
-        (mod (recipient amount)
-            (list (list 51 recipient amount)))
-    "#;
+    let program = with_standard_conditions(
+        "(mod (recipient amount)
+            (list (list CREATE_COIN recipient amount)))",
+    );
 
     let params = vec![
         ProgramParameter::Bytes(recipient.to_vec()),
@@ -132,7 +134,7 @@ fn test_create_coin_transparent_mode() {
 
     let backend = MockBackend::new().expect("failed to create backend");
     let result = backend
-        .prove_chialisp_program(program, &params)
+        .prove_chialisp_program(&program, &params)
         .expect("proof generation failed");
 
     // Parse output to verify 2-arg format preserved
@@ -140,7 +142,7 @@ fn test_create_coin_transparent_mode() {
         .expect("failed to parse conditions");
 
     assert_eq!(conditions.len(), 1, "expected 1 condition");
-    assert_eq!(conditions[0].opcode, 51, "expected 51 opcode");
+    assert_eq!(conditions[0].opcode, 51, "expected CREATE_COIN opcode");
     assert_eq!(
         conditions[0].args.len(),
         2,
@@ -148,10 +150,10 @@ fn test_create_coin_transparent_mode() {
     );
     assert_eq!(&conditions[0].args[0], &recipient.to_vec());
 
-    println!("✓ 51 transparent mode (backward compatibility) working");
+    println!("✓ CREATE_COIN transparent mode (backward compatibility) working");
 }
 
-// Helper: compute coin_commitment
+// Helper: compute coin_commitment v2 (with XCH tail_hash)
 #[cfg(feature = "mock")]
 fn compute_coin_commitment(
     puzzle_hash: &[u8; 32],
@@ -159,6 +161,8 @@ fn compute_coin_commitment(
     serial_number: &[u8; 32],
     serial_randomness: &[u8; 32],
 ) -> [u8; 32] {
+    use clvm_zk_core::coin_commitment::{build_coin_commitment_preimage, XCH_TAIL};
+
     // Compute serial_commitment
     let serial_domain = b"clvm_zk_serial_v1.0";
     let mut serial_data = [0u8; 83];
@@ -167,13 +171,13 @@ fn compute_coin_commitment(
     serial_data[51..83].copy_from_slice(serial_randomness);
     let serial_commitment = hash_data(&serial_data);
 
-    // Compute coin_commitment
-    let coin_domain = b"clvm_zk_coin_v1.0";
-    let mut coin_data = [0u8; 89];
-    coin_data[..17].copy_from_slice(coin_domain);
-    coin_data[17..25].copy_from_slice(&amount.to_be_bytes());
-    coin_data[25..57].copy_from_slice(puzzle_hash);
-    coin_data[57..89].copy_from_slice(&serial_commitment);
+    // Compute coin_commitment v2 using shared function
+    let coin_data = build_coin_commitment_preimage(
+        &XCH_TAIL, // XCH (native currency)
+        amount,
+        puzzle_hash,
+        &serial_commitment,
+    );
     hash_data(&coin_data)
 }
 

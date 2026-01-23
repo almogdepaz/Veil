@@ -1,6 +1,6 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
 mod common;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 
 /// Test unified API with mixed byte and integer parameters
 #[test]

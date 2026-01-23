@@ -24,6 +24,7 @@ pub trait ZKCLVMBackend {
     }
 }
 
+#[allow(clippy::needless_return)]
 pub fn backend() -> Result<Box<dyn ZKCLVMBackend>, ClvmZkError> {
     #[cfg(feature = "risc0")]
     {

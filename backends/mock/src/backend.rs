@@ -1,7 +1,9 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, create_veil_evaluator, run_clvm_with_conditions,
-    serialize_params_to_clvm, ClvmResult, ClvmZkError, Condition, ProgramParameter, ProofOutput,
+    compile_chialisp_to_bytecode, compute_coin_commitment, compute_nullifier,
+    compute_serial_commitment, create_veil_evaluator, enforce_ring_balance,
+    parse_variable_length_amount, run_clvm_with_conditions, serialize_params_to_clvm,
+    verify_merkle_proof, ClvmResult, ClvmZkError, Condition, ProgramParameter, ProofOutput,
     ZKClvmResult, BLS_DST,
 };
 use sha2::{Digest, Sha256};
@@ -84,6 +86,7 @@ fn validate_signature_conditions(conditions: &[Condition]) -> Result<(), ClvmZkE
 fn transform_create_coin_conditions(
     conditions: &mut [Condition],
     output_bytes: Vec<u8>,
+    tail_hash: [u8; 32],
 ) -> Result<Vec<u8>, ClvmZkError> {
     let mut has_transformations = false;
 
@@ -94,55 +97,36 @@ fn transform_create_coin_conditions(
                     // Transparent mode: leave as-is
                 }
                 4 => {
-                    let puzzle_hash = &condition.args[0];
-                    let amount_bytes = &condition.args[1];
-                    let serial_number = &condition.args[2];
-                    let serial_randomness = &condition.args[3];
+                    let puzzle_hash: &[u8; 32] =
+                        condition.args[0].as_slice().try_into().map_err(|_| {
+                            ClvmZkError::ProofGenerationFailed(
+                                "puzzle_hash must be 32 bytes".to_string(),
+                            )
+                        })?;
+                    let amount = parse_variable_length_amount(&condition.args[1])
+                        .map_err(|e| ClvmZkError::ProofGenerationFailed(e.to_string()))?;
+                    let serial_number: &[u8; 32] =
+                        condition.args[2].as_slice().try_into().map_err(|_| {
+                            ClvmZkError::ProofGenerationFailed(
+                                "serial_number must be 32 bytes".to_string(),
+                            )
+                        })?;
+                    let serial_randomness: &[u8; 32] =
+                        condition.args[3].as_slice().try_into().map_err(|_| {
+                            ClvmZkError::ProofGenerationFailed(
+                                "serial_randomness must be 32 bytes".to_string(),
+                            )
+                        })?;
 
-                    // Validate sizes
-                    if puzzle_hash.len() != 32 {
-                        return Err(ClvmZkError::ProofGenerationFailed(
-                            "puzzle_hash must be 32 bytes".to_string(),
-                        ));
-                    }
-                    if amount_bytes.len() > 8 {
-                        return Err(ClvmZkError::ProofGenerationFailed(
-                            "amount too large (max 8 bytes)".to_string(),
-                        ));
-                    }
-                    if serial_number.len() != 32 {
-                        return Err(ClvmZkError::ProofGenerationFailed(
-                            "serial_number must be 32 bytes".to_string(),
-                        ));
-                    }
-                    if serial_randomness.len() != 32 {
-                        return Err(ClvmZkError::ProofGenerationFailed(
-                            "serial_randomness must be 32 bytes".to_string(),
-                        ));
-                    }
-
-                    // Parse amount from variable-length big-endian bytes
-                    let mut amount = 0u64;
-                    for &byte in amount_bytes {
-                        amount = (amount << 8) | (byte as u64);
-                    }
-
-                    // Compute serial_commitment
-                    let serial_domain = b"clvm_zk_serial_v1.0";
-                    let mut serial_data = [0u8; 83];
-                    serial_data[..19].copy_from_slice(serial_domain);
-                    serial_data[19..51].copy_from_slice(serial_number);
-                    serial_data[51..83].copy_from_slice(serial_randomness);
-                    let serial_commitment = hash_data(&serial_data);
-
-                    // Compute coin_commitment
-                    let coin_domain = b"clvm_zk_coin_v1.0";
-                    let mut coin_data = [0u8; 89];
-                    coin_data[..17].copy_from_slice(coin_domain);
-                    coin_data[17..25].copy_from_slice(&amount.to_be_bytes());
-                    coin_data[25..57].copy_from_slice(puzzle_hash);
-                    coin_data[57..89].copy_from_slice(&serial_commitment);
-                    let coin_commitment = hash_data(&coin_data);
+                    let serial_commitment =
+                        compute_serial_commitment(hash_data, serial_number, serial_randomness);
+                    let coin_commitment = compute_coin_commitment(
+                        hash_data,
+                        tail_hash,
+                        amount,
+                        puzzle_hash,
+                        &serial_commitment,
+                    );
 
                     condition.args = vec![coin_commitment.to_vec()];
                     has_transformations = true;
@@ -189,7 +173,9 @@ impl MockBackend {
             )?;
 
         validate_signature_conditions(&conditions)?;
-        let final_output = transform_create_coin_conditions(&mut conditions, output_bytes)?;
+        let tail_hash = [0u8; 32]; // default XCH for simple proving API
+        let final_output =
+            transform_create_coin_conditions(&mut conditions, output_bytes, tail_hash)?;
 
         let clvm_output = ClvmResult {
             output: final_output,
@@ -198,7 +184,7 @@ impl MockBackend {
 
         let proof_output = ProofOutput {
             program_hash,
-            nullifier: None,
+            nullifiers: vec![],
             clvm_res: clvm_output,
             proof_type: 0,
             public_values: vec![],
@@ -242,8 +228,17 @@ impl MockBackend {
                 |e| ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e)),
             )?;
 
+        // BALANCE ENFORCEMENT (critical security check)
+        // verify sum(inputs) == sum(outputs) and tail_hash consistency
+        // MUST run BEFORE CREATE_COIN transformation
+        enforce_ring_balance(&inputs, &conditions).map_err(|e| {
+            ClvmZkError::ProofGenerationFailed(format!("balance enforcement failed: {}", e))
+        })?;
+
         validate_signature_conditions(&conditions)?;
-        let final_output = transform_create_coin_conditions(&mut conditions, output_bytes)?;
+        let tail_hash = inputs.tail_hash.unwrap_or([0u8; 32]);
+        let final_output =
+            transform_create_coin_conditions(&mut conditions, output_bytes, tail_hash)?;
 
         let clvm_output = ClvmResult {
             output: final_output,
@@ -252,84 +247,89 @@ impl MockBackend {
 
         let nullifier = match inputs.serial_commitment_data {
             Some(commitment_data) => {
-                let serial_randomness = commitment_data.serial_randomness;
-                let serial_number = commitment_data.serial_number;
-                let puzzle_hash = commitment_data.program_hash;
-
-                if program_hash != puzzle_hash {
+                if program_hash != commitment_data.program_hash {
                     return Err(ClvmZkError::ProofGenerationFailed(
                         "program_hash mismatch: cannot spend coin with different puzzle"
                             .to_string(),
                     ));
                 }
 
-                let domain = b"clvm_zk_serial_v1.0";
-                let mut serial_commit_data = Vec::with_capacity(19 + 64);
-                serial_commit_data.extend_from_slice(domain);
-                serial_commit_data.extend_from_slice(&serial_number);
-                serial_commit_data.extend_from_slice(&serial_randomness);
-                let computed_serial_commitment = hash_data(&serial_commit_data);
-
-                let serial_commitment_expected = commitment_data.serial_commitment;
-                if computed_serial_commitment != serial_commitment_expected {
+                let computed_serial_commitment = compute_serial_commitment(
+                    hash_data,
+                    &commitment_data.serial_number,
+                    &commitment_data.serial_randomness,
+                );
+                if computed_serial_commitment != commitment_data.serial_commitment {
                     return Err(ClvmZkError::ProofGenerationFailed(
                         "serial commitment verification failed".to_string(),
                     ));
                 }
 
-                let coin_domain = b"clvm_zk_coin_v1.0";
-                let amount = commitment_data.amount;
-                let mut coin_data = [0u8; 17 + 8 + 32 + 32];
-                coin_data[..17].copy_from_slice(coin_domain);
-                coin_data[17..25].copy_from_slice(&amount.to_be_bytes());
-                coin_data[25..57].copy_from_slice(&program_hash);
-                coin_data[57..89].copy_from_slice(&computed_serial_commitment);
-                let computed_coin_commitment = hash_data(&coin_data);
-
-                let coin_commitment_provided = commitment_data.coin_commitment;
-                if computed_coin_commitment != coin_commitment_provided {
+                let tail_hash = inputs.tail_hash.unwrap_or([0u8; 32]);
+                let computed_coin_commitment = compute_coin_commitment(
+                    hash_data,
+                    tail_hash,
+                    commitment_data.amount,
+                    &program_hash,
+                    &computed_serial_commitment,
+                );
+                if computed_coin_commitment != commitment_data.coin_commitment {
                     return Err(ClvmZkError::ProofGenerationFailed(
                         "coin commitment verification failed".to_string(),
                     ));
                 }
 
-                let merkle_path = commitment_data.merkle_path;
-                let expected_root = commitment_data.merkle_root;
-                let leaf_index = commitment_data.leaf_index;
-                let mut current_hash = computed_coin_commitment;
-                let mut current_index = leaf_index;
-                for sibling in merkle_path.iter() {
-                    let mut combined = [0u8; 64];
-                    if current_index % 2 == 0 {
-                        combined[..32].copy_from_slice(&current_hash);
-                        combined[32..].copy_from_slice(sibling);
-                    } else {
-                        combined[..32].copy_from_slice(sibling);
-                        combined[32..].copy_from_slice(&current_hash);
-                    }
-                    current_hash = hash_data(&combined);
-                    current_index /= 2;
-                }
+                verify_merkle_proof(
+                    hash_data,
+                    computed_coin_commitment,
+                    &commitment_data.merkle_path,
+                    commitment_data.leaf_index,
+                    commitment_data.merkle_root,
+                )
+                .map_err(|e| {
+                    ClvmZkError::ProofGenerationFailed(format!("merkle verification failed: {}", e))
+                })?;
 
-                let computed_root = current_hash;
-                if computed_root != expected_root {
-                    return Err(ClvmZkError::ProofGenerationFailed(
-                        "merkle root mismatch: coin not in current tree state".to_string(),
-                    ));
-                }
-
-                let mut nullifier_data = Vec::with_capacity(72);
-                nullifier_data.extend_from_slice(&serial_number);
-                nullifier_data.extend_from_slice(&program_hash);
-                nullifier_data.extend_from_slice(&amount.to_be_bytes());
-                Some(hash_data(&nullifier_data))
+                Some(compute_nullifier(
+                    hash_data,
+                    &commitment_data.serial_number,
+                    &program_hash,
+                    commitment_data.amount,
+                ))
             }
             None => None,
         };
 
+        // collect nullifiers: primary coin + additional coins
+        let mut nullifiers = nullifier.map(|n| vec![n]).unwrap_or_default();
+
+        // process additional coins for ring spends
+        if let Some(additional_coins) = &inputs.additional_coins {
+            for coin in additional_coins {
+                let coin_data = &coin.serial_commitment_data;
+
+                let (_, coin_program_hash) =
+                    compile_chialisp_to_bytecode(hash_data, &coin.chialisp_source).map_err(
+                        |e| {
+                            ClvmZkError::ProofGenerationFailed(format!(
+                                "additional coin compilation failed: {:?}",
+                                e
+                            ))
+                        },
+                    )?;
+
+                nullifiers.push(compute_nullifier(
+                    hash_data,
+                    &coin_data.serial_number,
+                    &coin_program_hash,
+                    coin_data.amount,
+                ));
+            }
+        }
+
         let proof_output = ProofOutput {
             program_hash,
-            nullifier,
+            nullifiers,
             clvm_res: clvm_output,
             proof_type: 0,
             public_values: vec![],

@@ -31,8 +31,8 @@ time_end() {
     fi
 }
 
-# backend selection (default: risc0)
-BACKEND="${1:-risc0}"
+# backend selection (default: sp1)
+BACKEND="${1:-sp1}"
 
 if [[ "$BACKEND" != "risc0" && "$BACKEND" != "sp1" ]]; then
     echo "❌ invalid backend: $BACKEND"

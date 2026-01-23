@@ -1,6 +1,6 @@
 mod common;
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 
 // CLVM condition opcodes
 const AGG_SIG_UNSAFE: u8 = 49;

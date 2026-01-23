@@ -48,12 +48,14 @@ fn validate_transaction_proofs(
             return Err(format!("Spend bundle {} has empty proof - invalid", i));
         }
 
-        // Check nullifier is not all-zeros (common garbage proof indicator)
-        if bundle.nullifier == [0u8; 32] {
-            return Err(format!(
-                "Spend bundle {} has zero nullifier - invalid proof",
-                i
-            ));
+        // Check nullifiers are not all-zeros (common garbage proof indicator)
+        for nullifier in &bundle.nullifiers {
+            if nullifier == &[0u8; 32] {
+                return Err(format!(
+                    "Spend bundle {} has zero nullifier - invalid proof",
+                    i
+                ));
+            }
         }
 
         // Check public conditions exist (proof actually computed something)
@@ -66,7 +68,11 @@ fn validate_transaction_proofs(
     }
 
     // 5. Additional validation: ensure nullifiers match spend bundles
-    let bundle_nullifiers: Vec<[u8; 32]> = tx.spend_bundles.iter().map(|b| b.nullifier).collect();
+    let bundle_nullifiers: Vec<[u8; 32]> = tx
+        .spend_bundles
+        .iter()
+        .flat_map(|b| b.nullifiers.iter().copied())
+        .collect();
     for tx_nullifier in &tx.nullifiers {
         if !bundle_nullifiers.contains(tx_nullifier) {
             return Err(format!(

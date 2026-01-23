@@ -1,5 +1,5 @@
 use crate::ProgramParameter;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 use k256::ecdsa::{signature::Signer, Signature, SigningKey, VerifyingKey};
 /// Signature-enabled puzzle programs for secure spend authorization
 ///
@@ -203,25 +203,18 @@ pub fn create_password_spend_parameters(password: &str) -> Vec<ProgramParameter>
 /// # returns
 /// * template bytecode ready to pass as ProgramParameter::Bytes
 pub fn compile_to_template_bytecode(source: &str) -> Result<Vec<u8>, crate::ClvmZkError> {
-    use clvm_zk_core::chialisp::{
-        compile_module_unified, parse_chialisp, sexp_to_module, CompilationMode,
-    };
+    // clvm_tools_rs produces template-compatible bytecode (env references, not substituted values)
+    // use the wrapper from clvm_zk_core which handles the clvm_tools_rs dependency
+    let (bytecode, _hash) = clvm_zk_core::compile_chialisp_to_bytecode(sha2_hash, source)
+        .map_err(|e| crate::ClvmZkError::InvalidProgram(format!("compilation error: {:?}", e)))?;
+    Ok(bytecode)
+}
 
-    // parse and convert to module
-    let sexp = parse_chialisp(source)
-        .map_err(|e| crate::ClvmZkError::InvalidProgram(format!("parse error: {:?}", e)))?;
-
-    let module = sexp_to_module(sexp).map_err(|e| {
-        crate::ClvmZkError::InvalidProgram(format!("module conversion error: {:?}", e))
-    })?;
-
-    // compile in template mode - preserves parameter structure
-    let template_bytecode =
-        compile_module_unified(&module, CompilationMode::Template).map_err(|e| {
-            crate::ClvmZkError::InvalidProgram(format!("template compilation error: {:?}", e))
-        })?;
-
-    Ok(template_bytecode)
+fn sha2_hash(data: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
 }
 
 /// create delegated puzzle for offers (settlement-specific)
@@ -292,7 +285,7 @@ pub fn create_settlement_assertion_puzzle() -> Result<(String, [u8; 32]), crate:
 /// # arguments
 /// * `offered` - amount maker is offering to taker
 /// * `requested` - amount maker requests in return
-/// * `maker_pubkey` - maker's x25519 public key for ECDH payment derivation
+/// * `maker_pubkey` - maker's public key for hash-based stealth payment derivation
 /// * `change_amount` - amount maker gets as change (coin_amount - offered)
 /// * `change_puzzle` - puzzle hash for maker's change coin
 /// * `change_serial` - serial number for maker's change coin

@@ -1,6 +1,6 @@
 // Test that values >= 128 get correctly encoded with 2-byte CLVM format
 use clvm_zk::ProgramParameter;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 #[test]
 fn test_large_value_encoding() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing CLVM encoding for values >= 128...\n");

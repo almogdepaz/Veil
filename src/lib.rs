@@ -97,8 +97,9 @@ pub struct ClvmZkProver;
 
 impl ClvmZkProver {
     fn validate_chialisp_syntax(expression: &str) -> Result<(), ClvmZkError> {
-        use clvm_zk_core::chialisp::parse_chialisp;
-        parse_chialisp(expression)
+        // use clvm_tools_rs for syntax validation (will fail on invalid syntax)
+        use clvm_zk_core::compile_chialisp_template_hash_default;
+        compile_chialisp_template_hash_default(expression)
             .map_err(|e| ClvmZkError::InvalidProgram(format!("Syntax error: {:?}", e)))?;
         Ok(())
     }
@@ -145,7 +146,7 @@ impl ClvmZkProver {
     }
 
     /// prove spending with serial commitment verification and merkle membership
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::needless_return)]
     pub fn prove_with_serial_commitment(
         expression: &str,
         parameters: &[ProgramParameter],
@@ -157,6 +158,7 @@ impl ClvmZkProver {
         leaf_index: usize,
         program_hash: [u8; 32],
         amount: u64,
+        tail_hash: Option<[u8; 32]>,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         if parameters.len() > 10 {
             return Err(ClvmZkError::InvalidProgram(
@@ -180,6 +182,55 @@ impl ClvmZkProver {
                 program_hash,
                 amount,
             }),
+            tail_hash,
+            additional_coins: None, // single-coin API
+        };
+
+        #[cfg(feature = "risc0")]
+        {
+            let backend = clvm_zk_risc0::Risc0Backend::new()?;
+            return backend.prove_with_input(input);
+        }
+
+        #[cfg(feature = "sp1")]
+        {
+            let backend = clvm_zk_sp1::Sp1Backend::new()?;
+            return backend.prove_with_input(input);
+        }
+
+        #[cfg(feature = "mock")]
+        {
+            let backend = clvm_zk_mock::MockBackend::new()?;
+            backend.prove_with_input(input)
+        }
+    }
+
+    /// prove multi-coin ring spend (CATs)
+    ///
+    /// generates a single proof that spends multiple coins atomically
+    /// all coins must have the same tail_hash (enforced in guest)
+    #[allow(clippy::needless_return)]
+    pub fn prove_ring_spend(
+        expression: &str,
+        parameters: &[ProgramParameter],
+        serial_data: SerialCommitmentData,
+        tail_hash: Option<[u8; 32]>,
+        additional_coins: Vec<clvm_zk_core::AdditionalCoinInput>,
+    ) -> Result<ZKClvmResult, ClvmZkError> {
+        if parameters.len() > 10 {
+            return Err(ClvmZkError::InvalidProgram(
+                "Too many parameters (maximum 10: a-j)".to_string(),
+            ));
+        }
+
+        Self::validate_chialisp_syntax(expression)?;
+
+        let input = Input {
+            chialisp_source: expression.to_string(),
+            program_parameters: parameters.to_vec(),
+            serial_commitment_data: Some(serial_data),
+            tail_hash,
+            additional_coins: Some(additional_coins),
         };
 
         #[cfg(feature = "risc0")]

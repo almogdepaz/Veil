@@ -1,31 +1,33 @@
-//! ECDH payment keys for unlinkable offers
+//! Hash-based stealth payment keys for unlinkable transfers
 //!
 //! Payment keys enable receiver-derived addresses:
-//! - maker publishes ephemeral payment pubkey
-//! - taker derives shared secret via ECDH
-//! - payment address unlinkable to maker's identity
+//! - sender picks random nonce, computes puzzle = hash(receiver_pubkey || nonce)
+//! - sender encrypts nonce to receiver's pubkey
+//! - receiver decrypts nonce, derives same puzzle
 //!
-//! Uses x25519 (Curve25519) for ECDH, consistent with encrypted note infrastructure
+//! Uses hash-based stealth (consistent with settlement proofs) instead of ECDH
 
 use sha2::{Digest, Sha256};
-use x25519_dalek::{PublicKey, StaticSecret};
 
-/// payment key for ECDH address derivation
+/// payment key for stealth address derivation
 #[derive(Debug, Clone)]
 pub struct PaymentKey {
-    /// x25519 public key (32 bytes)
+    /// public key (32 bytes) - used in puzzle derivation
     pub pubkey: [u8; 32],
 
-    /// private scalar (only holder knows, None for receive-only keys)
+    /// private key (only holder knows, None for receive-only keys)
+    /// used for decrypting nonces sent by senders
     pub privkey: Option<[u8; 32]>,
 }
 
 impl PaymentKey {
-    /// create payment key from private scalar
+    /// create payment key from private key
     pub fn from_privkey(privkey: [u8; 32]) -> Self {
-        // derive public key using x25519
-        let secret = StaticSecret::from(privkey);
-        let pubkey = PublicKey::from(&secret).to_bytes();
+        // derive public key via hash (deterministic, no EC math needed)
+        let mut hasher = Sha256::new();
+        hasher.update(b"stealth_pubkey_v1");
+        hasher.update(privkey);
+        let pubkey: [u8; 32] = hasher.finalize().into();
 
         Self {
             pubkey,
@@ -55,9 +57,8 @@ impl PaymentKey {
     pub fn derive_offer_key(&self, offer_index: u32) -> Result<PaymentKey, &'static str> {
         let parent_privkey = self.privkey.ok_or("cannot derive from pubkey-only key")?;
 
-        let domain = b"offer_derivation";
         let mut hasher = Sha256::new();
-        hasher.update(domain);
+        hasher.update(b"offer_derivation");
         hasher.update(parent_privkey);
         hasher.update(offer_index.to_be_bytes());
 
@@ -74,52 +75,26 @@ impl PaymentKey {
         Ok(current)
     }
 
-    /// check if this key can spend a coin derived via ecdh
-    pub fn can_spend_ecdh_coin(&self, sender_pubkey: &[u8; 32], puzzle_hash: &[u8; 32]) -> bool {
-        if self.privkey.is_none() {
-            return false; // can't spend without privkey
-        }
-
-        // derive what puzzle_hash should be for this ecdh pair
-        let derived_result =
-            derive_ecdh_puzzle_hash_from_receiver(sender_pubkey, &self.privkey.unwrap());
-
-        match derived_result {
-            Ok(derived) => derived == *puzzle_hash,
-            Err(_) => false,
-        }
+    /// check if this key can spend a coin created with given nonce
+    ///
+    /// receiver uses their pubkey + the nonce to derive the expected puzzle
+    pub fn can_spend_stealth_coin(&self, nonce: &[u8; 32], puzzle_hash: &[u8; 32]) -> bool {
+        let derived = derive_stealth_puzzle_hash(&self.pubkey, nonce);
+        derived == *puzzle_hash
     }
 
-    /// scan for payments made via ecdh
+    /// derive encryption key for receiving encrypted nonces
     ///
-    /// given a list of (coin, sender_ephemeral_pubkey) pairs, returns indices of coins
-    /// that can be spent by this payment key
-    ///
-    /// usage:
-    /// ```ignore
-    /// let payment_key = PaymentKey::generate();
-    /// let coins_with_pubkeys = vec![
-    ///     (coin1, taker_pubkey1),
-    ///     (coin2, taker_pubkey2),
-    /// ];
-    /// let spendable = payment_key.scan_for_payments(&coins_with_pubkeys);
-    /// // spendable contains indices of coins this key can spend
-    /// ```
-    pub fn scan_for_payments(
-        &self,
-        coins: &[(crate::protocol::PrivateCoin, [u8; 32])],
-    ) -> Vec<usize> {
-        if self.privkey.is_none() {
-            return vec![]; // can't spend without privkey
-        }
+    /// senders encrypt nonces to this key so receiver can decrypt and derive puzzle
+    pub fn derive_encryption_key(&self) -> Result<[u8; 32], &'static str> {
+        let privkey = self
+            .privkey
+            .ok_or("cannot derive encryption key from pubkey-only")?;
 
-        let mut spendable_indices = Vec::new();
-        for (i, (coin, sender_pubkey)) in coins.iter().enumerate() {
-            if self.can_spend_ecdh_coin(sender_pubkey, &coin.puzzle_hash) {
-                spendable_indices.push(i);
-            }
-        }
-        spendable_indices
+        let mut hasher = Sha256::new();
+        hasher.update(b"stealth_encryption_v1");
+        hasher.update(privkey);
+        Ok(hasher.finalize().into())
     }
 
     /// get public key bytes
@@ -128,76 +103,25 @@ impl PaymentKey {
     }
 }
 
-/// derive ecdh puzzle hash using sender's private key (real ecdh)
+/// derive stealth puzzle hash from receiver's pubkey and sender's nonce
 ///
-/// sender side: has receiver_pubkey and sender_privkey
-/// computes shared_secret = receiver_pubkey * sender_privkey
+/// sender side: generates random nonce, computes puzzle, encrypts nonce to receiver
+/// receiver side: decrypts nonce, computes same puzzle
 ///
-/// uses x25519 for ECDH (compatible with encrypted notes)
-pub fn derive_ecdh_puzzle_hash_from_sender(
-    receiver_pubkey: &[u8; 32],
-    sender_privkey: &[u8; 32],
-) -> Result<[u8; 32], &'static str> {
-    // parse receiver's public key
-    let receiver_pk = PublicKey::from(*receiver_pubkey);
-
-    // parse sender's private key
-    let sender_sk = StaticSecret::from(*sender_privkey);
-
-    // ecdh: x25519 diffie-hellman
-    let shared_secret = sender_sk.diffie_hellman(&receiver_pk);
-
-    // derive puzzle_hash from shared secret
-    let domain = b"ecdh_payment_v1";
+/// consistent with settlement proof stealth address derivation
+pub fn derive_stealth_puzzle_hash(receiver_pubkey: &[u8; 32], nonce: &[u8; 32]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(domain);
-    hasher.update(shared_secret.as_bytes());
-
-    Ok(hasher.finalize().into())
-}
-
-/// derive ecdh puzzle hash using receiver's private key (real ecdh)
-///
-/// receiver side: has sender_pubkey and receiver_privkey
-/// computes shared_secret = sender_pubkey * receiver_privkey
-///
-/// produces SAME result as derive_ecdh_puzzle_hash_from_sender (ecdh property)
-pub fn derive_ecdh_puzzle_hash_from_receiver(
-    sender_pubkey: &[u8; 32],
-    receiver_privkey: &[u8; 32],
-) -> Result<[u8; 32], &'static str> {
-    // parse sender's public key
-    let sender_pk = PublicKey::from(*sender_pubkey);
-
-    // parse receiver's private key
-    let receiver_sk = StaticSecret::from(*receiver_privkey);
-
-    // ecdh: x25519 diffie-hellman
-    // CRITICAL: same result as sender side due to ecdh property
-    let shared_secret = receiver_sk.diffie_hellman(&sender_pk);
-
-    // derive puzzle_hash from shared secret
-    let domain = b"ecdh_payment_v1";
-    let mut hasher = Sha256::new();
-    hasher.update(domain);
-    hasher.update(shared_secret.as_bytes());
-
-    Ok(hasher.finalize().into())
-}
-
-/// simplified public-key-only derivation (fallback for testing/compatibility)
-///
-/// in production, use derive_ecdh_puzzle_hash_from_sender or derive_ecdh_puzzle_hash_from_receiver
-pub fn derive_ecdh_puzzle_hash(receiver_pubkey: &[u8; 32], sender_pubkey: &[u8; 32]) -> [u8; 32] {
-    // simplified hash-based derivation when only pubkeys available
-    // NOTE: this is NOT real ECDH, just for compatibility
-    let domain = b"ecdh_payment_v1_pubkey_only";
-    let mut hasher = Sha256::new();
-    hasher.update(domain);
+    hasher.update(b"stealth_v1");
     hasher.update(receiver_pubkey);
-    hasher.update(sender_pubkey);
-
+    hasher.update(nonce);
     hasher.finalize().into()
+}
+
+/// generate a random nonce for stealth payment
+pub fn generate_stealth_nonce() -> [u8; 32] {
+    let mut nonce = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut nonce);
+    nonce
 }
 
 #[cfg(test)]
@@ -212,21 +136,23 @@ mod tests {
     }
 
     #[test]
-    fn test_ecdh_commutative_property() {
-        // generate two keypairs
-        let alice = PaymentKey::generate();
-        let bob = PaymentKey::generate();
+    fn test_stealth_puzzle_derivation() {
+        let receiver = PaymentKey::generate();
+        let nonce = generate_stealth_nonce();
 
-        // alice computes: shared = bob_pub * alice_priv
-        let shared_alice =
-            derive_ecdh_puzzle_hash_from_sender(&bob.pubkey, &alice.privkey.unwrap()).unwrap();
+        // derive puzzle hash
+        let puzzle = derive_stealth_puzzle_hash(&receiver.pubkey, &nonce);
 
-        // bob computes: shared = alice_pub * bob_priv
-        let shared_bob =
-            derive_ecdh_puzzle_hash_from_receiver(&alice.pubkey, &bob.privkey.unwrap()).unwrap();
+        // receiver can verify with same nonce
+        assert!(receiver.can_spend_stealth_coin(&nonce, &puzzle));
 
-        // both should get same result!
-        assert_eq!(shared_alice, shared_bob);
+        // different nonce = different puzzle
+        let other_nonce = generate_stealth_nonce();
+        assert!(!receiver.can_spend_stealth_coin(&other_nonce, &puzzle));
+
+        // different receiver can't spend
+        let other = PaymentKey::generate();
+        assert!(!other.can_spend_stealth_coin(&nonce, &puzzle));
     }
 
     #[test]
@@ -245,19 +171,13 @@ mod tests {
     }
 
     #[test]
-    fn test_can_spend_ecdh_coin() {
-        let maker = PaymentKey::generate();
-        let taker = PaymentKey::generate();
+    fn test_deterministic_pubkey_derivation() {
+        let privkey = [42u8; 32];
 
-        // taker creates payment to maker
-        let payment_puzzle =
-            derive_ecdh_puzzle_hash_from_sender(&maker.pubkey, &taker.privkey.unwrap()).unwrap();
+        let key1 = PaymentKey::from_privkey(privkey);
+        let key2 = PaymentKey::from_privkey(privkey);
 
-        // maker should be able to identify the coin
-        assert!(maker.can_spend_ecdh_coin(&taker.pubkey, &payment_puzzle));
-
-        // random key should not be able to spend
-        let random = PaymentKey::generate();
-        assert!(!random.can_spend_ecdh_coin(&taker.pubkey, &payment_puzzle));
+        // same privkey = same pubkey
+        assert_eq!(key1.pubkey, key2.pubkey);
     }
 }

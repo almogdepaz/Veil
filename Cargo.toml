@@ -10,6 +10,7 @@ members = [
     "backends/sp1",                # sp1 backend implementation
     "backends/sp1/program",        # sp1 guest
     "backends/sp1/program_recursive", # sp1 recursive aggregation guest
+    "backends/sp1/program_settlement", # sp1 settlement guest
     "backends/mock"                # mock backend for testing
 ]
 
@@ -42,6 +43,9 @@ mock = ["dep:clvm-zk-mock", "clvm-zk-core/sha2-hasher"]  # mock backend for test
 # testing utilities (enabled by default for tests)
 testing = ["clvm-zk-core/sha2-hasher"]
 
+# optional debug logging (disabled by default for production)
+debug-logging = []
+
 [dependencies]
 # Core dependencies
 serde = { version = "1.0.219", features = ["derive"] }
@@ -59,6 +63,7 @@ k256 = { version = "0.13", features = ["ecdsa", "sha256"] }  # For ECDSA signatu
 rs_merkle = "1.5"  # For merkle tree proof generation on host
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }  # For ECDH key exchange in encrypted notes
 chacha20poly1305 = "0.10"  # For authenticated encryption of payment notes
+once_cell = "1.18"  # For lazy static initialization
 
 # Backend implementations
 clvm-zk-risc0 = { path = "backends/risc0", optional = true }

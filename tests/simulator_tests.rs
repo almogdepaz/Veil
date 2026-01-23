@@ -5,7 +5,7 @@
 
 use clvm_zk::protocol::PrivateCoin;
 use clvm_zk::simulator::*;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 
 use clvm_zk_core::coin_commitment::SerialCommitment;
 use sha2::{Digest, Sha256};

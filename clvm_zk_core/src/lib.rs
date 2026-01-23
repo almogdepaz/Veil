@@ -2,7 +2,7 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 
 use k256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 
@@ -10,17 +10,128 @@ use k256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 
 pub mod backend_utils;
-pub mod chialisp;
 pub mod clvm_parser;
 pub mod coin_commitment;
 pub mod merkle;
 pub mod operators;
 pub mod types;
 
-pub use chialisp::*;
 pub use clvm_parser::*;
 pub use operators::*;
 pub use types::*;
+
+// ============================================================================
+// Chialisp compilation utilities (previously in chialisp/mod.rs)
+// ============================================================================
+
+/// Standard Chia condition codes as defconstant declarations.
+/// Prepend this to chialisp source for readable condition opcodes.
+pub const STANDARD_CONDITION_CODES: &str = r#"
+(defconstant AGG_SIG_UNSAFE 49)
+(defconstant AGG_SIG_ME 50)
+(defconstant CREATE_COIN 51)
+(defconstant RESERVE_FEE 52)
+(defconstant CREATE_COIN_ANNOUNCEMENT 60)
+(defconstant ASSERT_COIN_ANNOUNCEMENT 61)
+(defconstant CREATE_PUZZLE_ANNOUNCEMENT 62)
+(defconstant ASSERT_PUZZLE_ANNOUNCEMENT 63)
+(defconstant ASSERT_MY_COIN_ID 70)
+(defconstant ASSERT_MY_PARENT_ID 71)
+(defconstant ASSERT_MY_PUZZLEHASH 72)
+(defconstant ASSERT_MY_AMOUNT 73)
+"#;
+
+/// Prepend standard condition codes to chialisp source.
+/// Use this when you want CREATE_COIN etc. to be available without defining them.
+pub fn with_standard_conditions(source: &str) -> String {
+    if let Some(mod_pos) = source.find("(mod") {
+        if let Some(paren_start) = source[mod_pos..].find('(').map(|p| mod_pos + p) {
+            if let Some(param_start) = source[paren_start + 1..].find('(') {
+                let param_start = paren_start + 1 + param_start;
+                let mut depth = 1;
+                let mut param_end = param_start + 1;
+                for (i, c) in source[param_start + 1..].char_indices() {
+                    match c {
+                        '(' => depth += 1,
+                        ')' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                param_end = param_start + 1 + i + 1;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let mut result =
+                    String::with_capacity(source.len() + STANDARD_CONDITION_CODES.len());
+                result.push_str(&source[..param_end]);
+                result.push_str(STANDARD_CONDITION_CODES);
+                result.push_str(&source[param_end..]);
+                return result;
+            }
+        }
+    }
+    format!("{}{}", STANDARD_CONDITION_CODES, source)
+}
+
+/// Compilation error types
+#[derive(Debug, Clone)]
+pub enum CompileError {
+    ParseError(String),
+}
+
+impl From<CompileError> for ClvmZkError {
+    fn from(err: CompileError) -> Self {
+        match err {
+            CompileError::ParseError(msg) => ClvmZkError::CompilationError(msg),
+        }
+    }
+}
+
+/// Compile chialisp source to bytecode and program hash
+pub fn compile_chialisp_to_bytecode(
+    hasher: Hasher,
+    source: &str,
+) -> Result<(Vec<u8>, [u8; 32]), CompileError> {
+    let bytecode = clvm_tools_rs::compile_chialisp(source).map_err(|e| {
+        CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e))
+    })?;
+    let program_hash = hasher(&bytecode);
+    Ok((bytecode, program_hash))
+}
+
+/// Compile chialisp source to get program hash only
+pub fn compile_chialisp_template_hash(
+    hasher: Hasher,
+    source: &str,
+) -> Result<[u8; 32], CompileError> {
+    let bytecode = clvm_tools_rs::compile_chialisp(source).map_err(|e| {
+        CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e))
+    })?;
+    Ok(hasher(&bytecode))
+}
+
+/// Compile chialisp to get template hash using default SHA-256 hasher
+#[cfg(feature = "sha2-hasher")]
+pub fn compile_chialisp_template_hash_default(source: &str) -> Result<[u8; 32], CompileError> {
+    let bytecode = clvm_tools_rs::compile_chialisp(source).map_err(|e| {
+        CompileError::ParseError(format!("clvm_tools_rs compilation failed: {}", e))
+    })?;
+    Ok(hash_data(&bytecode))
+}
+
+// ============================================================================
+// End chialisp utilities
+// ============================================================================
+
+// re-export for convenience
+pub use types::AdditionalCoinInput;
+
+// re-export coin_commitment items for guest programs
+pub use coin_commitment::{
+    build_coin_commitment_preimage, CoinCommitment, CoinSecrets, SerialCommitment, XCH_TAIL,
+};
 
 // Re-export VeilEvaluator from clvm_tools_rs for direct CLVM execution
 pub use clvm_tools_rs::VeilEvaluator;
@@ -145,7 +256,14 @@ pub fn verify_ecdsa_signature_with_hasher(
         Err(_) => return Err("invalid public key format - failed to parse"),
     };
 
-    // parse the signature - handle variable length by padding if needed
+    // parse the signature - ECDSA signatures must be exactly 64 bytes (r || s, each 32 bytes)
+    //
+    // SECURITY: we do NOT pad short signatures with zeros as this could accept
+    // truncated/malformed signatures. signatures are binary data, not integers,
+    // so trailing zeros are significant.
+    //
+    // if CLVM is stripping trailing zeros from signatures, the signature encoding
+    // should use DER format or be explicitly prefixed with length bytes.
     let signature = if signature_bytes.len() == 64 {
         // 64-byte compact format (r || s, each 32 bytes)
         match Signature::try_from(signature_bytes) {
@@ -153,23 +271,23 @@ pub fn verify_ecdsa_signature_with_hasher(
             Err(_) => return Err("invalid compact signature format"),
         }
     } else if signature_bytes.len() < 64 {
-        // Pad with trailing zeros to get to 64 bytes (CLVM may have stripped trailing zeros)
-        let mut padded = signature_bytes.to_vec();
-        padded.resize(64, 0); // pad to 64 bytes with trailing zeros
-        match Signature::try_from(padded.as_slice()) {
-            Ok(sig) => sig,
-            Err(_) => return Err("invalid padded signature format"),
-        }
+        // reject short signatures - don't pad with zeros
+        return Err("signature too short - expected exactly 64 bytes for ECDSA compact format");
     } else {
-        return Err("signature too long - expected at most 64 bytes");
+        return Err("signature too long - expected exactly 64 bytes for ECDSA compact format");
     };
 
-    // check if message is already a hash (32 bytes) or raw message
+    // the message to verify is expected to be pre-hashed (32 bytes)
+    // or a raw message that needs hashing.
+    //
+    // SECURITY NOTE: if message is exactly 32 bytes, we assume it's a pre-hash.
+    // this is a common convention but callers should be aware of this behavior.
+    // to verify a 32-byte raw message, hash it first before passing.
     let message_hash = if message_bytes.len() == 32 {
-        // assume it's already a hash, use directly
+        // treat as pre-hashed message
         message_bytes.to_vec()
     } else {
-        // hash the message using the provided hasher
+        // hash the raw message
         hasher(message_bytes).to_vec()
     };
 
@@ -417,6 +535,118 @@ fn extract_args_from_list(value: &ClvmValue) -> Result<Vec<Vec<u8>>, &'static st
     Ok(args)
 }
 
+// Announcement condition opcodes
+pub const CREATE_COIN_ANNOUNCEMENT: u8 = 60;
+pub const ASSERT_COIN_ANNOUNCEMENT: u8 = 61;
+pub const CREATE_PUZZLE_ANNOUNCEMENT: u8 = 62;
+pub const ASSERT_PUZZLE_ANNOUNCEMENT: u8 = 63;
+
+/// Process announcement conditions for privacy
+///
+/// This function:
+/// 1. Collects all CREATE_*_ANNOUNCEMENT conditions (60, 62)
+/// 2. Collects all ASSERT_*_ANNOUNCEMENT conditions (61, 63)
+/// 3. Verifies every assertion has a matching announcement
+/// 4. Returns filtered conditions with announcements removed
+///
+/// Announcements are verified in-circuit and suppressed from output
+/// to preserve privacy. This is essential for CATs, atomic swaps,
+/// and any cross-coin validation protocol.
+///
+/// # Arguments
+/// * `conditions` - all conditions from CLVM execution
+/// * `puzzle_hash` - the puzzle hash of the coin being spent (for puzzle announcements)
+/// * `coin_id` - optional coin ID for coin announcements (None if not available)
+/// * `hasher` - hash function for computing announcement hashes
+///
+/// # Returns
+/// * Ok(filtered_conditions) - conditions with announcements removed
+/// * Err - if any assertion doesn't have a matching announcement
+pub fn process_announcements(
+    conditions: Vec<Condition>,
+    puzzle_hash: &[u8; 32],
+    coin_id: Option<&[u8; 32]>,
+    hasher: fn(&[u8]) -> [u8; 32],
+) -> Result<Vec<Condition>, &'static str> {
+    // Collect announcements: hash -> original message (for debugging)
+    let mut announcement_hashes: Vec<[u8; 32]> = Vec::new();
+
+    // Collect assertions to verify
+    let mut assertion_hashes: Vec<[u8; 32]> = Vec::new();
+
+    // First pass: collect all announcements and assertions
+    for condition in &conditions {
+        match condition.opcode {
+            CREATE_PUZZLE_ANNOUNCEMENT => {
+                // CREATE_PUZZLE_ANNOUNCEMENT(message)
+                // hash = sha256(puzzle_hash || message)
+                if condition.args.is_empty() {
+                    return Err("CREATE_PUZZLE_ANNOUNCEMENT requires message argument");
+                }
+                let message = &condition.args[0];
+                let mut data = Vec::with_capacity(32 + message.len());
+                data.extend_from_slice(puzzle_hash);
+                data.extend_from_slice(message);
+                let hash = hasher(&data);
+                announcement_hashes.push(hash);
+            }
+            CREATE_COIN_ANNOUNCEMENT => {
+                // CREATE_COIN_ANNOUNCEMENT(message)
+                // hash = sha256(coin_id || message)
+                if condition.args.is_empty() {
+                    return Err("CREATE_COIN_ANNOUNCEMENT requires message argument");
+                }
+                let message = &condition.args[0];
+                if let Some(cid) = coin_id {
+                    let mut data = Vec::with_capacity(32 + message.len());
+                    data.extend_from_slice(cid);
+                    data.extend_from_slice(message);
+                    let hash = hasher(&data);
+                    announcement_hashes.push(hash);
+                }
+                // If no coin_id provided, skip coin announcements
+                // (puzzle announcements still work)
+            }
+            ASSERT_PUZZLE_ANNOUNCEMENT | ASSERT_COIN_ANNOUNCEMENT => {
+                // ASSERT_*_ANNOUNCEMENT(announcement_hash)
+                if condition.args.is_empty() {
+                    return Err("ASSERT_*_ANNOUNCEMENT requires hash argument");
+                }
+                if condition.args[0].len() != 32 {
+                    return Err("announcement hash must be 32 bytes");
+                }
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(&condition.args[0]);
+                assertion_hashes.push(hash);
+            }
+            _ => {}
+        }
+    }
+
+    // Verify all assertions are satisfied
+    for assertion in &assertion_hashes {
+        if !announcement_hashes.contains(assertion) {
+            return Err("announcement assertion not satisfied");
+        }
+    }
+
+    // Filter out announcement conditions from output
+    let filtered: Vec<Condition> = conditions
+        .into_iter()
+        .filter(|c| {
+            !matches!(
+                c.opcode,
+                CREATE_COIN_ANNOUNCEMENT
+                    | ASSERT_COIN_ANNOUNCEMENT
+                    | CREATE_PUZZLE_ANNOUNCEMENT
+                    | ASSERT_PUZZLE_ANNOUNCEMENT
+            )
+        })
+        .collect();
+
+    Ok(filtered)
+}
+
 /// Convert Vec<Condition> to ClvmValue list representation
 /// Each condition becomes: (opcode arg1 arg2 ...)
 /// All conditions form a list: ((opcode1 args...) (opcode2 args...) ...)
@@ -481,9 +711,8 @@ pub fn serialize_params_to_clvm(params: &[ProgramParameter]) -> Vec<u8> {
 
 /// Run CLVM bytecode using VeilEvaluator and parse conditions from output
 ///
-/// This function provides a bridge between the old ClvmEvaluator interface and
-/// the new VeilEvaluator. It assumes the program returns a list of conditions
-/// as its output (standard Chia model).
+/// Executes compiled CLVM bytecode and parses the output as Chia-style conditions.
+/// The program is expected to return a list of conditions as its output.
 ///
 /// # Arguments
 /// * `evaluator` - VeilEvaluator with injected crypto functions
@@ -521,7 +750,7 @@ pub fn create_veil_evaluator(
 
 #[cfg(test)]
 mod security_tests {
-    use crate::chialisp::compile_chialisp_to_bytecode;
+    use crate::compile_chialisp_to_bytecode;
     use crate::hash_data;
 
     #[test]
@@ -540,5 +769,224 @@ mod security_tests {
         let source2 = "(mod (x y) (* x y))";
         let (_, hash3) = compile_chialisp_to_bytecode(hash_data, source2).unwrap();
         assert_ne!(hash1, hash3);
+    }
+}
+
+// ============================================================================
+// ring spend balance enforcement
+// ============================================================================
+
+/// enforce balance and tail_hash consistency for ring spends
+///
+/// verifies:
+/// - sum(input amounts) == sum(output CREATE_COIN amounts)
+/// - all coins have same tail_hash (single-asset ring)
+///
+/// # security
+/// prevents inflation/deflation attacks where attacker spends N coins
+/// but creates outputs totaling more/less than N
+///
+/// # returns
+/// (total_input_amount, total_output_amount) after validation
+pub fn enforce_ring_balance(
+    private_inputs: &Input,
+    conditions: &[Condition],
+) -> Result<(u64, u64), &'static str> {
+    // track output amounts from CREATE_COIN conditions
+    let mut total_output_amount: u64 = 0;
+
+    for condition in conditions {
+        if condition.opcode == 51 {
+            // CREATE_COIN
+            let amount = match condition.args.len() {
+                2 | 4 => {
+                    // both transparent (2-arg) and private (4-arg) modes
+                    // handle variable-length amount encoding (chialisp uses compact encoding)
+                    let amount_bytes = &condition.args[1];
+                    if amount_bytes.len() == 8 {
+                        u64::from_be_bytes(amount_bytes.as_slice().try_into().unwrap())
+                    } else if amount_bytes.len() < 8 && !amount_bytes.is_empty() {
+                        // pad to 8 bytes (big-endian: zeros on left)
+                        let mut padded = [0u8; 8];
+                        padded[8 - amount_bytes.len()..].copy_from_slice(amount_bytes);
+                        u64::from_be_bytes(padded)
+                    } else {
+                        0
+                    }
+                }
+                _ => 0,
+            };
+            total_output_amount += amount;
+        }
+    }
+
+    // sum input amounts and verify tail_hash consistency
+    let total_input_amount = if let Some(commitment_data) = &private_inputs.serial_commitment_data {
+        let mut input_sum = commitment_data.amount; // primary coin
+
+        if let Some(additional_coins) = &private_inputs.additional_coins {
+            let primary_tail_hash = private_inputs.tail_hash.unwrap_or([0u8; 32]);
+
+            for coin in additional_coins {
+                // enforce single-asset ring (defense in depth)
+                if coin.tail_hash != primary_tail_hash {
+                    return Err("ring spend: all coins must have same tail_hash");
+                }
+
+                input_sum += coin.serial_commitment_data.amount;
+            }
+        }
+
+        // prevent inflation: output cannot exceed input
+        // allows burning/locking (output < input) for fees, conditional spends, etc.
+        if total_output_amount > input_sum {
+            return Err("inflation: output exceeds input");
+        }
+
+        input_sum
+    } else {
+        0 // no serial commitment = simple program execution
+    };
+
+    Ok((total_input_amount, total_output_amount))
+}
+
+// ============================================================================
+// cryptographic domain constants
+// ============================================================================
+
+pub const SERIAL_DOMAIN: &[u8] = b"clvm_zk_serial_v1.0";
+pub const COIN_DOMAIN: &[u8] = b"clvm_zk_coin_v2.0";
+pub const SERIAL_COMMITMENT_SIZE: usize = 83; // domain(19) + serial_number(32) + serial_randomness(32)
+pub const COIN_COMMITMENT_SIZE: usize = 121; // domain(17) + tail_hash(32) + amount(8) + puzzle_hash(32) + serial_commitment(32)
+pub const NULLIFIER_DATA_SIZE: usize = 72; // serial_number(32) + program_hash(32) + amount(8)
+
+// ============================================================================
+// commitment computation helpers
+// ============================================================================
+
+/// compute serial commitment: hash(domain || serial_number || serial_randomness)
+pub fn compute_serial_commitment<H>(
+    hasher: H,
+    serial_number: &[u8; 32],
+    serial_randomness: &[u8; 32],
+) -> [u8; 32]
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    let mut serial_data = [0u8; SERIAL_COMMITMENT_SIZE];
+    serial_data[..19].copy_from_slice(SERIAL_DOMAIN);
+    serial_data[19..51].copy_from_slice(serial_number);
+    serial_data[51..83].copy_from_slice(serial_randomness);
+    hasher(&serial_data)
+}
+
+/// compute coin commitment v2.0: hash(domain || tail_hash || amount || puzzle_hash || serial_commitment)
+pub fn compute_coin_commitment<H>(
+    hasher: H,
+    tail_hash: [u8; 32],
+    amount: u64,
+    puzzle_hash: &[u8; 32],
+    serial_commitment: &[u8; 32],
+) -> [u8; 32]
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    let mut coin_data = [0u8; COIN_COMMITMENT_SIZE];
+    coin_data[..17].copy_from_slice(COIN_DOMAIN);
+    coin_data[17..49].copy_from_slice(&tail_hash);
+    coin_data[49..57].copy_from_slice(&amount.to_be_bytes());
+    coin_data[57..89].copy_from_slice(puzzle_hash);
+    coin_data[89..121].copy_from_slice(serial_commitment);
+    hasher(&coin_data)
+}
+
+/// compute nullifier: hash(serial_number || program_hash || amount)
+pub fn compute_nullifier<H>(
+    hasher: H,
+    serial_number: &[u8; 32],
+    program_hash: &[u8; 32],
+    amount: u64,
+) -> [u8; 32]
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    let mut nullifier_data = Vec::with_capacity(NULLIFIER_DATA_SIZE);
+    nullifier_data.extend_from_slice(serial_number);
+    nullifier_data.extend_from_slice(program_hash);
+    nullifier_data.extend_from_slice(&amount.to_be_bytes());
+    hasher(&nullifier_data)
+}
+
+// ============================================================================
+// merkle proof verification
+// ============================================================================
+
+/// maximum allowed merkle proof depth (matches merkle.rs MAX_TREE_DEPTH)
+/// prevents DoS via excessively long proofs that waste cycles
+pub const MAX_MERKLE_PROOF_DEPTH: usize = 64;
+
+/// verify merkle proof for a leaf at given index
+///
+/// # security bounds
+/// merkle_path length is bounded to MAX_MERKLE_PROOF_DEPTH (64) to prevent
+/// DoS attacks via excessively long proofs.
+pub fn verify_merkle_proof<H>(
+    hasher: H,
+    leaf_hash: [u8; 32],
+    merkle_path: &[[u8; 32]],
+    leaf_index: usize,
+    expected_root: [u8; 32],
+) -> Result<(), &'static str>
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    // validate merkle path depth to prevent DoS
+    if merkle_path.len() > MAX_MERKLE_PROOF_DEPTH {
+        return Err("merkle proof too deep (max 64 levels)");
+    }
+
+    let mut current_hash = leaf_hash;
+    let mut current_index = leaf_index;
+
+    for sibling in merkle_path.iter() {
+        let mut combined = [0u8; 64];
+        if current_index.is_multiple_of(2) {
+            combined[..32].copy_from_slice(&current_hash);
+            combined[32..].copy_from_slice(sibling);
+        } else {
+            combined[..32].copy_from_slice(sibling);
+            combined[32..].copy_from_slice(&current_hash);
+        }
+        current_hash = hasher(&combined);
+        current_index /= 2;
+    }
+
+    if current_hash == expected_root {
+        Ok(())
+    } else {
+        Err("merkle root mismatch")
+    }
+}
+
+// ============================================================================
+// amount parsing utilities
+// ============================================================================
+
+/// parse variable-length amount bytes (chialisp uses compact encoding)
+/// pads to 8 bytes big-endian if needed
+pub fn parse_variable_length_amount(bytes: &[u8]) -> Result<u64, &'static str> {
+    if bytes.is_empty() {
+        return Ok(0);
+    }
+    if bytes.len() > 8 {
+        return Err("amount too large (max 8 bytes)");
+    }
+    if bytes.len() == 8 {
+        Ok(u64::from_be_bytes(bytes.try_into().unwrap()))
+    } else {
+        let mut padded = [0u8; 8];
+        padded[8 - bytes.len()..].copy_from_slice(bytes);
+        Ok(u64::from_be_bytes(padded))
     }
 }

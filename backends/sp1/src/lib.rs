@@ -4,6 +4,10 @@ pub mod recursive;
 pub use methods::*;
 pub use recursive::RecursiveAggregator;
 
+// re-export for settlement.rs
+pub use bincode;
+pub use sp1_sdk;
+
 pub use clvm_zk_core::{
     ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
 };
@@ -35,6 +39,7 @@ impl Sp1Backend {
         })
     }
 
+    #[allow(clippy::const_is_empty)]
     fn is_sp1_available() -> bool {
         !CLVM_ZK_SP1_ELF.is_empty()
     }
@@ -66,6 +71,8 @@ impl Sp1Backend {
             chialisp_source: chialisp_source.to_string(),
             program_parameters: program_parameters.to_vec(),
             serial_commitment_data: None,
+            tail_hash: None,        // XCH by default
+            additional_coins: None, // single-coin spend
         };
 
         let mut stdin = SP1Stdin::new();

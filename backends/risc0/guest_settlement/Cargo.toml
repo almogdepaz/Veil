@@ -8,7 +8,7 @@ risc0-zkvm = "3.0.3"
 clvm-zk-core = { path = "../../../clvm_zk_core", features = ["risc0"] }
 serde = { version = "1.0", features = ["derive"] }
 borsh = { version = "1.5", features = ["derive"] }
-x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+# removed x25519-dalek - using hash-based stealth instead of ECDH
 
 [[bin]]
 name = "settlement"

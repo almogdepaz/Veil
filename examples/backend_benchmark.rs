@@ -1,5 +1,5 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::{compile_chialisp_template_hash_default, with_standard_conditions};
 use std::time::{Duration, Instant};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,20 +21,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("backend: {}\n", backend_name);
 
     // test expressions with varying complexity
-    let test_cases = vec![
+    let blockchain_cond = with_standard_conditions("(mod (a b) (list (list CREATE_COIN a b)))");
+    let test_cases: Vec<(&str, String, Vec<ProgramParameter>)> = vec![
         (
             "simple addition",
-            "(mod (a b) (+ a b))",
+            "(mod (a b) (+ a b))".to_string(),
             vec![ProgramParameter::int(42), ProgramParameter::int(13)],
         ),
         (
             "multiplication",
-            "(mod (a b) (* a b))",
+            "(mod (a b) (* a b))".to_string(),
             vec![ProgramParameter::int(7), ProgramParameter::int(8)],
         ),
         (
             "nested operations",
-            "(mod (a b c d) (+ (* a b) (+ c d)))",
+            "(mod (a b c d) (+ (* a b) (+ c d)))".to_string(),
             vec![
                 ProgramParameter::int(3),
                 ProgramParameter::int(4),
@@ -44,12 +45,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         (
             "comparison",
-            "(mod (a b) (> a b))",
+            "(mod (a b) (> a b))".to_string(),
             vec![ProgramParameter::int(10), ProgramParameter::int(5)],
         ),
         (
             "blockchain condition",
-            "(mod (a b) (create_coin a b))",
+            blockchain_cond,
             vec![ProgramParameter::int(1000), ProgramParameter::int(500)],
         ),
     ];
@@ -60,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_benchmark(
-    test_cases: &[(impl AsRef<str>, &str, Vec<ProgramParameter>)],
+    test_cases: &[(&str, String, Vec<ProgramParameter>)],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut total_prove_time = Duration::new(0, 0);
     let mut total_verify_time = Duration::new(0, 0);
@@ -68,7 +69,7 @@ fn run_benchmark(
     let mut successful_tests = 0;
 
     for (test_name, expression, params) in test_cases {
-        print!("📋 testing {}: ", test_name.as_ref());
+        print!("📋 testing {}: ", test_name);
 
         // prove using high-level api (uses automatic backend selection)
         let prove_start = Instant::now();

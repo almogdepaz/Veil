@@ -1,7 +1,7 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
 use tokio::task;
 mod common;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 
 use common::BATCH_SIZE;
 

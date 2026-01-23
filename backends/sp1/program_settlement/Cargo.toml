@@ -1,0 +1,16 @@
+[package]
+name = "clvm-zk-sp1-program-settlement"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sp1-zkvm = "5.2.2"
+sp1-lib = "5.2.2"
+clvm-zk-core = { path = "../../../clvm_zk_core", default-features = false, features = ["sp1"] }
+# use sp1's patched sha2 for syscall optimization
+sha2 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", package = "sha2", branch = "patch-sha2-v0.10.8", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+
+[[bin]]
+name = "settlement"
+path = "src/main.rs"

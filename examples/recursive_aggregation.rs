@@ -1,5 +1,5 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::coin_commitment::{CoinCommitment, CoinSecrets};
+use clvm_zk_core::coin_commitment::{CoinCommitment, CoinSecrets, XCH_TAIL};
 use clvm_zk_core::merkle::SparseMerkleTree;
 use sha2::{Digest, Sha256};
 
@@ -38,8 +38,13 @@ fn main() {
 
         // compute commitments
         let serial_commitment = coin_secrets.serial_commitment(hash_data);
-        let coin_commitment =
-            CoinCommitment::compute(amount, &program_hash, &serial_commitment, hash_data);
+        let coin_commitment = CoinCommitment::compute(
+            &XCH_TAIL,
+            amount,
+            &program_hash,
+            &serial_commitment,
+            hash_data,
+        );
 
         // insert into merkle tree
         let leaf_index = merkle_tree.insert(*coin_commitment.as_bytes(), hash_data);
@@ -79,6 +84,7 @@ fn main() {
             *leaf_index,
             program_hash,
             *amount,
+            None, // XCH (no CAT tail_hash)
         )
         .unwrap();
 

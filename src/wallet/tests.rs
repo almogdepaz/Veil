@@ -1,8 +1,9 @@
-#![cfg(test)]
-
+#[cfg(test)]
 use super::*;
+#[cfg(test)]
 use crate::wallet::hd_wallet::*;
 
+#[cfg(test)]
 const TEST_SEED: &[u8] = b"test seed must be at least 16 bytes long!!!";
 
 #[test]

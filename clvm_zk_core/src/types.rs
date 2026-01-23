@@ -1,7 +1,7 @@
 //! core types for clvm evaluation
 
 extern crate alloc;
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{boxed::Box, string::String, string::ToString, vec::Vec};
 
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +60,9 @@ pub enum ClvmValue {
 }
 
 /// unified error type for clvm-zk operations
+///
+/// this is the primary error type for the clvm-zk crate. other error types
+/// (CompileError, ProtocolError, etc.) can be converted to this type.
 #[derive(Debug, thiserror::Error)]
 pub enum ClvmZkError {
     #[error("Serialization error: {0}")]
@@ -91,6 +94,28 @@ pub enum ClvmZkError {
 
     #[error("Invalid proof format: {0}")]
     InvalidProofFormat(String),
+
+    #[error("Compilation error: {0}")]
+    CompilationError(String),
+
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
+    #[error("Merkle proof error: {0}")]
+    MerkleError(String),
+
+    #[error("Cryptographic error: {0}")]
+    CryptoError(String),
+
+    #[error("Nullifier error: {0}")]
+    NullifierError(String),
+}
+
+impl ClvmZkError {
+    /// create from a static str (useful in no_std contexts)
+    pub fn from_static(msg: &'static str) -> Self {
+        ClvmZkError::ClvmError(msg.to_string())
+    }
 }
 
 /// common zkvm backend types
@@ -115,6 +140,34 @@ pub struct Input {
     /// - None: Simple program execution (BLS tests, basic proving)
     /// - Some(...): Full serial commitment protocol (blockchain simulator, real spending)
     pub serial_commitment_data: Option<SerialCommitmentData>,
+
+    /// Asset type identifier (TAIL hash)
+    /// - None: XCH (native currency, equivalent to [0u8; 32])
+    /// - Some(hash): CAT with this TAIL program hash
+    ///   Used in commitment v2: hash("clvm_zk_coin_v2.0" || tail_hash || amount || puzzle_hash || serial_commitment)
+    #[serde(default)]
+    pub tail_hash: Option<[u8; 32]>,
+
+    /// additional coins for multi-coin ring spends
+    /// - None: single coin spend
+    /// - Some(vec): multi-coin ring spend (all coins share same tail_hash)
+    ///   guest enforces tail_hash matching across all ring coins
+    #[serde(default)]
+    pub additional_coins: Option<Vec<AdditionalCoinInput>>,
+}
+
+/// additional coin input for ring spends
+/// each coin evaluates independently but shares announcement verification
+#[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct AdditionalCoinInput {
+    /// Chialisp source for this coin (typically same CAT puzzle as primary)
+    pub chialisp_source: String,
+    /// Parameters for this coin's puzzle
+    pub program_parameters: Vec<ProgramParameter>,
+    /// Serial commitment data (required for ring coins)
+    pub serial_commitment_data: SerialCommitmentData,
+    /// Asset type (must match primary coin's tail_hash for valid ring)
+    pub tail_hash: [u8; 32],
 }
 
 /// Serial commitment protocol data for nullifier-based spending
@@ -168,8 +221,11 @@ pub struct ClvmResult {
 pub struct ProofOutput {
     /// Program hash for verification (hash of template bytecode)
     pub program_hash: [u8; 32],
-    /// Nullifier for double-spend prevention
-    pub nullifier: Option<[u8; 32]>,
+    /// Nullifiers for double-spend prevention
+    /// - Empty vec: No nullifier (simple program execution)
+    /// - Single element: Standard spend (one coin)
+    /// - Multiple elements: Ring spend (CAT multi-coin transaction)
+    pub nullifiers: Vec<[u8; 32]>,
     /// CLVM execution result
     pub clvm_res: ClvmResult,
     /// Proof type (Transaction, ConditionalSpend, Settlement)

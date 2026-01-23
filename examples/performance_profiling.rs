@@ -1,5 +1,5 @@
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::{compile_chialisp_template_hash_default, with_standard_conditions};
 use std::time::{Duration, Instant};
 
 /// Performance profiling example demonstrating optimization techniques
@@ -8,46 +8,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("================================\n");
 
     // Test cases with different complexity levels
-    let test_cases = vec![
+    let test_cases: Vec<(&str, String, Vec<i64>)> = vec![
         // Simple operations (baseline)
-        ("Simple Addition", "(mod (a b) (+ a b))", vec![5, 3]),
-        ("Simple Multiplication", "(mod (a b) (* a b))", vec![7, 8]),
+        ("Simple Addition", "(mod (a b) (+ a b))".into(), vec![5, 3]),
+        (
+            "Simple Multiplication",
+            "(mod (a b) (* a b))".into(),
+            vec![7, 8],
+        ),
         // Medium complexity
         (
             "Nested Arithmetic",
-            "(mod (a b c d) (+ (* a b) (- c d)))",
+            "(mod (a b c d) (+ (* a b) (- c d)))".into(),
             vec![5, 3, 10, 4],
         ),
         (
             "Conditional Logic",
-            "(mod (a b c d) (i (> a b) c d))",
+            "(mod (a b c d) (i (> a b) c d))".into(),
             vec![7, 3, 100, 200],
         ),
         // Complex operations
         (
             "Deep Nesting",
-            "(mod (a b c d e f g h) (+ (+ (+ a b) (+ c d)) (+ (+ e f) (+ g h))))",
+            "(mod (a b c d e f g h) (+ (+ (+ a b) (+ c d)) (+ (+ e f) (+ g h))))".into(),
             vec![1, 2, 3, 4, 5, 6, 7, 8],
         ),
         (
             "Modular Exponentiation",
-            "(mod (a b c) (modpow a b c))",
+            "(mod (a b c) (modpow a b c))".into(),
             vec![5, 3, 13],
         ),
         (
             "Division with Remainder",
-            "(mod (a b) (divmod a b))",
+            "(mod (a b) (divmod a b))".into(),
             vec![17, 5],
         ),
-        // Blockchain conditions
+        // Blockchain conditions (need constants defined)
         (
             "Create Coin Condition",
-            "(mod (a b) (create_coin a b))",
+            with_standard_conditions("(mod (a b) (list (list CREATE_COIN a b)))"),
             vec![1000, 500],
         ),
         (
             "Reserve Fee Condition",
-            "(mod (a) (reserve_fee a))",
+            with_standard_conditions("(mod (a) (list (list RESERVE_FEE a)))"),
             vec![100],
         ),
     ];
@@ -67,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         for _ in 0..3 {
             let proof_start = Instant::now();
-            let result = ClvmZkProver::prove(expression, &params)?;
+            let result = ClvmZkProver::prove(&expression, &params)?;
             let proof_time = proof_start.elapsed();
 
             proof_times.push(proof_time);
@@ -78,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Measure verification time (5 runs for average)
         let mut verification_times = Vec::new();
-        let program_hash = compile_chialisp_template_hash_default(expression).unwrap();
+        let program_hash = compile_chialisp_template_hash_default(&expression).unwrap();
         for _ in 0..5 {
             let verify_start = Instant::now();
             let (_is_valid, _) =

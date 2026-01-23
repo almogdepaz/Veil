@@ -4,7 +4,6 @@ pub mod recursive;
 pub use methods::*;
 pub use recursive::RecursiveAggregator;
 
-use borsh;
 use clvm_zk_core::backend_utils::{
     convert_proving_error, validate_nullifier_proof_output, validate_proof_output,
 };
@@ -25,6 +24,7 @@ impl Risc0Backend {
         Ok(Self {})
     }
 
+    #[allow(clippy::const_is_empty)]
     fn is_risc0_available() -> bool {
         !CLVM_RISC0_GUEST_ELF.is_empty()
     }
@@ -40,6 +40,8 @@ impl Risc0Backend {
             chialisp_source: chialisp_source.to_string(),
             program_parameters: program_parameters.to_vec(),
             serial_commitment_data: None,
+            tail_hash: None,        // XCH by default
+            additional_coins: None, // single-coin spend
         };
         let env = ExecutorEnv::builder()
             .write(&inputs)
@@ -64,6 +66,25 @@ impl Risc0Backend {
         let result: ProofOutput = receipt_obj.journal.decode().map_err(|e| {
             ClvmZkError::InvalidProofFormat(format!("failed to decode journal: {e}"))
         })?;
+
+        // // PROFILING: decode and print cycle counts if present
+        // if !result.public_values.is_empty() && result.public_values[0].len() == 24 {
+        //     let data = &result.public_values[0];
+        //     let compile_cycles = u64::from_le_bytes(data[0..8].try_into().unwrap());
+        //     let exec_cycles = u64::from_le_bytes(data[8..16].try_into().unwrap());
+        //     let total_cycles = u64::from_le_bytes(data[16..24].try_into().unwrap());
+        //
+        //     // convert cycles to approximate seconds (risc0 ~2.4M cycles/sec on modern hardware)
+        //     let cycles_per_sec = 2_400_000.0;
+        //     eprintln!("   📊 PROFILING: compile={:.1}M cycles ({:.1}s) | exec={:.1}M cycles ({:.1}s) | total={:.1}M cycles ({:.1}s)",
+        //         compile_cycles as f64 / 1_000_000.0,
+        //         compile_cycles as f64 / cycles_per_sec,
+        //         exec_cycles as f64 / 1_000_000.0,
+        //         exec_cycles as f64 / cycles_per_sec,
+        //         total_cycles as f64 / 1_000_000.0,
+        //         total_cycles as f64 / cycles_per_sec,
+        //     );
+        // }
 
         validate_proof_output(&result, "RISC0")?;
 
@@ -108,6 +129,25 @@ impl Risc0Backend {
         let result: ProofOutput = receipt_obj.journal.decode().map_err(|e| {
             ClvmZkError::InvalidProofFormat(format!("failed to decode journal: {e}"))
         })?;
+
+        // // PROFILING: decode and print cycle counts if present
+        // if !result.public_values.is_empty() && result.public_values[0].len() == 24 {
+        //     let data = &result.public_values[0];
+        //     let compile_cycles = u64::from_le_bytes(data[0..8].try_into().unwrap());
+        //     let exec_cycles = u64::from_le_bytes(data[8..16].try_into().unwrap());
+        //     let total_cycles = u64::from_le_bytes(data[16..24].try_into().unwrap());
+        //
+        //     // convert cycles to approximate seconds (risc0 ~2.4M cycles/sec on modern hardware)
+        //     let cycles_per_sec = 2_400_000.0;
+        //     eprintln!("   📊 PROFILING: compile={:.1}M cycles ({:.1}s) | exec={:.1}M cycles ({:.1}s) | total={:.1}M cycles ({:.1}s)",
+        //         compile_cycles as f64 / 1_000_000.0,
+        //         compile_cycles as f64 / cycles_per_sec,
+        //         exec_cycles as f64 / 1_000_000.0,
+        //         exec_cycles as f64 / cycles_per_sec,
+        //         total_cycles as f64 / 1_000_000.0,
+        //         total_cycles as f64 / cycles_per_sec,
+        //     );
+        // }
 
         validate_nullifier_proof_output(&result, "RISC0")?;
 

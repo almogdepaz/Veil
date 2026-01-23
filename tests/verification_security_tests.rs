@@ -9,7 +9,7 @@
 #![cfg(any(feature = "sp1", feature = "risc0"))]
 
 use clvm_zk::{ClvmZkProver, ProgramParameter};
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 
 #[cfg(test)]
 mod verification_security_tests {

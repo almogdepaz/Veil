@@ -63,3 +63,9 @@ debug/
 test_real_zk.py
 # Large simulator state files
 simulator_data/state.json
+
+# local dev notes
+CLAUDE.md
+IMPLEMENTATION_STATUS.md
+OFFERS_STATUS.md
+.gitignore

@@ -3,7 +3,7 @@ use clvm_zk::{ClvmZkProver, ProgramParameter};
 use tokio::task;
 
 use crate::common::BATCH_SIZE;
-use clvm_zk_core::chialisp::compile_chialisp_template_hash_default;
+use clvm_zk_core::compile_chialisp_template_hash_default;
 
 use std::collections::HashSet;
 

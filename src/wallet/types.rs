@@ -28,6 +28,8 @@ impl Network {
 }
 
 /// Core error type for the wallet system
+///
+/// can be converted to `ClvmZkError` for unified error handling
 #[derive(Debug, thiserror::Error)]
 pub enum WalletError {
     #[error("Invalid seed (must be 16-64 bytes)")]
@@ -41,4 +43,21 @@ pub enum WalletError {
 
     #[error("Cryptographic operation failed")]
     CryptoError,
+}
+
+impl From<WalletError> for clvm_zk_core::ClvmZkError {
+    fn from(err: WalletError) -> Self {
+        match err {
+            WalletError::InvalidSeed => {
+                clvm_zk_core::ClvmZkError::InvalidInput("invalid seed".to_string())
+            }
+            WalletError::Bip32Error(e) => clvm_zk_core::ClvmZkError::CryptoError(e.to_string()),
+            WalletError::DerivationFailed => {
+                clvm_zk_core::ClvmZkError::CryptoError("key derivation failed".to_string())
+            }
+            WalletError::CryptoError => {
+                clvm_zk_core::ClvmZkError::CryptoError("cryptographic operation failed".to_string())
+            }
+        }
+    }
 }
