@@ -6,8 +6,8 @@ Zero-knowledge proof system for Chialisp. Compiles and executes arbitrary Chiali
 
 ```bash
 ./install-deps.sh
-./sim_demo.sh         # risc0
-./sim_demo.sh sp1     # sp1
+./sim_demo.sh         # sp1 (default)
+./sim_demo.sh risc0   # risc0
 ```
 
 ## Build
@@ -80,13 +80,12 @@ pub struct ProofOutput {
     pub nullifiers: Vec<[u8; 32]>,
     pub clvm_res: ClvmResult,
     pub proof_type: u8,
-    pub public_values: Vec<u8>,
+    pub public_values: Vec<Vec<u8>>,
 }
 
 pub enum ProgramParameter {
     Int(u64),
     Bytes(Vec<u8>),
-    List(Vec<ProgramParameter>),
 }
 ```
 
@@ -140,8 +139,6 @@ CREATE_COIN(coin_commitment)  // hides puzzle_hash, amount, serial
 
 Hash-based unlinkable receiving. Sender derives shared_secret from receiver's pubkey + random nonce. Receiver scans with view key. ~200x faster than ECDH in zkVM.
 
-See [STEALTH_ADDRESSES.md](STEALTH_ADDRESSES.md), [nullifier.md](nullifier.md).
-
 ## Simulator
 
 Local blockchain with HD wallets, stealth addresses, merkle trees, real ZK proofs.
@@ -150,7 +147,13 @@ Local blockchain with HD wallets, stealth addresses, merkle trees, real ZK proof
 ./sim_demo.sh
 ```
 
-See [SIMULATOR.md](SIMULATOR.md).
+## Documentation
+
+See [DOCUMENTATION.md](DOCUMENTATION.md) for detailed technical docs on:
+- Nullifier protocol (double-spend prevention)
+- Stealth addresses (unlinkable payments)
+- CAT protocol (colored asset tokens)
+- Simulator usage
 
 ## Adding backends
 
