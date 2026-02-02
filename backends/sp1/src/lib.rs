@@ -73,6 +73,8 @@ impl Sp1Backend {
             serial_commitment_data: None,
             tail_hash: None,        // XCH by default
             additional_coins: None, // single-coin spend
+            mint_data: None,
+            tail_source: None,
         };
 
         let mut stdin = SP1Stdin::new();

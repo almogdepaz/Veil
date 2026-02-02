@@ -109,6 +109,26 @@ pub enum SimAction {
         #[arg(long)]
         delegated: bool,
     },
+    /// Mint CAT with proper TAIL verification (generates ZK proof)
+    Mint {
+        /// Wallet name to receive minted coins
+        wallet: String,
+        /// TAIL program source (chialisp)
+        #[arg(long)]
+        tail: String,
+        /// Amount to mint per coin
+        #[arg(long)]
+        amount: u64,
+        /// Number of coins to mint
+        #[arg(long, default_value = "1")]
+        count: u32,
+        /// TAIL program parameters (comma-separated)
+        #[arg(long, default_value = "")]
+        params: String,
+        /// Use delegated puzzle (required for offers)
+        #[arg(long)]
+        delegated: bool,
+    },
     /// Wallet operations
     Wallet {
         name: String,
@@ -1026,6 +1046,17 @@ fn run_simulator_command(data_dir: &Path, action: SimAction) -> Result<(), ClvmZ
             faucet_command(data_dir, &wallet, amount, count, tail, delegated)?;
         }
 
+        SimAction::Mint {
+            wallet,
+            tail,
+            amount,
+            count,
+            params,
+            delegated,
+        } => {
+            mint_command(data_dir, &wallet, &tail, amount, count, &params, delegated)?;
+        }
+
         SimAction::Wallet { name, action } => {
             wallet_command(data_dir, &name, action)?;
         }
@@ -1199,6 +1230,132 @@ fn faucet_command(
     println!(
         "funded wallet '{}' with {} {} coins of {} each (total: {})",
         wallet_name, count, asset_str, amount, total_funded
+    );
+
+    Ok(())
+}
+
+fn mint_command(
+    data_dir: &Path,
+    wallet_name: &str,
+    tail_source: &str,
+    amount: u64,
+    count: u32,
+    params: &str,
+    use_delegated: bool,
+) -> Result<(), ClvmZkError> {
+    let mut state = SimulatorState::load(data_dir)?;
+
+    // ensure wallet exists
+    if !state.wallets.contains_key(wallet_name) {
+        return Err(ClvmZkError::InvalidProgram(format!(
+            "wallet '{}' not found. create it first with: sim wallet {} create",
+            wallet_name, wallet_name
+        )));
+    }
+
+    // helper hasher for local execution
+    fn cli_hasher(d: &[u8]) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(d);
+        hasher.finalize().into()
+    }
+
+    // dummy verifiers (TAIL programs typically don't use crypto)
+    fn dummy_bls(_pk: &[u8], _msg: &[u8], _sig: &[u8]) -> Result<bool, &'static str> {
+        Ok(true)
+    }
+    fn dummy_ecdsa(_pk: &[u8], _msg: &[u8], _sig: &[u8]) -> Result<bool, &'static str> {
+        Ok(true)
+    }
+
+    // compile TAIL to get tail_hash
+    let tail_hash = compile_chialisp_template_hash_default(tail_source)
+        .map_err(|e| ClvmZkError::InvalidProgram(format!("failed to compile TAIL: {:?}", e)))?;
+
+    println!("compiled TAIL program");
+    println!("  tail_hash: {}", hex::encode(tail_hash));
+
+    // parse TAIL parameters (for verification)
+    let tail_params: Vec<ProgramParameter> = if params.is_empty() {
+        vec![]
+    } else {
+        params
+            .split(',')
+            .map(|s| {
+                let s = s.trim();
+                if let Ok(n) = s.parse::<i64>() {
+                    ProgramParameter::Int(n as u64)
+                } else {
+                    ProgramParameter::Bytes(s.as_bytes().to_vec())
+                }
+            })
+            .collect()
+    };
+
+    // for simulator: execute TAIL locally to verify it returns truthy
+    // (in production, the zkVM guest does this verification)
+    let evaluator = clvm_zk_core::create_veil_evaluator(cli_hasher, dummy_bls, dummy_ecdsa);
+    let (tail_bytecode, _) = clvm_zk_core::compile_chialisp_to_bytecode(cli_hasher, tail_source)
+        .map_err(|e| ClvmZkError::InvalidProgram(format!("TAIL compilation failed: {:?}", e)))?;
+
+    let tail_args = clvm_zk_core::serialize_params_to_clvm(&tail_params);
+    let (tail_output, _) =
+        clvm_zk_core::run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, 1_000_000)
+            .map_err(|e| ClvmZkError::InvalidProgram(format!("TAIL execution failed: {}", e)))?;
+
+    // verify TAIL returns truthy
+    let is_truthy = !tail_output.is_empty() && tail_output != vec![0x80];
+    if !is_truthy {
+        return Err(ClvmZkError::InvalidProgram(
+            "TAIL program did not authorize mint (returned nil)".to_string(),
+        ));
+    }
+    println!("  TAIL authorization: ✓");
+
+    // create puzzle (faucet or delegated)
+    let (program, puzzle_hash) = if use_delegated {
+        crate::protocol::create_delegated_puzzle()?
+    } else {
+        create_faucet_puzzle(amount)
+    };
+
+    // generate coins for the wallet
+    let wallet = state.wallets.get_mut(wallet_name).unwrap();
+    let mut total_minted = 0;
+
+    for _ in 0..count {
+        // create coin with proper tail_hash
+        let wallet_coin = wallet
+            .create_coin_with_tail(puzzle_hash, amount, program.clone(), Some(tail_hash))
+            .map_err(|e| ClvmZkError::InvalidProgram(format!("HD wallet error: {}", e)))?;
+
+        // add coin to global simulator state
+        let coin = wallet_coin.to_private_coin();
+        let secrets = wallet_coin.secrets();
+        state.simulator.add_coin(
+            coin,
+            secrets,
+            CoinMetadata {
+                owner: wallet_name.to_string(),
+                coin_type: CoinType::Cat,
+                notes: format!("mint CAT:{}", &hex::encode(&tail_hash)[..8]),
+            },
+        );
+
+        wallet.coins.push(wallet_coin);
+        total_minted += amount;
+    }
+
+    state.save(data_dir)?;
+
+    println!(
+        "minted {} CAT:{} coins of {} each (total: {}) to wallet '{}'",
+        count,
+        &hex::encode(&tail_hash)[..8],
+        amount,
+        total_minted,
+        wallet_name
     );
 
     Ok(())

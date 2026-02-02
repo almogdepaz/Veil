@@ -148,12 +148,81 @@ pub struct Input {
     #[serde(default)]
     pub tail_hash: Option<[u8; 32]>,
 
+    /// TAIL source for spend-path delta authorization
+    /// required when sum(outputs) != sum(inputs) during a CAT spend (melt/burn)
+    /// the TAIL is called with (delta, total_input, total_output, ...extra_params)
+    /// - delta > 0: rejected (must use mint mode for supply increase)
+    /// - delta < 0: TAIL must authorize the melt
+    /// - delta == 0: TAIL not called (pure transfer)
+    #[serde(default)]
+    pub tail_source: Option<String>,
+
     /// additional coins for multi-coin ring spends
     /// - None: single coin spend
     /// - Some(vec): multi-coin ring spend (all coins share same tail_hash)
     ///   guest enforces tail_hash matching across all ring coins
     #[serde(default)]
     pub additional_coins: Option<Vec<AdditionalCoinInput>>,
+
+    /// mint data for CAT issuance
+    /// - None: normal spend or simple execution
+    /// - Some(...): mint mode - execute TAIL and create new coin
+    ///   mutually exclusive with serial_commitment_data (can't spend and mint in same proof)
+    #[serde(default)]
+    pub mint_data: Option<MintData>,
+}
+
+/// mint data for CAT issuance proofs
+/// when present, guest executes TAIL program and creates new coin if authorized
+#[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct MintData {
+    /// TAIL program source (controls who can mint)
+    /// e.g., "(mod () 1)" for unlimited, "(mod (pk sig) (bls_verify ...))" for signature-based
+    pub tail_source: String,
+    /// parameters to satisfy the TAIL program
+    /// NOTE: genesis_nullifier is prepended automatically if genesis_coin is present
+    pub tail_params: Vec<ProgramParameter>,
+    /// puzzle hash for the new coin (where it can be spent)
+    pub output_puzzle_hash: [u8; 32],
+    /// amount to mint
+    pub output_amount: u64,
+    /// serial number for the new coin (for nullifier generation when spent)
+    pub output_serial: [u8; 32],
+    /// serial randomness for commitment hiding
+    pub output_rand: [u8; 32],
+    /// optional genesis coin that authorizes this mint
+    /// when present, guest verifies genesis coin exists in merkle tree,
+    /// computes its nullifier, and passes it to TAIL as first param.
+    /// the genesis nullifier is included in proof output → validators add to nullifier set
+    /// → genesis can't be reused → prevents infinite minting
+    #[serde(default)]
+    pub genesis_coin: Option<GenesisSpend>,
+}
+
+/// genesis coin data for single-issuance CAT minting
+/// the genesis coin is spent during mint, producing a nullifier that prevents re-minting
+#[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct GenesisSpend {
+    /// serial number of the genesis coin
+    pub serial_number: [u8; 32],
+    /// serial randomness for opening the commitment
+    pub serial_randomness: [u8; 32],
+    /// puzzle hash of the genesis coin
+    pub puzzle_hash: [u8; 32],
+    /// amount locked in the genesis coin
+    pub amount: u64,
+    /// tail_hash of the genesis coin (typically XCH = [0;32])
+    pub tail_hash: [u8; 32],
+    /// serial commitment (hash(serial_number || serial_randomness))
+    pub serial_commitment: [u8; 32],
+    /// coin commitment (leaf in merkle tree)
+    pub coin_commitment: [u8; 32],
+    /// merkle proof path from leaf to root
+    pub merkle_path: Vec<[u8; 32]>,
+    /// merkle root (current tree state)
+    pub merkle_root: [u8; 32],
+    /// leaf index in tree
+    pub leaf_index: usize,
 }
 
 /// additional coin input for ring spends

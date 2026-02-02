@@ -13,6 +13,8 @@ pub enum ProofType {
     ConditionalSpend = 1,
     /// settlement proof - combines conditional proof with payment
     Settlement = 2,
+    /// mint proof - creates new CAT supply (TAIL program verified)
+    Mint = 3,
 }
 
 /// represents a created coin output from a proof

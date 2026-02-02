@@ -42,6 +42,8 @@ impl Risc0Backend {
             serial_commitment_data: None,
             tail_hash: None,        // XCH by default
             additional_coins: None, // single-coin spend
+            mint_data: None,
+            tail_source: None,
         };
         let env = ExecutorEnv::builder()
             .write(&inputs)

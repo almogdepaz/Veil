@@ -184,6 +184,8 @@ impl ClvmZkProver {
             }),
             tail_hash,
             additional_coins: None, // single-coin API
+            mint_data: None,
+            tail_source: None,
         };
 
         #[cfg(feature = "risc0")]
@@ -231,6 +233,8 @@ impl ClvmZkProver {
             serial_commitment_data: Some(serial_data),
             tail_hash,
             additional_coins: Some(additional_coins),
+            mint_data: None,
+            tail_source: None,
         };
 
         #[cfg(feature = "risc0")]

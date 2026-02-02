@@ -17,9 +17,10 @@ fn test_api_exists() {
         ProofType::Transaction => "transaction",
         ProofType::ConditionalSpend => "conditional",
         ProofType::Settlement => "settlement",
+        ProofType::Mint => "mint",
     };
 
-    println!("✓ ProofType enum has all three variants");
+    println!("✓ ProofType enum has all four variants");
 
     // verify Spender has create_conditional_spend method
     let _has_method = Spender::create_conditional_spend;
@@ -70,15 +71,19 @@ fn test_proof_type_differentiation() {
         ProofType::ConditionalSpend as u8
     );
     assert_ne!(ProofType::Transaction as u8, ProofType::Settlement as u8);
+    assert_ne!(ProofType::Transaction as u8, ProofType::Mint as u8);
     assert_ne!(
         ProofType::ConditionalSpend as u8,
         ProofType::Settlement as u8
     );
+    assert_ne!(ProofType::ConditionalSpend as u8, ProofType::Mint as u8);
+    assert_ne!(ProofType::Settlement as u8, ProofType::Mint as u8);
 
     println!("✓ proof types have distinct values:");
     println!("  Transaction: {}", ProofType::Transaction as u8);
     println!("  ConditionalSpend: {}", ProofType::ConditionalSpend as u8);
     println!("  Settlement: {}", ProofType::Settlement as u8);
+    println!("  Mint: {}", ProofType::Mint as u8);
 }
 
 #[test]

@@ -67,6 +67,8 @@ fn generate_test_proof(
         }),
         tail_hash: None, // XCH by default
         additional_coins: None,
+        mint_data: None,
+        tail_source: None,
     };
 
     backend

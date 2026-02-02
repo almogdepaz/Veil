@@ -115,6 +115,121 @@ fn main() {
 
     let private_inputs: Input = env::read();
 
+    // ============================================================================
+    // MINT MODE: Create new CAT supply with TAIL verification
+    // ============================================================================
+    if let Some(ref mint_data) = private_inputs.mint_data {
+        // 1. Compile TAIL program to get tail_hash
+        let (tail_bytecode, tail_hash) =
+            compile_chialisp_to_bytecode(risc0_hasher, &mint_data.tail_source)
+                .expect("TAIL compilation failed");
+
+        // 2. If genesis coin present, verify it and compute nullifier
+        let mut mint_nullifiers = vec![];
+        let mut tail_params = mint_data.tail_params.clone();
+
+        if let Some(ref genesis) = mint_data.genesis_coin {
+            // verify genesis serial commitment
+            let genesis_serial_commitment = compute_serial_commitment(
+                risc0_hasher,
+                &genesis.serial_number,
+                &genesis.serial_randomness,
+            );
+            assert_eq!(
+                genesis_serial_commitment, genesis.serial_commitment,
+                "genesis: serial commitment verification failed"
+            );
+
+            // verify genesis coin commitment
+            let genesis_coin_commitment = compute_coin_commitment(
+                risc0_hasher,
+                genesis.tail_hash,
+                genesis.amount,
+                &genesis.puzzle_hash,
+                &genesis_serial_commitment,
+            );
+            assert_eq!(
+                genesis_coin_commitment, genesis.coin_commitment,
+                "genesis: coin commitment verification failed"
+            );
+
+            // verify genesis exists in merkle tree
+            verify_merkle_proof(
+                risc0_hasher,
+                genesis_coin_commitment,
+                &genesis.merkle_path,
+                genesis.leaf_index,
+                genesis.merkle_root,
+            )
+            .expect("genesis: merkle root mismatch - coin not in tree");
+
+            // compute genesis nullifier (prevents re-minting)
+            let genesis_nullifier = compute_nullifier(
+                risc0_hasher,
+                &genesis.serial_number,
+                &genesis.puzzle_hash,
+                genesis.amount,
+            );
+
+            // prepend genesis_nullifier to TAIL params so TAIL can verify it
+            tail_params.insert(
+                0,
+                clvm_zk_core::ProgramParameter::Bytes(genesis_nullifier.to_vec()),
+            );
+            mint_nullifiers.push(genesis_nullifier);
+        }
+
+        // 3. Create evaluator and serialize TAIL params
+        let evaluator = create_veil_evaluator(risc0_hasher, risc0_verify_bls, risc0_verify_ecdsa);
+        let tail_args = serialize_params_to_clvm(&tail_params);
+
+        // 4. Execute TAIL program
+        let max_cost = 1_000_000_000;
+        let (tail_output, _conditions) =
+            run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
+                .expect("TAIL execution failed");
+
+        // 5. Verify TAIL returns truthy (non-nil, non-zero)
+        let is_truthy = !tail_output.is_empty() && tail_output != vec![0x80]; // 0x80 = nil in CLVM
+        assert!(is_truthy, "TAIL program did not authorize mint");
+
+        // 6. Compute serial commitment for the new coin
+        let serial_commitment = compute_serial_commitment(
+            risc0_hasher,
+            &mint_data.output_serial,
+            &mint_data.output_rand,
+        );
+
+        // 7. Compute coin commitment with the tail_hash
+        let coin_commitment = compute_coin_commitment(
+            risc0_hasher,
+            tail_hash,
+            mint_data.output_amount,
+            &mint_data.output_puzzle_hash,
+            &serial_commitment,
+        );
+
+        // 8. Output mint proof
+        let end_cycles = env::cycle_count();
+        let total_cycles = end_cycles.saturating_sub(start_cycles);
+
+        env::commit(&ProofOutput {
+            program_hash: tail_hash,
+            nullifiers: mint_nullifiers, // genesis nullifier if present (prevents re-mint)
+            clvm_res: ClvmResult {
+                output: coin_commitment.to_vec(),
+                cost: total_cycles,
+            },
+            proof_type: 3, // Mint type
+            public_values: vec![
+                tail_hash.to_vec(),       // public: which CAT was minted
+                coin_commitment.to_vec(), // public: the new coin commitment
+            ],
+        });
+
+        return; // mint complete, don't run normal spend logic
+    }
+
     // // PROFILING: measure compilation cycles
     // let compile_start = env::cycle_count();
 
@@ -154,8 +269,40 @@ fn main() {
     // ============================================================================
     // verify sum(inputs) == sum(outputs) and tail_hash consistency
     // MUST run BEFORE CREATE_COIN transformation (which replaces args)
-    clvm_zk_core::enforce_ring_balance(&private_inputs, &conditions)
-        .expect("balance enforcement failed");
+    let (total_input, total_output) =
+        clvm_zk_core::enforce_ring_balance(&private_inputs, &conditions)
+            .expect("balance enforcement failed");
+
+    // ============================================================================
+    // TAIL-ON-DELTA: CAT2-style TAIL authorization for supply changes
+    // ============================================================================
+    // if delta != 0 and tail_source is provided, TAIL must authorize the change
+    // delta > 0 is already blocked by enforce_ring_balance (inflation)
+    // delta < 0 (melt/burn) requires TAIL authorization when tail_source present
+    if total_input != total_output {
+        if let Some(ref tail_source) = private_inputs.tail_source {
+            let delta = total_input.saturating_sub(total_output); // always >= 0 here
+
+            let (tail_bytecode, _tail_hash) =
+                compile_chialisp_to_bytecode(risc0_hasher, tail_source)
+                    .expect("spend-path TAIL compilation failed");
+
+            // TAIL receives: (delta total_input total_output ...extra_params)
+            let tail_params = vec![
+                clvm_zk_core::ProgramParameter::Int(delta),
+                clvm_zk_core::ProgramParameter::Int(total_input),
+                clvm_zk_core::ProgramParameter::Int(total_output),
+            ];
+            let tail_args = serialize_params_to_clvm(&tail_params);
+
+            let (tail_output, _) =
+                run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
+                    .expect("spend-path TAIL execution failed");
+
+            let is_truthy = !tail_output.is_empty() && tail_output != vec![0x80];
+            assert!(is_truthy, "TAIL did not authorize melt (delta != 0)");
+        }
+    }
 
     // Transform CREATE_COIN conditions for output privacy
     let mut has_transformations = false;
