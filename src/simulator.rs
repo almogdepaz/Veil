@@ -157,7 +157,7 @@ impl CLVMZkSimulator {
         &mut self,
         coin: PrivateCoin,
         secrets: &clvm_zk_core::coin_commitment::CoinSecrets,
-        stealth_nonce: [u8; 32],
+        stealth_nonce: Vec<u8>,
         puzzle_source: String,
         metadata: CoinMetadata,
     ) -> [u8; 32] {
@@ -166,7 +166,7 @@ impl CLVMZkSimulator {
             coin: coin.clone(),
             metadata,
             created_at_height: self.block_height,
-            stealth_nonce: Some(stealth_nonce.to_vec()),
+            stealth_nonce: Some(stealth_nonce),
             puzzle_source: Some(puzzle_source),
         };
 
@@ -443,19 +443,14 @@ impl CLVMZkSimulator {
     }
 
     /// Get all coins with stealth nonces for hash-based stealth scanning
-    /// Returns (puzzle_hash, stealth_nonce, coin_info) for each stealth coin
-    pub fn get_stealth_scannable_coins(&self) -> Vec<(&[u8; 32], [u8; 32], &CoinInfo)> {
+    /// Returns (puzzle_hash, stealth_nonce_bytes, coin_info) for each stealth coin.
+    /// Nonce bytes are 80 (encrypted: ephemeral_pub || ciphertext). Caller decrypts.
+    pub fn get_stealth_scannable_coins(&self) -> Vec<(&[u8; 32], &Vec<u8>, &CoinInfo)> {
         self.utxo_set
             .iter()
             .filter_map(|(_serial, info)| {
-                info.stealth_nonce.as_ref().and_then(|nonce| {
-                    if nonce.len() == 32 {
-                        let mut arr = [0u8; 32];
-                        arr.copy_from_slice(nonce);
-                        Some((&info.coin.puzzle_hash, arr, info))
-                    } else {
-                        None
-                    }
+                info.stealth_nonce.as_ref().map(|nonce| {
+                    (&info.coin.puzzle_hash, nonce, info)
                 })
             })
             .collect()

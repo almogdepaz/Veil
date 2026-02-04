@@ -1,7 +1,12 @@
 // crypto utilities
 // shared stuff to avoid copy-pasting code everywhere
 
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    ChaCha20Poly1305, Nonce,
+};
 use sha2::{Digest, Sha256};
+use x25519_dalek::{PublicKey as X25519Public, StaticSecret as X25519Secret};
 
 /// sha256 hash function for general use
 pub fn hash_data_default(data: &[u8]) -> [u8; 32] {
@@ -54,6 +59,102 @@ pub fn find_coin_index_by_viewing_tag(
         }
     }
     None
+}
+
+/// encrypt a 32-byte stealth nonce to a recipient's x25519 public key.
+/// returns 80 bytes: ephemeral_pubkey (32) || ciphertext (32 + 16 tag).
+pub fn encrypt_stealth_nonce(
+    nonce: &[u8; 32],
+    recipient_pubkey: &[u8; 32],
+) -> Vec<u8> {
+    // 1. ephemeral x25519 keypair
+    let ephemeral_secret = X25519Secret::random_from_rng(rand::thread_rng());
+    let ephemeral_public = X25519Public::from(&ephemeral_secret);
+
+    // 2. ECDH shared secret
+    let recipient = X25519Public::from(*recipient_pubkey);
+    let dh_shared = ephemeral_secret.diffie_hellman(&recipient);
+
+    // 3. derive chacha key (separate domain from nonce)
+    let chacha_key: [u8; 32] = {
+        let mut h = Sha256::new();
+        h.update(b"veil_note_key_v1");
+        h.update(dh_shared.as_bytes());
+        h.finalize().into()
+    };
+
+    // 4. derive chacha nonce (first 12 bytes of separate hash)
+    let chacha_nonce: [u8; 12] = {
+        let mut h = Sha256::new();
+        h.update(b"veil_note_encrypt_v1");
+        h.update(dh_shared.as_bytes());
+        let hash: [u8; 32] = h.finalize().into();
+        let mut n = [0u8; 12];
+        n.copy_from_slice(&hash[..12]);
+        n
+    };
+
+    // 5. encrypt
+    let cipher = ChaCha20Poly1305::new_from_slice(&chacha_key).expect("valid key length");
+    let ciphertext = cipher
+        .encrypt(Nonce::from_slice(&chacha_nonce), nonce.as_slice())
+        .expect("encryption should not fail");
+
+    // 6. ephemeral_pubkey || ciphertext
+    let mut out = Vec::with_capacity(80);
+    out.extend_from_slice(ephemeral_public.as_bytes());
+    out.extend_from_slice(&ciphertext);
+    out
+}
+
+/// decrypt an 80-byte encrypted stealth nonce using our x25519 private key.
+/// returns None if auth tag fails (not our coin).
+pub fn decrypt_stealth_nonce(
+    encrypted_note: &[u8],
+    recipient_privkey: &[u8; 32],
+) -> Option<[u8; 32]> {
+    if encrypted_note.len() != 80 {
+        return None;
+    }
+
+    // 1. extract ephemeral pubkey
+    let mut ephem_bytes = [0u8; 32];
+    ephem_bytes.copy_from_slice(&encrypted_note[..32]);
+    let ephemeral_public = X25519Public::from(ephem_bytes);
+
+    // 2. ECDH
+    let secret = X25519Secret::from(*recipient_privkey);
+    let dh_shared = secret.diffie_hellman(&ephemeral_public);
+
+    // 3. derive same key and nonce
+    let chacha_key: [u8; 32] = {
+        let mut h = Sha256::new();
+        h.update(b"veil_note_key_v1");
+        h.update(dh_shared.as_bytes());
+        h.finalize().into()
+    };
+    let chacha_nonce: [u8; 12] = {
+        let mut h = Sha256::new();
+        h.update(b"veil_note_encrypt_v1");
+        h.update(dh_shared.as_bytes());
+        let hash: [u8; 32] = h.finalize().into();
+        let mut n = [0u8; 12];
+        n.copy_from_slice(&hash[..12]);
+        n
+    };
+
+    // 4. decrypt
+    let cipher = ChaCha20Poly1305::new_from_slice(&chacha_key).ok()?;
+    let plaintext = cipher
+        .decrypt(Nonce::from_slice(&chacha_nonce), &encrypted_note[32..])
+        .ok()?;
+
+    if plaintext.len() != 32 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&plaintext);
+    Some(out)
 }
 
 #[cfg(test)]
@@ -124,5 +225,42 @@ mod tests {
             let tag = generate_viewing_tag(&viewing_key, i);
             assert!(tags.insert(tag), "Collision detected at index {}", i);
         }
+    }
+
+    #[test]
+    fn test_stealth_nonce_encrypt_decrypt_roundtrip() {
+        let privkey: [u8; 32] = {
+            use sha2::{Digest, Sha256};
+            let mut h = Sha256::new();
+            h.update(b"test_recipient_seed");
+            h.finalize().into()
+        };
+        let pubkey = x25519_dalek::PublicKey::from(
+            &x25519_dalek::StaticSecret::from(privkey),
+        )
+        .to_bytes();
+
+        let nonce = [0x42u8; 32];
+        let encrypted = encrypt_stealth_nonce(&nonce, &pubkey);
+        assert_eq!(encrypted.len(), 80);
+
+        let decrypted = decrypt_stealth_nonce(&encrypted, &privkey).unwrap();
+        assert_eq!(decrypted, nonce);
+    }
+
+    #[test]
+    fn test_stealth_nonce_wrong_key_fails() {
+        let privkey: [u8; 32] = [0xAA; 32];
+        let pubkey = x25519_dalek::PublicKey::from(
+            &x25519_dalek::StaticSecret::from(privkey),
+        )
+        .to_bytes();
+
+        let nonce = [0x42u8; 32];
+        let encrypted = encrypt_stealth_nonce(&nonce, &pubkey);
+
+        // wrong key should fail decryption
+        let wrong_key: [u8; 32] = [0xBB; 32];
+        assert!(decrypt_stealth_nonce(&encrypted, &wrong_key).is_none());
     }
 }

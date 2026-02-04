@@ -1842,11 +1842,22 @@ fn send_command(
                 let coin =
                     crate::protocol::PrivateCoin::new(puzzle_hash, amount, serial_commitment);
 
-                // add coin to global simulator state with stealth nonce and puzzle_source
+                // encrypt nonce to recipient's x25519 key before storing
+                let recipient_enc_pubkey = state.wallets.get(to).unwrap()
+                    .note_encryption_public
+                    .ok_or_else(|| ClvmZkError::InvalidProgram(format!(
+                        "recipient wallet '{}' has no encryption key (old wallet, recreate it)", to
+                    )))?;
+                let encrypted_nonce = crate::crypto_utils::encrypt_stealth_nonce(
+                    &stealth_payment.nonce,
+                    &recipient_enc_pubkey,
+                );
+
+                // add coin to global simulator state with encrypted nonce and puzzle_source
                 state.simulator.add_coin_with_stealth_nonce(
                     coin,
                     &secrets,
-                    stealth_payment.nonce,
+                    encrypted_nonce,
                     stealth_payment.puzzle_source.clone(),
                     CoinMetadata {
                         owner: to.to_string(),
@@ -1914,8 +1925,8 @@ fn send_command(
 fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
-    // Get wallet and derive stealth view key
-    let (view_key, existing_puzzle_hashes) = {
+    // Get wallet and derive stealth view key + encryption private key
+    let (view_key, existing_puzzle_hashes, enc_privkey) = {
         let wallet = state.wallets.get(wallet_name).ok_or_else(|| {
             ClvmZkError::InvalidProgram(format!("wallet '{}' not found", wallet_name))
         })?;
@@ -1929,11 +1940,17 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
 
         let view_key = account_keys.stealth_keys.view_only();
 
+        let enc_privkey = wallet.note_encryption_private.ok_or_else(|| {
+            ClvmZkError::InvalidProgram(format!(
+                "wallet '{}' has no encryption key (old wallet, recreate it)", wallet_name
+            ))
+        })?;
+
         // Get existing puzzle hashes to avoid duplicates
         let existing: std::collections::HashSet<[u8; 32]> =
             wallet.coins.iter().map(|c| c.puzzle_hash()).collect();
 
-        (view_key, existing)
+        (view_key, existing, enc_privkey)
     };
 
     // Get stealth-scannable coins from simulator (now returns nonces instead of ephemeral pubkeys)
@@ -1948,7 +1965,7 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut found_count = 0;
     let mut total_amount = 0u64;
 
-    for (puzzle_hash, nonce, info) in &scannable_coins {
+    for (puzzle_hash, nonce_bytes, info) in &scannable_coins {
         // Skip if already in wallet
         if existing_puzzle_hashes.contains(*puzzle_hash) {
             println!(
@@ -1958,8 +1975,14 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
             continue;
         }
 
+        // decrypt encrypted nonce (80 bytes: ephemeral_pub || ciphertext)
+        let nonce = match crate::crypto_utils::decrypt_stealth_nonce(nonce_bytes, &enc_privkey) {
+            Some(n) => n,
+            None => continue, // not our coin (decryption failed)
+        };
+
         // try to scan this coin with the nonce
-        let scanned = match view_key.try_scan_with_nonce(puzzle_hash, nonce) {
+        let scanned = match view_key.try_scan_with_nonce(puzzle_hash, &nonce) {
             Some(s) => s,
             None => continue, // not our coin
         };

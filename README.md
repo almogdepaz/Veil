@@ -63,31 +63,6 @@ veil/
 5. Guest verifies coin commitments and merkle proofs if spending
 6. Guest outputs `ProofOutput` (program_hash, nullifiers, clvm_res, public_values)
 
-### Key types
-
-```rust
-// clvm_zk_core/src/types.rs
-pub struct Input {
-    pub chialisp_source: String,
-    pub program_parameters: Vec<ProgramParameter>,
-    pub serial_commitment_data: Option<SerialCommitmentData>,  // for spending
-    pub tail_hash: Option<[u8; 32]>,  // asset type ([0;32] for XCH)
-    pub additional_coins: Option<Vec<AdditionalCoinInput>>,  // ring spends
-}
-
-pub struct ProofOutput {
-    pub program_hash: [u8; 32],
-    pub nullifiers: Vec<[u8; 32]>,
-    pub clvm_res: ClvmResult,
-    pub proof_type: u8,
-    pub public_values: Vec<Vec<u8>>,
-}
-
-pub enum ProgramParameter {
-    Int(u64),
-    Bytes(Vec<u8>),
-}
-```
 
 ### clvm_tools_rs integration
 
@@ -125,9 +100,9 @@ spending:
 
 ### CREATE_COIN transformation
 
-Inside zkvm, chialisp outputs 4-arg CREATE_COIN:
-```chialisp
-(list CREATE_COIN puzzle_hash amount serial_number serial_randomness)
+inside the zkVM, chialisp outputs 4-arg CREATE_COIN:
+```
+(CREATE_COIN puzzle_hash amount serial_number serial_randomness)
 ```
 
 Guest transforms to 1-arg before output:
