@@ -1926,7 +1926,7 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
     // Get wallet and derive stealth view key + encryption private key
-    let (view_key, existing_puzzle_hashes, enc_privkey) = {
+    let (view_key, existing_commitments, enc_privkey) = {
         let wallet = state.wallets.get(wallet_name).ok_or_else(|| {
             ClvmZkError::InvalidProgram(format!("wallet '{}' not found", wallet_name))
         })?;
@@ -1946,9 +1946,13 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
             ))
         })?;
 
-        // Get existing puzzle hashes to avoid duplicates
-        let existing: std::collections::HashSet<[u8; 32]> =
-            wallet.coins.iter().map(|c| c.puzzle_hash()).collect();
+        // Get existing serial commitments to avoid duplicates
+        // (puzzle_hash is NOT unique in nullifier mode — all stealth coins share one)
+        let existing: std::collections::HashSet<[u8; 32]> = wallet
+            .coins
+            .iter()
+            .map(|c| *c.wallet_coin.coin.serial_commitment.as_bytes())
+            .collect();
 
         (view_key, existing, enc_privkey)
     };
@@ -1966,11 +1970,12 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut total_amount = 0u64;
 
     for (puzzle_hash, nonce_bytes, info) in &scannable_coins {
-        // Skip if already in wallet
-        if existing_puzzle_hashes.contains(*puzzle_hash) {
+        // Skip if already in wallet (dedup by serial_commitment, not puzzle_hash)
+        let sc = *info.coin.serial_commitment.as_bytes();
+        if existing_commitments.contains(&sc) {
             println!(
                 "  found coin {} (already in wallet, skipping)",
-                hex::encode(&puzzle_hash[..4])
+                hex::encode(&sc[..4])
             );
             continue;
         }

@@ -432,28 +432,28 @@ fn test_mint_proof_risc0() {
         Ok(zk_result) => {
             println!("✓ mint proof generated");
             println!("  proof size: {} bytes", zk_result.proof_bytes.len());
-            println!("  program_hash (tail_hash): {}", hex::encode(zk_result.program_hash));
-            println!("  nullifiers: {} (should be 0 for mint)", zk_result.nullifiers.len());
-            println!("  proof_type: {}", zk_result.proof_type);
+            println!("  program_hash (tail_hash): {}", hex::encode(zk_result.proof_output.program_hash));
+            println!("  nullifiers: {} (should be 0 for mint)", zk_result.proof_output.nullifiers.len());
+            println!("  proof_type: {}", zk_result.proof_output.proof_type);
 
             // verify proof type is Mint (3)
-            assert_eq!(zk_result.proof_type, 3, "proof_type should be Mint (3)");
+            assert_eq!(zk_result.proof_output.proof_type, 3, "proof_type should be Mint (3)");
 
             // verify no nullifiers (minting doesn't spend coins)
             assert!(
-                zk_result.nullifiers.is_empty(),
+                zk_result.proof_output.nullifiers.is_empty(),
                 "mint should have no nullifiers"
             );
 
             // verify public_values contains tail_hash and coin_commitment
             assert_eq!(
-                zk_result.public_values.len(),
+                zk_result.proof_output.public_values.len(),
                 2,
                 "should have 2 public values"
             );
 
-            let tail_hash = &zk_result.public_values[0];
-            let coin_commitment = &zk_result.public_values[1];
+            let tail_hash = &zk_result.proof_output.public_values[0];
+            let coin_commitment = &zk_result.proof_output.public_values[1];
 
             println!("  public tail_hash: {}", hex::encode(tail_hash));
             println!("  public coin_commitment: {}", hex::encode(coin_commitment));
@@ -572,15 +572,16 @@ fn test_mint_multiple_cats() {
             tail_hash: None,
             additional_coins: None,
             mint_data: Some(mint_data),
+            tail_source: None,
         };
 
         let result = backend.prove_with_input(input).expect("mint should succeed");
 
-        let tail_hash: [u8; 32] = result.public_values[0]
+        let tail_hash: [u8; 32] = result.proof_output.public_values[0]
             .clone()
             .try_into()
             .expect("tail_hash should be 32 bytes");
-        let coin_commitment = result.public_values[1].clone();
+        let coin_commitment = result.proof_output.public_values[1].clone();
 
         println!("  {} tail_hash: {}", name, hex::encode(&tail_hash[..8]));
         println!("  {} coin_commitment: {}", name, hex::encode(&coin_commitment[..8]));
@@ -696,14 +697,14 @@ fn test_genesis_linked_mint() {
     let result = backend.prove_with_input(input).expect("genesis mint should succeed");
 
     // verify proof includes genesis nullifier
-    assert_eq!(result.proof_type, 3, "should be mint type");
+    assert_eq!(result.proof_output.proof_type, 3, "should be mint type");
     assert_eq!(
-        result.nullifiers.len(),
+        result.proof_output.nullifiers.len(),
         1,
         "should have 1 nullifier (genesis)"
     );
 
-    let genesis_nullifier = result.nullifiers[0];
+    let genesis_nullifier = result.proof_output.nullifiers[0];
     println!("  genesis nullifier: {}", hex::encode(genesis_nullifier));
     assert_ne!(genesis_nullifier, [0u8; 32], "nullifier should be non-zero");
 
