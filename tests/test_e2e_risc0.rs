@@ -552,3 +552,241 @@ fn test_e2e_tail_on_delta_melt() {
     // the TAIL authorized the delta, so proof generation succeeded
     // in production, a restrictive TAIL would reject unauthorized burns
 }
+
+// ============================================================================
+// 7. NM-001 regression: spend a settlement goods coin after offer-take
+//    this test fails if wallet coins have wrong tail_hash or program source
+// ============================================================================
+
+#[test]
+fn test_e2e_settlement_goods_coin_spendable() {
+    let mut sim = CLVMZkSimulator::new();
+    let cat_tail_hash = compile_chialisp_template_hash_default(UNLIMITED_TAIL).unwrap();
+
+    // alice offers XCH, requests CAT
+    let maker_pubkey = [77u8; 32];
+    let change_puzzle = [88u8; 32];
+    let change_serial = [89u8; 32];
+    let change_rand = [90u8; 32];
+
+    let offer_puzzle = with_standard_conditions(&format!(
+        r#"(mod ()
+            (c
+                (list CREATE_COIN
+                    0x{}
+                    0
+                    0x{}
+                    0x{})
+                (c 1000 (c 500 (c 0x{} ())))))"#,
+        hex::encode(change_puzzle),
+        hex::encode(change_serial),
+        hex::encode(change_rand),
+        hex::encode(maker_pubkey),
+    ));
+
+    let offer_puzzle_hash = compile_chialisp_template_hash_default(&offer_puzzle).unwrap();
+    let (alice_coin, alice_secrets) = PrivateCoin::new_with_secrets(offer_puzzle_hash, 1000);
+    sim.add_coin(alice_coin.clone(), &alice_secrets, meta("alice", "xch offer"));
+
+    // bob has CAT coin with a balanced spend puzzle
+    let bob_puzzle = with_standard_conditions(
+        "(mod (out_puzzle out_serial out_rand)
+            (list (list CREATE_COIN out_puzzle 500 out_serial out_rand)))",
+    );
+    let bob_puzzle_hash = compile_chialisp_template_hash_default(&bob_puzzle).unwrap();
+    let (bob_coin, bob_secrets) =
+        PrivateCoin::new_with_secrets_and_tail(bob_puzzle_hash, 500, cat_tail_hash);
+    sim.add_coin(bob_coin.clone(), &bob_secrets, cat_meta("bob", "cat for offer"));
+
+    // alice creates conditional spend
+    let merkle_root = sim.get_merkle_root().unwrap();
+    let (alice_path, alice_idx) = sim.get_merkle_path_and_index(&alice_coin).unwrap();
+
+    let maker_proof = Spender::create_conditional_spend(
+        &alice_coin,
+        &offer_puzzle,
+        &[],
+        &alice_secrets,
+        alice_path,
+        merkle_root,
+        alice_idx,
+    )
+    .expect("conditional spend");
+
+    // bob takes the offer — use REAL puzzle hash for goods (derived from chialisp)
+    let goods_puzzle_source = "(mod (x) x)"; // identity puzzle
+    let goods_puzzle_hash = compile_chialisp_template_hash_default(goods_puzzle_source).unwrap();
+
+    let goods_serial = [62u8; 32];
+    let goods_rand = [63u8; 32];
+
+    let (bob_path, bob_idx) = sim.get_merkle_path_and_index(&bob_coin).unwrap();
+
+    let settlement_params = SettlementParams {
+        maker_proof: maker_proof.clone(),
+        taker_coin: bob_coin.clone(),
+        taker_secrets: bob_secrets.clone(),
+        taker_merkle_path: bob_path,
+        merkle_root,
+        taker_leaf_index: bob_idx,
+        payment_nonce: [33u8; 32],
+        taker_goods_puzzle: goods_puzzle_hash,
+        taker_change_puzzle: [55u8; 32],
+        payment_serial: [60u8; 32],
+        payment_rand: [61u8; 32],
+        goods_serial,
+        goods_rand,
+        change_serial: [64u8; 32],
+        change_rand: [65u8; 32],
+        taker_tail_hash: cat_tail_hash,
+        goods_tail_hash: XCH_TAIL, // alice's asset is XCH
+    };
+
+    let settlement = prove_settlement(settlement_params).expect("settlement proof");
+    sim.process_settlement(&settlement.output).expect("process settlement");
+
+    // reconstruct the goods coin with CORRECT fields
+    // goods = alice's asset (XCH), amount = offered (1000)
+    let goods_secrets = CoinSecrets::new(goods_serial, goods_rand);
+    let goods_serial_commitment =
+        clvm_zk_core::coin_commitment::SerialCommitment::compute(&goods_serial, &goods_rand, hash_data);
+
+    let goods_coin = PrivateCoin::new_with_tail(
+        goods_puzzle_hash,
+        1000, // offered amount
+        goods_serial_commitment,
+        XCH_TAIL, // goods_tail = alice's XCH
+    );
+
+    // verify coin is findable in merkle tree (commitment matches)
+    let path_result = sim.get_merkle_path_and_index(&goods_coin);
+    assert!(
+        path_result.is_some(),
+        "goods coin must be in merkle tree after settlement"
+    );
+
+    // SPEND IT — this is the actual NM-001 regression test
+    // before the fix: would fail with program_hash mismatch (placeholder program)
+    // or merkle lookup failure (wrong tail_hash)
+    let tx = sim
+        .spend_coins_with_params(vec![(
+            goods_coin,
+            goods_puzzle_source.to_string(),
+            vec![ProgramParameter::Int(42)],
+            goods_secrets,
+        )])
+        .expect("settlement goods coin should be spendable");
+
+    assert_eq!(tx.nullifiers.len(), 1);
+    assert_ne!(tx.nullifiers[0], [0u8; 32]);
+    assert!(sim.has_nullifier(&tx.nullifiers[0]));
+}
+
+// ============================================================================
+// 8. NM-001 corollary: wrong tail_hash causes merkle lookup failure
+//    proves the bug mechanism — coin with wrong tail can't be found
+// ============================================================================
+
+#[test]
+fn test_e2e_settlement_wrong_tail_not_in_tree() {
+    let mut sim = CLVMZkSimulator::new();
+    let cat_tail_hash = compile_chialisp_template_hash_default(UNLIMITED_TAIL).unwrap();
+
+    // same setup as test 7
+    let maker_pubkey = [77u8; 32];
+    let change_puzzle = [88u8; 32];
+    let change_serial = [89u8; 32];
+    let change_rand = [90u8; 32];
+
+    let offer_puzzle = with_standard_conditions(&format!(
+        r#"(mod ()
+            (c
+                (list CREATE_COIN
+                    0x{}
+                    0
+                    0x{}
+                    0x{})
+                (c 1000 (c 500 (c 0x{} ())))))"#,
+        hex::encode(change_puzzle),
+        hex::encode(change_serial),
+        hex::encode(change_rand),
+        hex::encode(maker_pubkey),
+    ));
+
+    let offer_puzzle_hash = compile_chialisp_template_hash_default(&offer_puzzle).unwrap();
+    let (alice_coin, alice_secrets) = PrivateCoin::new_with_secrets(offer_puzzle_hash, 1000);
+    sim.add_coin(alice_coin.clone(), &alice_secrets, meta("alice", "xch"));
+
+    let bob_puzzle = with_standard_conditions(
+        "(mod (out_puzzle out_serial out_rand)
+            (list (list CREATE_COIN out_puzzle 500 out_serial out_rand)))",
+    );
+    let bob_puzzle_hash = compile_chialisp_template_hash_default(&bob_puzzle).unwrap();
+    let (bob_coin, bob_secrets) =
+        PrivateCoin::new_with_secrets_and_tail(bob_puzzle_hash, 500, cat_tail_hash);
+    sim.add_coin(bob_coin.clone(), &bob_secrets, cat_meta("bob", "cat"));
+
+    let merkle_root = sim.get_merkle_root().unwrap();
+    let (alice_path, alice_idx) = sim.get_merkle_path_and_index(&alice_coin).unwrap();
+
+    let maker_proof = Spender::create_conditional_spend(
+        &alice_coin, &offer_puzzle, &[], &alice_secrets, alice_path, merkle_root, alice_idx,
+    )
+    .expect("conditional spend");
+
+    let goods_puzzle_source = "(mod (x) x)";
+    let goods_puzzle_hash = compile_chialisp_template_hash_default(goods_puzzle_source).unwrap();
+    let goods_serial = [62u8; 32];
+    let goods_rand = [63u8; 32];
+
+    let (bob_path, bob_idx) = sim.get_merkle_path_and_index(&bob_coin).unwrap();
+    let settlement = prove_settlement(SettlementParams {
+        maker_proof,
+        taker_coin: bob_coin.clone(),
+        taker_secrets: bob_secrets.clone(),
+        taker_merkle_path: bob_path,
+        merkle_root,
+        taker_leaf_index: bob_idx,
+        payment_nonce: [33u8; 32],
+        taker_goods_puzzle: goods_puzzle_hash,
+        taker_change_puzzle: [55u8; 32],
+        payment_serial: [60u8; 32],
+        payment_rand: [61u8; 32],
+        goods_serial,
+        goods_rand,
+        change_serial: [64u8; 32],
+        change_rand: [65u8; 32],
+        taker_tail_hash: cat_tail_hash,
+        goods_tail_hash: XCH_TAIL,
+    })
+    .expect("settlement");
+    sim.process_settlement(&settlement.output).expect("process");
+
+    // reconstruct goods coin with WRONG tail (the old NM-001 bug)
+    let goods_serial_commitment =
+        clvm_zk_core::coin_commitment::SerialCommitment::compute(&goods_serial, &goods_rand, hash_data);
+    let wrong_coin = PrivateCoin::new_with_tail(
+        goods_puzzle_hash,
+        1000,
+        goods_serial_commitment,
+        cat_tail_hash, // WRONG — should be XCH_TAIL, using CAT tail instead
+    );
+
+    // wrong tail → different commitment → not in tree
+    assert!(
+        sim.get_merkle_path_and_index(&wrong_coin).is_none(),
+        "coin with wrong tail_hash must NOT be found in merkle tree"
+    );
+
+    // correct tail → found
+    let correct_coin = PrivateCoin::new_with_tail(
+        goods_puzzle_hash,
+        1000,
+        goods_serial_commitment,
+        XCH_TAIL,
+    );
+    assert!(
+        sim.get_merkle_path_and_index(&correct_coin).is_some(),
+        "coin with correct tail_hash must be found in merkle tree"
+    );
+}
