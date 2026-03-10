@@ -259,27 +259,34 @@ fn main() {
     // TAIL-ON-DELTA: CAT2-style TAIL authorization for supply changes
     // ============================================================================
     if total_input != total_output {
-        if let Some(ref tail_source) = private_inputs.tail_source {
-            let delta = total_input.saturating_sub(total_output);
+        let tail_hash = private_inputs.tail_hash.unwrap_or([0u8; 32]);
+        if tail_hash != [0u8; 32] {
+            // CAT: TAIL authorization required for supply change
+            if let Some(ref tail_source) = private_inputs.tail_source {
+                let delta = total_input.saturating_sub(total_output);
 
-            let (tail_bytecode, _tail_hash) =
-                compile_chialisp_to_bytecode(sp1_hasher, tail_source)
-                    .expect("spend-path TAIL compilation failed");
+                let (tail_bytecode, _tail_hash) =
+                    compile_chialisp_to_bytecode(sp1_hasher, tail_source)
+                        .expect("spend-path TAIL compilation failed");
 
-            let tail_params = vec![
-                clvm_zk_core::ProgramParameter::Int(delta),
-                clvm_zk_core::ProgramParameter::Int(total_input),
-                clvm_zk_core::ProgramParameter::Int(total_output),
-            ];
-            let tail_args = serialize_params_to_clvm(&tail_params);
+                let tail_params = vec![
+                    clvm_zk_core::ProgramParameter::Int(delta),
+                    clvm_zk_core::ProgramParameter::Int(total_input),
+                    clvm_zk_core::ProgramParameter::Int(total_output),
+                ];
+                let tail_args = serialize_params_to_clvm(&tail_params);
 
-            let (tail_output, _) =
-                run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
-                    .expect("spend-path TAIL execution failed");
+                let (tail_output, _) =
+                    run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
+                        .expect("spend-path TAIL execution failed");
 
-            let is_truthy = !tail_output.is_empty() && tail_output != vec![0x80];
-            assert!(is_truthy, "TAIL did not authorize melt (delta != 0)");
+                let is_truthy = !tail_output.is_empty() && tail_output != vec![0x80];
+                assert!(is_truthy, "TAIL did not authorize melt (delta != 0)");
+            } else {
+                panic!("CAT supply change requires tail_source");
+            }
         }
+        // XCH (tail_hash == [0;32]): no TAIL needed, burn is implicitly allowed
     }
 
     // Transform CREATE_COIN conditions for output privacy
