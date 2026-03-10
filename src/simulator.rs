@@ -630,7 +630,14 @@ impl CLVMZkSimulator {
     }
 
     /// process settlement output: add nullifiers and commitments to simulator state
-    pub fn process_settlement(&mut self, output: &crate::protocol::SettlementOutput) {
+    pub fn process_settlement(&mut self, output: &crate::protocol::SettlementOutput) -> Result<(), String> {
+        // reject already-spent nullifiers (double-spend protection)
+        if self.nullifier_set.contains(&output.maker_nullifier) {
+            return Err("maker nullifier already spent".into());
+        }
+        if self.nullifier_set.contains(&output.taker_nullifier) {
+            return Err("taker nullifier already spent".into());
+        }
         // add nullifiers to nullifier set
         self.nullifier_set.insert(output.maker_nullifier);
         self.nullifier_set.insert(output.taker_nullifier);
@@ -650,6 +657,7 @@ impl CLVMZkSimulator {
             self.commitment_to_index.insert(*commitment, leaf_index);
             self.merkle_leaves.push(*commitment);
         }
+        Ok(())
     }
 }
 

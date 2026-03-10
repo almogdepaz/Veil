@@ -301,6 +301,9 @@ pub fn verify_ecdsa_signature_with_hasher(
 /// compute modular exponentiation: base^exponent mod modulus
 /// uses binary exponentiation for efficiency
 pub fn modular_pow(mut base: i64, mut exponent: i64, modulus: i64) -> i64 {
+    if modulus == 0 {
+        return 0;
+    }
     if modulus == 1 {
         return 0;
     }
@@ -816,7 +819,7 @@ pub fn enforce_ring_balance(
                 }
                 _ => 0,
             };
-            total_output_amount += amount;
+            total_output_amount = total_output_amount.checked_add(amount).expect("output amount overflow");
         }
     }
 
@@ -833,7 +836,7 @@ pub fn enforce_ring_balance(
                     return Err("ring spend: all coins must have same tail_hash");
                 }
 
-                input_sum += coin.serial_commitment_data.amount;
+                input_sum = input_sum.checked_add(coin.serial_commitment_data.amount).expect("input amount overflow");
             }
         }
 

@@ -820,6 +820,9 @@ struct WalletData {
     note_encryption_public: Option<[u8; 32]>,
     #[serde(default)]
     note_encryption_private: Option<[u8; 32]>,
+    // per-recipient nonce counter for stealth payments (key = hex(recipient_view_pubkey))
+    #[serde(default)]
+    stealth_nonce_counters: std::collections::HashMap<String, u32>,
 }
 
 /// wrapper around WalletPrivateCoin with additional CLI-specific state
@@ -1413,6 +1416,7 @@ fn wallet_command(data_dir: &Path, name: &str, action: WalletAction) -> Result<(
                 stealth_spend_pubkey: Some(stealth_address.spend_pubkey.to_vec()),
                 note_encryption_public: Some(note_encryption_public),
                 note_encryption_private: Some(note_encryption_private),
+                stealth_nonce_counters: std::collections::HashMap::new(),
             };
 
             state.wallets.insert(name.to_string(), wallet);
@@ -1814,6 +1818,13 @@ fn send_command(
                     }
                 };
 
+                // look up per-recipient nonce counter (prevents same sender→recipient collision)
+                let recipient_key = hex::encode(recipient_stealth.view_pubkey);
+                let nonce_index = {
+                    let sender = state.wallets.get(from).unwrap();
+                    *sender.stealth_nonce_counters.get(&recipient_key).unwrap_or(&0)
+                };
+
                 // create stealth payment (nullifier mode) - derives shared_secret via hash
                 let sender_hd = state
                     .wallets
@@ -1826,7 +1837,7 @@ fn send_command(
                 })?;
                 let stealth_payment = crate::wallet::create_stealth_payment_hd(
                     &sender_account.stealth_keys,
-                    0, // nonce_index
+                    nonce_index,
                     &recipient_stealth,
                 );
 
@@ -1872,6 +1883,10 @@ fn send_command(
                     "created stealth payment for '{}' with amount {} [nullifier mode] (recipient must scan to receive)",
                     to, amount
                 );
+
+                // increment per-recipient nonce counter
+                let sender_mut = state.wallets.get_mut(from).unwrap();
+                *sender_mut.stealth_nonce_counters.entry(recipient_key).or_insert(0) += 1;
             }
 
             // handle change if any
@@ -2644,12 +2659,10 @@ fn offer_take_command(
 ) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
-    // get offer
-    if offer_id >= state.pending_offers.len() {
-        return Err(ClvmZkError::InvalidProgram("offer not found".to_string()));
-    }
-
-    let offer = state.pending_offers[offer_id].clone();
+    // get offer by stable ID (not vec index — indices shift after removal)
+    let offer_pos = state.pending_offers.iter().position(|o| o.id == offer_id)
+        .ok_or_else(|| ClvmZkError::InvalidProgram("offer not found".into()))?;
+    let offer = state.pending_offers[offer_pos].clone();
 
     // get taker wallet
     let wallet = state
@@ -2705,8 +2718,8 @@ fn offer_take_command(
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut change_rand);
 
     // use faucet puzzle for taker's goods and change
-    let (_, taker_goods_puzzle) = create_faucet_puzzle(offer.offered);
-    let (_, taker_change_puzzle) = create_faucet_puzzle(offer.offered);
+    let (taker_goods_program, taker_goods_puzzle) = create_faucet_puzzle(offer.offered);
+    let (taker_change_program, taker_change_puzzle) = create_faucet_puzzle(offer.offered);
 
     // get merkle path for taker's coin
     let (merkle_path, leaf_index) = state
@@ -2800,7 +2813,7 @@ fn offer_take_command(
         println!("✅ both proofs verified concurrently");
 
         // linkage is guaranteed by prove_settlement extracting from maker's verified journal
-        // validator should check settlement_proof.output.maker_pubkey matches offer.maker_pubkey
+        // maker_pubkey equality enforced below (NM-002)
     }
 
     #[cfg(feature = "sp1")]
@@ -2856,10 +2869,28 @@ fn offer_take_command(
         println!("✅ both proofs verified concurrently");
     }
 
+    // NM-002: enforce maker pubkey linkage before state mutation
+    if settlement_proof.output.maker_pubkey != offer.maker_pubkey {
+        return Err(ClvmZkError::InvalidProgram(
+            "settlement/offer maker_pubkey mismatch".to_string(),
+        ));
+    }
+
     // process settlement output: add nullifiers and commitments to simulator state
-    state.simulator.process_settlement(&settlement_proof.output);
+    state.simulator.process_settlement(&settlement_proof.output)
+        .map_err(|e| ClvmZkError::InvalidProgram(format!("settlement failed: {}", e)))?;
 
     println!("   added 2 nullifiers and 4 commitments to state");
+
+    // mark taker's original coin as spent
+    let taker_serial_commitment = taker_coin.to_private_coin().serial_commitment;
+    let taker_wallet = state.wallets.get_mut(taker_name).unwrap();
+    for coin in &mut taker_wallet.coins {
+        if coin.wallet_coin.coin.serial_commitment == taker_serial_commitment {
+            coin.spent = true;
+            break;
+        }
+    }
 
     // 3. create taker's 3 coins with full secrets (payment, goods, change)
 
@@ -2876,6 +2907,10 @@ fn offer_take_command(
     let goods_amount = offer.offered;
     let change_amount = taker_coin.amount() - offer.requested;
 
+    // NM-001: correct tail_hash per output (not XCH-default for everything)
+    let taker_tail = taker_coin.to_private_coin().tail_hash; // asset B (what taker spends)
+    let goods_tail = offer.offered_tail_hash;                 // asset A (what maker offers)
+
     // create 3 coins for taker's wallet
     let taker_wallet = state.wallets.get_mut(taker_name).unwrap();
 
@@ -2885,10 +2920,11 @@ fn offer_take_command(
         &payment_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let payment_coin = crate::protocol::PrivateCoin::new(
+    let payment_coin = crate::protocol::PrivateCoin::new_with_tail(
         payment_puzzle,
         payment_amount,
         payment_serial_commitment,
+        taker_tail, // asset B
     );
     let payment_secrets =
         clvm_zk_core::coin_commitment::CoinSecrets::new(payment_serial, payment_rand);
@@ -2900,7 +2936,7 @@ fn offer_take_command(
     };
     taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: payment_wallet_coin,
-        program: "(mod () (q . ()))".to_string(), // placeholder program
+        program: "(mod () (q . ()))".to_string(), // stealth address — no compilable source
         spent: false,
     });
 
@@ -2910,10 +2946,11 @@ fn offer_take_command(
         &goods_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let goods_coin = crate::protocol::PrivateCoin::new(
+    let goods_coin = crate::protocol::PrivateCoin::new_with_tail(
         taker_goods_puzzle,
         goods_amount,
         goods_serial_commitment,
+        goods_tail, // asset A
     );
     let goods_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(goods_serial, goods_rand);
     let goods_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
@@ -2924,7 +2961,7 @@ fn offer_take_command(
     };
     taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: goods_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),
+        program: taker_goods_program.clone(),
         spent: false,
     });
 
@@ -2934,10 +2971,11 @@ fn offer_take_command(
         &change_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let change_coin = crate::protocol::PrivateCoin::new(
+    let change_coin = crate::protocol::PrivateCoin::new_with_tail(
         taker_change_puzzle,
         change_amount,
         change_serial_commitment,
+        taker_tail, // asset B
     );
     let change_secrets =
         clvm_zk_core::coin_commitment::CoinSecrets::new(change_serial, change_rand);
@@ -2949,7 +2987,7 @@ fn offer_take_command(
     };
     taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: change_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),
+        program: taker_change_program.clone(),
         spent: false,
     });
 
@@ -2966,10 +3004,11 @@ fn offer_take_command(
         &offer.change_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let maker_change_coin = crate::protocol::PrivateCoin::new(
+    let maker_change_coin = crate::protocol::PrivateCoin::new_with_tail(
         offer.change_puzzle,
         offer.change_amount,
         maker_change_serial_commitment,
+        goods_tail, // asset A (maker's original asset)
     );
     let maker_change_secrets =
         clvm_zk_core::coin_commitment::CoinSecrets::new(offer.change_serial, offer.change_rand);
@@ -2979,9 +3018,10 @@ fn offer_take_command(
         account_index: 0,
         coin_index: 0,
     };
+    let (maker_change_program, _) = crate::protocol::create_delegated_puzzle()?;
     maker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: maker_change_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),
+        program: maker_change_program,
         spent: false,
     });
 
@@ -2992,10 +3032,11 @@ fn offer_take_command(
         &payment_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let maker_payment_coin = crate::protocol::PrivateCoin::new(
+    let maker_payment_coin = crate::protocol::PrivateCoin::new_with_tail(
         payment_puzzle,
         payment_amount,
         maker_payment_serial_commitment,
+        taker_tail, // asset B (what maker receives)
     );
     let maker_payment_secrets =
         clvm_zk_core::coin_commitment::CoinSecrets::new(payment_serial, payment_rand);
@@ -3007,14 +3048,14 @@ fn offer_take_command(
     };
     maker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: maker_payment_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),
+        program: "(mod () (q . ()))".to_string(), // stealth address — no compilable source
         spent: false,
     });
 
     println!("   added 2 coins to maker's wallet (change, payment)");
 
-    // 5. remove offer from pending
-    state.pending_offers.remove(offer_id);
+    // 5. remove offer from pending (by position, not by ID)
+    state.pending_offers.remove(offer_pos);
 
     state.save(data_dir)?;
 
