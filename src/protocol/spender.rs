@@ -46,6 +46,7 @@ impl Spender {
             coin.puzzle_hash,
             coin.amount,
             tail_hash,
+            None, // regular spend — no tail_source needed when delta == 0
         )
         .map_err(|e| ProtocolError::ProofGenerationFailed(format!("zk proof failed: {e}")))?;
 
@@ -270,6 +271,7 @@ impl Spender {
         merkle_path: Vec<[u8; 32]>,
         merkle_root: [u8; 32],
         leaf_index: usize,
+        tail_source: Option<String>,
     ) -> Result<PrivateSpendBundle, ProtocolError> {
         coin.validate()
             .map_err(|e| ProtocolError::ProofGenerationFailed(format!("invalid coin: {e}")))?;
@@ -301,6 +303,7 @@ impl Spender {
             coin.puzzle_hash,
             coin.amount,
             tail_hash,
+            tail_source, // TAIL program for CAT delta authorization
         )
         .map_err(|e| ProtocolError::ProofGenerationFailed(format!("zk proof failed: {e}")))?;
 
