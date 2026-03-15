@@ -286,9 +286,15 @@ fn main() {
             if let Some(ref tail_source) = private_inputs.tail_source {
                 let delta = total_input.saturating_sub(total_output); // always >= 0 here
 
-                let (tail_bytecode, _tail_hash) =
+                let (tail_bytecode, compiled_tail_hash) =
                     compile_chialisp_to_bytecode(risc0_hasher, tail_source)
                         .expect("spend-path TAIL compilation failed");
+
+                // verify TAIL source matches the coin's tail_hash (prevents substitution attack)
+                assert_eq!(
+                    compiled_tail_hash, tail_hash,
+                    "TAIL source does not match coin's tail_hash"
+                );
 
                 // TAIL receives: (delta total_input total_output ...extra_params)
                 let tail_params = vec![
