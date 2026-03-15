@@ -105,6 +105,7 @@ fn test_settlement_mock() {
         vec![], // empty merkle path for single-leaf tree
         maker_merkle_root,
         0,
+        None,
     )
     .expect("maker conditional spend failed");
 

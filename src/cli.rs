@@ -105,6 +105,9 @@ pub enum SimAction {
         /// Asset ID (tail_hash) - hex string. Omit for XCH.
         #[arg(long)]
         tail: Option<String>,
+        /// TAIL program source (chialisp) - computes tail_hash automatically, stored on coin for offer-create
+        #[arg(long)]
+        tail_source: Option<String>,
         /// Use delegated puzzle (required for offers)
         #[arg(long)]
         delegated: bool,
@@ -834,6 +837,9 @@ struct WalletCoinWrapper {
     program: String,
     /// whether this coin has been spent
     spent: bool,
+    /// TAIL program source (chialisp) for CAT coins — needed for offer-create delta authorization
+    #[serde(default)]
+    tail_source: Option<String>,
 }
 
 impl WalletCoinWrapper {
@@ -884,7 +890,7 @@ impl WalletData {
         amount: u64,
         program: String,
     ) -> Result<WalletCoinWrapper, WalletError> {
-        self.create_coin_with_tail(puzzle_hash, amount, program, None)
+        self.create_coin_with_tail(puzzle_hash, amount, program, None, None)
     }
 
     fn create_coin_with_tail(
@@ -893,6 +899,7 @@ impl WalletData {
         amount: u64,
         program: String,
         tail_hash: Option<[u8; 32]>,
+        tail_source: Option<String>,
     ) -> Result<WalletCoinWrapper, WalletError> {
         let coin_index = self.next_coin_index();
 
@@ -916,6 +923,7 @@ impl WalletData {
             wallet_coin,
             program,
             spent: false,
+            tail_source,
         })
     }
 }
@@ -1044,9 +1052,10 @@ fn run_simulator_command(data_dir: &Path, action: SimAction) -> Result<(), ClvmZ
             amount,
             count,
             tail,
+            tail_source,
             delegated,
         } => {
-            faucet_command(data_dir, &wallet, amount, count, tail, delegated)?;
+            faucet_command(data_dir, &wallet, amount, count, tail, tail_source, delegated)?;
         }
 
         SimAction::Mint {
@@ -1151,26 +1160,30 @@ fn faucet_command(
     amount: u64,
     count: u32,
     tail_hex: Option<String>,
+    tail_source: Option<String>,
     use_delegated: bool,
 ) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
-    // parse tail_hash if provided
-    let tail_hash: Option<[u8; 32]> = match &tail_hex {
-        Some(hex_str) => {
-            let bytes = hex::decode(hex_str)
-                .map_err(|e| ClvmZkError::InvalidProgram(format!("invalid tail hex: {}", e)))?;
-            if bytes.len() != 32 {
-                return Err(ClvmZkError::InvalidProgram(format!(
-                    "tail must be 32 bytes (64 hex chars), got {} bytes",
-                    bytes.len()
-                )));
-            }
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(&bytes);
-            Some(arr)
+    // compute tail_hash: from --tail-source (auto-compute) or --tail (explicit hex)
+    let tail_hash: Option<[u8; 32]> = if let Some(ref source) = tail_source {
+        let hash = compile_chialisp_template_hash_default(source)
+            .map_err(|e| ClvmZkError::InvalidProgram(format!("failed to compile tail source: {:?}", e)))?;
+        Some(hash)
+    } else if let Some(ref hex_str) = tail_hex {
+        let bytes = hex::decode(hex_str)
+            .map_err(|e| ClvmZkError::InvalidProgram(format!("invalid tail hex: {}", e)))?;
+        if bytes.len() != 32 {
+            return Err(ClvmZkError::InvalidProgram(format!(
+                "tail must be 32 bytes (64 hex chars), got {} bytes",
+                bytes.len()
+            )));
         }
-        None => None,
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&bytes);
+        Some(arr)
+    } else {
+        None
     };
 
     // ensure wallet exists
@@ -1195,7 +1208,7 @@ fn faucet_command(
     for _ in 0..count {
         // Use HD wallet to create new coin (with optional tail_hash for CATs)
         let wallet_coin = wallet
-            .create_coin_with_tail(puzzle_hash, amount, program.clone(), tail_hash)
+            .create_coin_with_tail(puzzle_hash, amount, program.clone(), tail_hash, tail_source.clone())
             .map_err(|e| ClvmZkError::InvalidProgram(format!("HD wallet error: {}", e)))?;
 
         // add coin to global simulator state
@@ -1330,7 +1343,7 @@ fn mint_command(
     for _ in 0..count {
         // create coin with proper tail_hash
         let wallet_coin = wallet
-            .create_coin_with_tail(puzzle_hash, amount, program.clone(), Some(tail_hash))
+            .create_coin_with_tail(puzzle_hash, amount, program.clone(), Some(tail_hash), Some(tail_source.to_string()))
             .map_err(|e| ClvmZkError::InvalidProgram(format!("HD wallet error: {}", e)))?;
 
         // add coin to global simulator state
@@ -2037,6 +2050,7 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
                 wallet_coin,
                 program,
                 spent: false,
+                tail_source: None,
             };
 
             // Add to wallet
@@ -2587,6 +2601,7 @@ fn offer_create_command(
         .ok_or_else(|| ClvmZkError::InvalidProgram("merkle tree has no root".to_string()))?;
 
     // create conditional spend proof using delegated puzzle
+    // pass tail_source for CAT coins so TAIL can authorize the balance delta
     let conditional_proof = crate::protocol::Spender::create_conditional_spend(
         &spend_coin.to_private_coin(),
         &delegated_code,
@@ -2595,6 +2610,7 @@ fn offer_create_command(
         merkle_path,
         merkle_root,
         leaf_index,
+        spend_coin.tail_source.clone(),
     )
     .map_err(|e| ClvmZkError::InvalidProgram(format!("conditional proof failed: {:?}", e)))?;
 
@@ -2938,6 +2954,7 @@ fn offer_take_command(
         wallet_coin: payment_wallet_coin,
         program: "(mod () (q . ()))".to_string(), // stealth address — no compilable source
         spent: false,
+        tail_source: None,
     });
 
     // 2. goods coin (maker → taker, asset A)
@@ -2963,6 +2980,7 @@ fn offer_take_command(
         wallet_coin: goods_wallet_coin,
         program: taker_goods_program.clone(),
         spent: false,
+        tail_source: None,
     });
 
     // 3. change coin (taker's leftover, asset B)
@@ -2989,6 +3007,7 @@ fn offer_take_command(
         wallet_coin: change_wallet_coin,
         program: taker_change_program.clone(),
         spent: false,
+        tail_source: None,
     });
 
     println!("   added 3 coins to taker's wallet (payment, goods, change)");
@@ -3023,6 +3042,7 @@ fn offer_take_command(
         wallet_coin: maker_change_wallet_coin,
         program: maker_change_program,
         spent: false,
+        tail_source: None,
     });
 
     // 4b. maker's payment coin (taker → maker, asset B)
@@ -3050,6 +3070,7 @@ fn offer_take_command(
         wallet_coin: maker_payment_wallet_coin,
         program: "(mod () (q . ()))".to_string(), // stealth address — no compilable source
         spent: false,
+        tail_source: None,
     });
 
     println!("   added 2 coins to maker's wallet (change, payment)");

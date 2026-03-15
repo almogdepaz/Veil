@@ -173,6 +173,7 @@ fn main() {
             program_hash,
             *amount,
             None, // XCH (no CAT tail_hash)
+            None, // no tail_source
         )
         .expect(&format!("failed to generate proof {}", i));
 

@@ -431,6 +431,7 @@ fn test_e2e_offer_create_take() {
         alice_path,
         merkle_root,
         alice_idx,
+        None,
     )
     .expect("conditional spend should succeed");
 
@@ -610,6 +611,7 @@ fn test_e2e_settlement_goods_coin_spendable() {
         alice_path,
         merkle_root,
         alice_idx,
+        None,
     )
     .expect("conditional spend");
 
@@ -730,7 +732,7 @@ fn test_e2e_settlement_wrong_tail_not_in_tree() {
     let (alice_path, alice_idx) = sim.get_merkle_path_and_index(&alice_coin).unwrap();
 
     let maker_proof = Spender::create_conditional_spend(
-        &alice_coin, &offer_puzzle, &[], &alice_secrets, alice_path, merkle_root, alice_idx,
+        &alice_coin, &offer_puzzle, &[], &alice_secrets, alice_path, merkle_root, alice_idx, None,
     )
     .expect("conditional spend");
 

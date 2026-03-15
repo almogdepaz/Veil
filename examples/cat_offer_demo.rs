@@ -191,6 +191,7 @@ fn main() {
         cat_merkle_path,
         merkle_root,
         0,
+        None, // no tail_source (not compiling tail in-proof)
     );
 
     match conditional_result {
