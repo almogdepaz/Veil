@@ -9,7 +9,7 @@ pub use bincode;
 pub use sp1_sdk;
 
 pub use clvm_zk_core::{
-    ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
+    ClvmResult, ClvmZkError, CoinMode, Input, ProgramParameter, ProofOutput, ZKClvmResult,
 };
 
 use clvm_zk_core::backend_utils::{
@@ -70,9 +70,10 @@ impl Sp1Backend {
         let inputs = Input {
             chialisp_source: chialisp_source.to_string(),
             program_parameters: program_parameters.to_vec(),
-            serial_commitment_data: None,
+            coin_mode: CoinMode::Execute,
             tail_hash: None,        // XCH by default
             additional_coins: None, // single-coin spend
+            tail_source: None,
         };
 
         let mut stdin = SP1Stdin::new();
@@ -121,6 +122,15 @@ impl Sp1Backend {
         inputs: clvm_zk_core::Input,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use sp1_sdk::{ProverClient, SP1Stdin};
+
+        // host-side guard: reject CoinMode::Mint before reaching the guest.
+        // the guest panics on Mint (not yet implemented); this surfaces a clean error instead.
+        if matches!(inputs.coin_mode, CoinMode::Mint(_)) {
+            return Err(ClvmZkError::ProofGenerationFailed(
+                "mint mode not yet supported in sp1 backend".to_string(),
+            ));
+        }
+
         let mut stdin = SP1Stdin::new();
         stdin.write(&inputs);
 

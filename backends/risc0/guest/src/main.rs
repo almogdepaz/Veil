@@ -9,8 +9,8 @@ use risc0_zkvm::sha::{Impl, Sha256 as RiscSha256};
 use clvm_zk_core::{
     compile_chialisp_to_bytecode, compute_coin_commitment, compute_nullifier,
     compute_serial_commitment, create_veil_evaluator, parse_variable_length_amount,
-    run_clvm_with_conditions, serialize_params_to_clvm, verify_merkle_proof, ClvmResult, Input,
-    ProofOutput, BLS_DST,
+    run_clvm_with_conditions, serialize_params_to_clvm, verify_merkle_proof, ClvmResult, CoinMode,
+    Input, ProofOutput, BLS_DST,
 };
 
 use bls12_381::hash_to_curve::{ExpandMsgXmd, HashToCurve};
@@ -214,8 +214,8 @@ fn main() {
         output_bytes
     };
 
-    let nullifier = match &private_inputs.serial_commitment_data {
-        Some(commitment_data) => {
+    let nullifier = match &private_inputs.coin_mode {
+        CoinMode::Spend(commitment_data) => {
             assert_eq!(
                 program_hash, commitment_data.program_hash,
                 "program_hash mismatch: cannot spend coin with different program"
@@ -248,7 +248,7 @@ fn main() {
                 risc0_hasher,
                 computed_coin_commitment,
                 &commitment_data.merkle_path,
-                commitment_data.leaf_index,
+                usize::try_from(commitment_data.leaf_index).expect("leaf_index exceeds usize — tree larger than platform supports"),
                 commitment_data.merkle_root,
             )
             .expect("merkle root mismatch: coin not in current tree state");
@@ -260,7 +260,8 @@ fn main() {
                 commitment_data.amount,
             ))
         }
-        None => None,
+        CoinMode::Execute => None,
+        CoinMode::Mint(_) => panic!("mint mode not yet implemented in this guest version"),
     };
 
     // collect nullifiers: primary coin + additional coins for ring spends
@@ -311,7 +312,7 @@ fn main() {
                 risc0_hasher,
                 computed_coin_commitment,
                 &coin_data.merkle_path,
-                coin_data.leaf_index,
+                usize::try_from(coin_data.leaf_index).expect("leaf_index exceeds usize — tree larger than platform supports"),
                 coin_data.merkle_root,
             )
             .expect("additional coin: merkle root mismatch");

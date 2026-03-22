@@ -200,7 +200,7 @@ impl Spender {
                     coin_commitment: coin_commitment.0,
                     serial_commitment: coin.serial_commitment.0,
                     merkle_root,
-                    leaf_index: *leaf_index,
+                    leaf_index: *leaf_index as u64,
                     program_hash: coin.puzzle_hash,
                     amount: coin.amount,
                 },
@@ -215,7 +215,7 @@ impl Spender {
             coin_commitment: primary_coin_commitment.0,
             serial_commitment: primary_coin.serial_commitment.0,
             merkle_root,
-            leaf_index: *primary_leaf_idx,
+            leaf_index: *primary_leaf_idx as u64,
             program_hash: primary_coin.puzzle_hash,
             amount: primary_coin.amount,
         };

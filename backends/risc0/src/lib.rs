@@ -8,7 +8,7 @@ use clvm_zk_core::backend_utils::{
     convert_proving_error, validate_nullifier_proof_output, validate_proof_output,
 };
 pub use clvm_zk_core::{
-    ClvmResult, ClvmZkError, Input, ProgramParameter, ProofOutput, ZKClvmResult,
+    ClvmResult, ClvmZkError, CoinMode, Input, ProgramParameter, ProofOutput, ZKClvmResult,
 };
 
 pub struct Risc0Backend {}
@@ -39,9 +39,10 @@ impl Risc0Backend {
         let inputs = Input {
             chialisp_source: chialisp_source.to_string(),
             program_parameters: program_parameters.to_vec(),
-            serial_commitment_data: None,
+            coin_mode: CoinMode::Execute,
             tail_hash: None,        // XCH by default
             additional_coins: None, // single-coin spend
+            tail_source: None,
         };
         let env = ExecutorEnv::builder()
             .write(&inputs)
@@ -103,6 +104,14 @@ impl Risc0Backend {
         inputs: clvm_zk_core::Input,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use risc0_zkvm::{default_prover, ExecutorEnv};
+
+        // host-side guard: reject CoinMode::Mint before reaching the guest.
+        // the guest panics on Mint (not yet implemented); this surfaces a clean error instead.
+        if matches!(inputs.coin_mode, CoinMode::Mint(_)) {
+            return Err(ClvmZkError::ProofGenerationFailed(
+                "mint mode not yet supported in risc0 backend".to_string(),
+            ));
+        }
 
         let env = ExecutorEnv::builder()
             .write(&inputs)

@@ -24,7 +24,7 @@ pub mod simulator;
 pub mod testing_helpers;
 pub mod wallet;
 pub use clvm_zk_core::{
-    ClvmResult, ClvmZkError, Input, ProgramParameter, SerialCommitmentData, ZKClvmResult,
+    ClvmResult, ClvmZkError, CoinMode, Input, ProgramParameter, SerialCommitmentData, ZKClvmResult,
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -171,19 +171,20 @@ impl ClvmZkProver {
         let input = Input {
             chialisp_source: expression.to_string(),
             program_parameters: parameters.to_vec(),
-            serial_commitment_data: Some(SerialCommitmentData {
+            coin_mode: CoinMode::Spend(SerialCommitmentData {
                 serial_number: coin_secrets.serial_number,
                 serial_randomness: coin_secrets.serial_randomness,
                 merkle_path,
                 coin_commitment,
                 serial_commitment,
                 merkle_root,
-                leaf_index,
+                leaf_index: leaf_index as u64,
                 program_hash,
                 amount,
             }),
             tail_hash,
             additional_coins: None, // single-coin API
+            tail_source: None,
         };
 
         #[cfg(feature = "risc0")]
@@ -228,9 +229,10 @@ impl ClvmZkProver {
         let input = Input {
             chialisp_source: expression.to_string(),
             program_parameters: parameters.to_vec(),
-            serial_commitment_data: Some(serial_data),
+            coin_mode: CoinMode::Spend(serial_data),
             tail_hash,
             additional_coins: Some(additional_coins),
+            tail_source: None,
         };
 
         #[cfg(feature = "risc0")]

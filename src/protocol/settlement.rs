@@ -204,7 +204,8 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
             serial_number: [u8; 32],
             serial_randomness: [u8; 32],
             merkle_path: Vec<[u8; 32]>,
-            leaf_index: usize,
+            /// u64 (not usize) — must match guest TakerCoinData for consistent serde on 32-bit zkVM
+            leaf_index: u64,
         }
 
         let input = SettlementInput {
@@ -220,7 +221,7 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
                 serial_number: params.taker_secrets.serial_number,
                 serial_randomness: params.taker_secrets.serial_randomness,
                 merkle_path: params.taker_merkle_path,
-                leaf_index: params.taker_leaf_index,
+                leaf_index: params.taker_leaf_index as u64,
             },
             merkle_root: params.merkle_root,
             payment_nonce: params.payment_nonce,
@@ -334,7 +335,8 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
             serial_number: [u8; 32],
             serial_randomness: [u8; 32],
             merkle_path: Vec<[u8; 32]>,
-            leaf_index: usize,
+            /// u64 (not usize) — must match guest TakerCoinData for consistent serde on 32-bit zkVM
+            leaf_index: u64,
         }
 
         let input = SettlementInput {
@@ -350,7 +352,7 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
                 serial_number: params.taker_secrets.serial_number,
                 serial_randomness: params.taker_secrets.serial_randomness,
                 merkle_path: params.taker_merkle_path,
-                leaf_index: params.taker_leaf_index,
+                leaf_index: params.taker_leaf_index as u64,
             },
             merkle_root: params.merkle_root,
             payment_nonce: params.payment_nonce,

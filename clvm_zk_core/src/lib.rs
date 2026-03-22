@@ -300,7 +300,16 @@ pub fn verify_ecdsa_signature_with_hasher(
 
 /// compute modular exponentiation: base^exponent mod modulus
 /// uses binary exponentiation for efficiency
+///
+/// # Special cases
+/// - `modulus == 0`: returns 0 by convention (mathematically undefined; prevents division-by-zero panic)
+/// - `modulus == 1`: returns 0 (any integer mod 1 == 0)
+///
+/// Callers must not treat `modular_pow(x, y, 0) == 0` as a mathematically meaningful result.
 pub fn modular_pow(mut base: i64, mut exponent: i64, modulus: i64) -> i64 {
+    if modulus == 0 {
+        return 0;
+    }
     if modulus == 1 {
         return 0;
     }
@@ -752,6 +761,25 @@ pub fn create_veil_evaluator(
 mod security_tests {
     use crate::compile_chialisp_to_bytecode;
     use crate::hash_data;
+    use crate::modular_pow;
+
+    #[test]
+    fn test_modular_pow_zero_modulus_convention() {
+        // modulus == 0 is mathematically undefined; we return 0 by convention
+        // to prevent division-by-zero panic. callers must not treat this as a
+        // meaningful congruence result.
+        assert_eq!(modular_pow(5, 3, 0), 0);
+        assert_eq!(modular_pow(0, 0, 0), 0);
+        assert_eq!(modular_pow(-1, 2, 0), 0);
+    }
+
+    #[test]
+    fn test_modular_pow_basic() {
+        assert_eq!(modular_pow(2, 10, 1000), 24);  // 1024 mod 1000
+        assert_eq!(modular_pow(3, 0, 7), 1);        // anything^0 mod m == 1 (for m > 1)
+        assert_eq!(modular_pow(5, 1, 13), 5);
+        assert_eq!(modular_pow(2, 3, 5), 3);        // 8 mod 5
+    }
 
     #[test]
     fn test_template_program_consistency_check() {
@@ -816,36 +844,43 @@ pub fn enforce_ring_balance(
                 }
                 _ => 0,
             };
-            total_output_amount += amount;
+            total_output_amount = total_output_amount.checked_add(amount).expect("output amount overflow");
         }
     }
 
     // sum input amounts and verify tail_hash consistency
-    let total_input_amount = if let Some(commitment_data) = &private_inputs.serial_commitment_data {
-        let mut input_sum = commitment_data.amount; // primary coin
+    let total_input_amount = match &private_inputs.coin_mode {
+        CoinMode::Spend(commitment_data) => {
+            let mut input_sum = commitment_data.amount; // primary coin
 
-        if let Some(additional_coins) = &private_inputs.additional_coins {
-            let primary_tail_hash = private_inputs.tail_hash.unwrap_or([0u8; 32]);
+            if let Some(additional_coins) = &private_inputs.additional_coins {
+                let primary_tail_hash = private_inputs.tail_hash.unwrap_or([0u8; 32]);
 
-            for coin in additional_coins {
-                // enforce single-asset ring (defense in depth)
-                if coin.tail_hash != primary_tail_hash {
-                    return Err("ring spend: all coins must have same tail_hash");
+                for coin in additional_coins {
+                    // enforce single-asset ring (defense in depth)
+                    if coin.tail_hash != primary_tail_hash {
+                        return Err("ring spend: all coins must have same tail_hash");
+                    }
+
+                    input_sum = input_sum.checked_add(coin.serial_commitment_data.amount).expect("input amount overflow");
                 }
-
-                input_sum += coin.serial_commitment_data.amount;
             }
-        }
 
-        // prevent inflation: output cannot exceed input
-        // allows burning/locking (output < input) for fees, conditional spends, etc.
-        if total_output_amount > input_sum {
-            return Err("inflation: output exceeds input");
-        }
+            // prevent inflation: output cannot exceed input
+            // allows burning/locking (output < input) for fees, conditional spends, etc.
+            if total_output_amount > input_sum {
+                return Err("inflation: output exceeds input");
+            }
 
-        input_sum
-    } else {
-        0 // no serial commitment = simple program execution
+            input_sum
+        }
+        CoinMode::Execute => 0, // pure program execution: no coin input, no balance constraint
+        CoinMode::Mint(_) => {
+            // mint mode has its own supply rules — callers must use dedicated mint validation.
+            // rejecting here prevents a Mint input from bypassing balance enforcement by
+            // falling through with total_input_amount = 0.
+            return Err("mint mode must use dedicated mint validation, not enforce_ring_balance");
+        }
     };
 
     Ok((total_input_amount, total_output_amount))

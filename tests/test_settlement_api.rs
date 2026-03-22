@@ -17,9 +17,10 @@ fn test_api_exists() {
         ProofType::Transaction => "transaction",
         ProofType::ConditionalSpend => "conditional",
         ProofType::Settlement => "settlement",
+        ProofType::Mint => "mint",
     };
 
-    println!("✓ ProofType enum has all three variants");
+    println!("✓ ProofType enum has all expected variants");
 
     // verify Spender has create_conditional_spend method
     let _has_method = Spender::create_conditional_spend;

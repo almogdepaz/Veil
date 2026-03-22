@@ -3,8 +3,8 @@ use clvm_zk_core::{
     compile_chialisp_to_bytecode, compute_coin_commitment, compute_nullifier,
     compute_serial_commitment, create_veil_evaluator, enforce_ring_balance,
     parse_variable_length_amount, run_clvm_with_conditions, serialize_params_to_clvm,
-    verify_merkle_proof, ClvmResult, ClvmZkError, Condition, ProgramParameter, ProofOutput,
-    ZKClvmResult, BLS_DST,
+    verify_merkle_proof, ClvmResult, ClvmZkError, CoinMode, Condition, ProgramParameter,
+    ProofOutput, ZKClvmResult, BLS_DST,
 };
 use sha2::{Digest, Sha256};
 
@@ -245,8 +245,8 @@ impl MockBackend {
             cost: 0,
         };
 
-        let nullifier = match inputs.serial_commitment_data {
-            Some(commitment_data) => {
+        let nullifier = match &inputs.coin_mode {
+            CoinMode::Spend(commitment_data) => {
                 if program_hash != commitment_data.program_hash {
                     return Err(ClvmZkError::ProofGenerationFailed(
                         "program_hash mismatch: cannot spend coin with different puzzle"
@@ -283,7 +283,7 @@ impl MockBackend {
                     hash_data,
                     computed_coin_commitment,
                     &commitment_data.merkle_path,
-                    commitment_data.leaf_index,
+                    usize::try_from(commitment_data.leaf_index).expect("leaf_index exceeds usize — tree larger than platform supports"),
                     commitment_data.merkle_root,
                 )
                 .map_err(|e| {
@@ -297,7 +297,12 @@ impl MockBackend {
                     commitment_data.amount,
                 ))
             }
-            None => None,
+            CoinMode::Execute => None,
+            CoinMode::Mint(_) => {
+                return Err(ClvmZkError::ProofGenerationFailed(
+                    "mint mode not yet implemented in mock backend".to_string(),
+                ))
+            }
         };
 
         // collect nullifiers: primary coin + additional coins

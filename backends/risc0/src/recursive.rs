@@ -108,7 +108,7 @@ mod tests {
     use crate::{Risc0Backend, RECURSIVE_ID};
     use clvm_zk_core::merkle::SparseMerkleTree;
     use clvm_zk_core::{CoinCommitment, CoinSecrets, XCH_TAIL};
-    use clvm_zk_core::{Input, ProgramParameter, SerialCommitmentData};
+    use clvm_zk_core::{CoinMode, Input, ProgramParameter, SerialCommitmentData};
     use sha2::{Digest, Sha256};
 
     fn hash_data(data: &[u8]) -> [u8; 32] {
@@ -151,19 +151,20 @@ mod tests {
         let input = Input {
             chialisp_source: program.to_string(),
             program_parameters: params.to_vec(),
-            serial_commitment_data: Some(SerialCommitmentData {
+            coin_mode: CoinMode::Spend(SerialCommitmentData {
                 serial_number,
                 serial_randomness,
                 merkle_path: merkle_proof.path,
                 coin_commitment: *coin_commitment.as_bytes(),
                 serial_commitment: *serial_commitment.as_bytes(),
                 merkle_root,
-                leaf_index,
+                leaf_index: leaf_index as u64,
                 program_hash,
                 amount,
             }),
             tail_hash: None, // XCH by default
             additional_coins: None,
+            tail_source: None,
         };
 
         backend

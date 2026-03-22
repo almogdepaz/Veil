@@ -41,7 +41,7 @@ struct TakerCoinData {
     serial_number: [u8; 32],
     serial_randomness: [u8; 32],
     merkle_path: Vec<[u8; 32]>,
-    leaf_index: usize,
+    leaf_index: u64,
 }
 
 /// settlement parameters
@@ -217,7 +217,7 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32], tail_hash: &[u
         risc0_hasher,
         coin_commitment,
         &coin.merkle_path,
-        coin.leaf_index,
+        usize::try_from(coin.leaf_index).expect("leaf_index exceeds usize — tree larger than platform supports"),
         merkle_root,
     )
     .expect("merkle proof verification failed");
