@@ -128,7 +128,7 @@ fn test_ring_spend_merkle_debug() {
         (&coin2, puzzle_code, &[][..], &secrets2, path2, idx2),
     ];
 
-    match Spender::create_ring_spend(coins, merkle_root) {
+    match Spender::create_ring_spend(coins, merkle_root, None, vec![]) {
         Ok(bundle) => {
             eprintln!("\n✓ RING SPEND SUCCEEDED!");
             eprintln!("  nullifiers: {}", bundle.nullifiers.len());
@@ -215,7 +215,7 @@ fn test_ring_spend_xch_debug() {
         (&coin2, puzzle_code, &[][..], &secrets2, path2, idx2),
     ];
 
-    match Spender::create_ring_spend(coins, merkle_root) {
+    match Spender::create_ring_spend(coins, merkle_root, None, vec![]) {
         Ok(bundle) => {
             eprintln!("\n✓ XCH RING SPEND SUCCEEDED!");
             eprintln!("  nullifiers: {}", bundle.nullifiers.len());
@@ -317,7 +317,7 @@ fn test_single_coin_vs_ring_merkle() {
         (&coin3, puzzle_code, &[][..], &secrets3, path3, idx3),
     ];
 
-    match Spender::create_ring_spend(coins, merkle_root) {
+    match Spender::create_ring_spend(coins, merkle_root, None, vec![]) {
         Ok(bundle) => {
             eprintln!("\n✓ Ring spend succeeded!");
             eprintln!("  nullifiers: {}", bundle.nullifiers.len());

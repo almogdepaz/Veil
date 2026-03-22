@@ -163,19 +163,23 @@ pub struct Input {
     #[serde(default)]
     pub tail_hash: Option<[u8; 32]>,
 
-    /// TAIL source for spend-path delta authorization (melt/burn only).
+    /// TAIL program source for CAT spend authorization.
     ///
-    /// When implementing enforcement, callers MUST verify this field is `Some`
-    /// for any CAT spend where delta < 0 (sum(outputs) < sum(inputs)).
-    /// Do NOT rely on `is_some()` as the sole guard — callers that omit this
-    /// field in JSON will deserialize as `None`, bypassing any `is_some()` check.
-    /// Enforcement must explicitly reject `None` for negative-delta CAT spends.
+    /// Required for any CAT spend (tail_hash != [0;32] in CoinMode::Spend).
+    /// The guest compiles tail_source, verifies its hash matches tail_hash
+    /// (which is committed in the coin commitment), then executes it with
+    /// tail_params. This proves the correct TAIL authorized the spend.
     ///
-    /// - `None` + delta == 0: pure transfer, TAIL not called
-    /// - `Some(_)` + delta < 0: TAIL must authorize the melt
-    /// - `None` + delta < 0 on a CAT: MUST be rejected by enforcement code
-    /// - delta > 0: rejected at protocol level (use CoinMode::Mint instead)
+    /// - `None` + tail_hash == None/[0;32]: XCH spend, TAIL not invoked
+    /// - `Some(_)` + tail_hash != [0;32]: TAIL compiled, hash-verified, executed
+    /// - `None` + tail_hash != [0;32]: guest panics — CAT spend without TAIL source
     pub tail_source: Option<String>,
+
+    /// Parameters passed to the TAIL program during execution.
+    /// Only used when tail_source is Some (CAT spends).
+    /// For simple TAILs like `(mod () 1)`, leave empty.
+    #[serde(default)]
+    pub tail_params: Vec<ProgramParameter>,
 
     /// additional coins for multi-coin ring spends
     /// - None: single coin spend

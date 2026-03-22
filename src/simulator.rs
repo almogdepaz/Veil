@@ -269,7 +269,7 @@ impl CLVMZkSimulator {
                 })
                 .collect::<Result<Vec<_>, SimulatorError>>()?;
 
-            match Spender::create_ring_spend(coin_data, merkle_root) {
+            match Spender::create_ring_spend(coin_data, merkle_root, None, vec![]) {
                 Ok(bundle) => {
                     spend_bundles.push(bundle);
                     for (_, _, _, secrets) in &spends {
@@ -294,6 +294,8 @@ impl CLVMZkSimulator {
                     merkle_path,
                     merkle_root,
                     leaf_index,
+                    None,   // XCH spend: no TAIL required
+                    vec![],
                 ) {
                     Ok(bundle) => {
                         spend_bundles.push(bundle);

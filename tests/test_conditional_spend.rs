@@ -70,6 +70,8 @@ fn test_conditional_spend_creation() {
         vec![], // empty merkle path for single-leaf tree
         maker_merkle_root,
         0,
+        None,   // XCH spend: no TAIL required
+        vec![],
     );
 
     match result {
@@ -155,6 +157,8 @@ fn test_conditional_vs_regular_spend() {
         vec![],
         merkle_root,
         0,
+        None,   // XCH spend: no TAIL required
+        vec![],
     )
     .expect("regular spend failed");
 
@@ -167,6 +171,8 @@ fn test_conditional_vs_regular_spend() {
         vec![],
         merkle_root,
         0,
+        None,   // XCH spend: no TAIL required
+        vec![],
     )
     .expect("conditional spend failed");
 

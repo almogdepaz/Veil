@@ -74,6 +74,7 @@ impl Sp1Backend {
             tail_hash: None,        // XCH by default
             additional_coins: None, // single-coin spend
             tail_source: None,
+            tail_params: vec![],
         };
 
         let mut stdin = SP1Stdin::new();
@@ -128,6 +129,15 @@ impl Sp1Backend {
         if matches!(inputs.coin_mode, CoinMode::Mint(_)) {
             return Err(ClvmZkError::ProofGenerationFailed(
                 "mint mode not yet supported in sp1 backend".to_string(),
+            ));
+        }
+
+        // host-side guard: CAT spend without tail_source produces an opaque guest panic.
+        // surface a clean error here instead.
+        let is_cat = inputs.tail_hash.map_or(false, |h| h != [0u8; 32]);
+        if is_cat && matches!(inputs.coin_mode, CoinMode::Spend(_)) && inputs.tail_source.is_none() {
+            return Err(ClvmZkError::ProofGenerationFailed(
+                "CAT spend requires tail_source: tail_hash is set but tail_source was not provided".to_string(),
             ));
         }
 

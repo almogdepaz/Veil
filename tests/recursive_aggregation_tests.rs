@@ -68,6 +68,7 @@ fn generate_test_proof(
         tail_hash: None, // XCH by default
         additional_coins: None,
         tail_source: None,
+            tail_params: vec![],
     };
 
     backend

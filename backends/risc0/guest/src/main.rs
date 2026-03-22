@@ -253,6 +253,29 @@ fn main() {
             )
             .expect("merkle root mismatch: coin not in current tree state");
 
+            // TAIL enforcement: run for all CAT coins (tail_hash != [0;32])
+            // tail_hash is committed in the coin commitment, so we verify the
+            // provided tail_source compiles to that exact hash, then execute it.
+            let effective_tail_hash = private_inputs.tail_hash.unwrap_or([0u8; 32]);
+            if effective_tail_hash != [0u8; 32] {
+                let tail_src = private_inputs.tail_source
+                    .as_deref()
+                    .expect("CAT spend requires tail_source: tail_hash is committed but tail_source was not provided");
+
+                let (tail_bytecode, tail_program_hash) =
+                    compile_chialisp_to_bytecode(risc0_hasher, tail_src)
+                        .expect("TAIL program compilation failed");
+
+                assert_eq!(
+                    tail_program_hash, effective_tail_hash,
+                    "tail_hash mismatch: tail_source does not compile to the committed tail_hash"
+                );
+
+                let tail_args = serialize_params_to_clvm(&private_inputs.tail_params);
+                run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
+                    .expect("TAIL authorization failed: TAIL program rejected this CAT spend");
+            }
+
             Some(compute_nullifier(
                 risc0_hasher,
                 &commitment_data.serial_number,
@@ -261,6 +284,8 @@ fn main() {
             ))
         }
         CoinMode::Execute => None,
+        // host-side guard in risc0/src/lib.rs prevents this from being reached;
+        // this arm is a secondary defense — the guest cannot produce a valid proof for Mint yet.
         CoinMode::Mint(_) => panic!("mint mode not yet implemented in this guest version"),
     };
 

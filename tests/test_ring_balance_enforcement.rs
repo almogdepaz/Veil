@@ -75,7 +75,7 @@ async fn test_ring_spend_rejects_inflation_attack() {
         (&coin3, exploit_puzzle, &[][..], &secrets3, path3, idx3),
     ];
 
-    let result = Spender::create_ring_spend(coins, merkle_root);
+    let result = Spender::create_ring_spend(coins, merkle_root, None, vec![]);
 
     // this SHOULD fail with balance error
     // but will currently SUCCEED (the bug)
@@ -141,7 +141,7 @@ async fn test_ring_spend_rejects_no_outputs() {
         (&coin2, puzzle, &[][..], &secrets2, path2, idx2),
     ];
 
-    let result = Spender::create_ring_spend(coins, merkle_root);
+    let result = Spender::create_ring_spend(coins, merkle_root, None, vec![]);
 
     match result {
         Ok(_) => {
@@ -211,7 +211,7 @@ async fn test_ring_spend_accepts_balanced() {
         (&coin2, balanced_puzzle, &[][..], &secrets2, path2, idx2),
     ];
 
-    let result = Spender::create_ring_spend(coins, merkle_root);
+    let result = Spender::create_ring_spend(coins, merkle_root, None, vec![]);
 
     match result {
         Ok(bundle) => {
@@ -276,7 +276,7 @@ async fn test_ring_spend_rejects_deflation() {
         (&coin2, deflation_puzzle, &[][..], &secrets2, path2, idx2),
     ];
 
-    let result = Spender::create_ring_spend(coins, merkle_root);
+    let result = Spender::create_ring_spend(coins, merkle_root, None, vec![]);
 
     match result {
         Ok(_) => {

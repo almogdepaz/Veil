@@ -2395,6 +2395,8 @@ fn offer_create_command(
         merkle_path,
         merkle_root,
         leaf_index,
+        None,   // XCH spend: no TAIL required
+        vec![],
     )
     .map_err(|e| ClvmZkError::InvalidProgram(format!("conditional proof failed: {:?}", e)))?;
 

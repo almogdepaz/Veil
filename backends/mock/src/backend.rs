@@ -290,6 +290,36 @@ impl MockBackend {
                     ClvmZkError::ProofGenerationFailed(format!("merkle verification failed: {}", e))
                 })?;
 
+                // TAIL enforcement: run for all CAT coins (tail_hash != [0;32])
+                // tail_hash is committed in the coin commitment, so we verify the
+                // provided tail_source compiles to that exact hash, then execute it.
+                let effective_tail_hash = inputs.tail_hash.unwrap_or([0u8; 32]);
+                if effective_tail_hash != [0u8; 32] {
+                    let tail_src = inputs.tail_source
+                        .as_deref()
+                        .ok_or_else(|| ClvmZkError::ProofGenerationFailed(
+                            "CAT spend requires tail_source: tail_hash is committed but tail_source was not provided".to_string()
+                        ))?;
+
+                    let (tail_bytecode, tail_program_hash) =
+                        compile_chialisp_to_bytecode(hash_data, tail_src)
+                            .map_err(|e| ClvmZkError::ProofGenerationFailed(
+                                format!("TAIL program compilation failed: {:?}", e)
+                            ))?;
+
+                    if tail_program_hash != effective_tail_hash {
+                        return Err(ClvmZkError::ProofGenerationFailed(
+                            "tail_hash mismatch: tail_source does not compile to the committed tail_hash".to_string()
+                        ));
+                    }
+
+                    let tail_args = serialize_params_to_clvm(&inputs.tail_params);
+                    run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
+                        .map_err(|e| ClvmZkError::ProofGenerationFailed(
+                            format!("TAIL authorization failed: TAIL program rejected this CAT spend: {:?}", e)
+                        ))?;
+                }
+
                 Some(compute_nullifier(
                     hash_data,
                     &commitment_data.serial_number,

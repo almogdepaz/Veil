@@ -15,6 +15,8 @@ impl Spender {
         merkle_path: Vec<[u8; 32]>,
         merkle_root: [u8; 32],
         leaf_index: usize,
+        tail_source: Option<String>,
+        tail_params: Vec<ProgramParameter>,
     ) -> Result<PrivateSpendBundle, ProtocolError> {
         coin.validate()
             .map_err(|e| ProtocolError::ProofGenerationFailed(format!("invalid coin: {e}")))?;
@@ -46,6 +48,8 @@ impl Spender {
             coin.puzzle_hash,
             coin.amount,
             tail_hash,
+            tail_source,
+            tail_params,
         )
         .map_err(|e| ProtocolError::ProofGenerationFailed(format!("zk proof failed: {e}")))?;
 
@@ -84,6 +88,8 @@ impl Spender {
             usize,         // leaf_index
         )>,
         merkle_root: [u8; 32],
+        tail_source: Option<String>,
+        tail_params: Vec<ProgramParameter>,
     ) -> Result<PrivateSpendBundle, ProtocolError> {
         // debug logging only enabled via RUST_LOG or similar
         #[cfg(feature = "debug-logging")]
@@ -226,6 +232,8 @@ impl Spender {
             primary_serial_data,
             tail_hash,
             additional_coins,
+            tail_source,
+            tail_params,
         )
         .map_err(|e| ProtocolError::ProofGenerationFailed(format!("zk ring proof failed: {e}")))?;
 
@@ -270,6 +278,8 @@ impl Spender {
         merkle_path: Vec<[u8; 32]>,
         merkle_root: [u8; 32],
         leaf_index: usize,
+        tail_source: Option<String>,
+        tail_params: Vec<ProgramParameter>,
     ) -> Result<PrivateSpendBundle, ProtocolError> {
         coin.validate()
             .map_err(|e| ProtocolError::ProofGenerationFailed(format!("invalid coin: {e}")))?;
@@ -301,6 +311,8 @@ impl Spender {
             coin.puzzle_hash,
             coin.amount,
             tail_hash,
+            tail_source,
+            tail_params,
         )
         .map_err(|e| ProtocolError::ProofGenerationFailed(format!("zk proof failed: {e}")))?;
 

@@ -159,6 +159,8 @@ impl ClvmZkProver {
         program_hash: [u8; 32],
         amount: u64,
         tail_hash: Option<[u8; 32]>,
+        tail_source: Option<String>,
+        tail_params: Vec<ProgramParameter>,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         if parameters.len() > 10 {
             return Err(ClvmZkError::InvalidProgram(
@@ -184,7 +186,8 @@ impl ClvmZkProver {
             }),
             tail_hash,
             additional_coins: None, // single-coin API
-            tail_source: None,
+            tail_source,
+            tail_params,
         };
 
         #[cfg(feature = "risc0")]
@@ -217,6 +220,8 @@ impl ClvmZkProver {
         serial_data: SerialCommitmentData,
         tail_hash: Option<[u8; 32]>,
         additional_coins: Vec<clvm_zk_core::AdditionalCoinInput>,
+        tail_source: Option<String>,
+        tail_params: Vec<ProgramParameter>,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         if parameters.len() > 10 {
             return Err(ClvmZkError::InvalidProgram(
@@ -232,7 +237,8 @@ impl ClvmZkProver {
             coin_mode: CoinMode::Spend(serial_data),
             tail_hash,
             additional_coins: Some(additional_coins),
-            tail_source: None,
+            tail_source,
+            tail_params,
         };
 
         #[cfg(feature = "risc0")]
