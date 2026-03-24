@@ -2,11 +2,22 @@
 
 use crate::protocol::{PrivateCoin, PrivateSpendBundle, ProtocolError, Spender};
 use clvm_zk_core::coin_commitment::CoinCommitment;
-use rs_merkle::{algorithms::Sha256 as MerkleHasher, MerkleTree};
+use clvm_zk_core::merkle::SparseMerkleTree;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+
+/// tree depth for simulator merkle tree (supports 2^20 = ~1M coins)
+const SIMULATOR_TREE_DEPTH: usize = 20;
+
+fn hasher() -> fn(&[u8]) -> [u8; 32] {
+    crate::crypto_utils::hash_data_default
+}
+
+fn default_coin_tree() -> SparseMerkleTree {
+    SparseMerkleTree::new(SIMULATOR_TREE_DEPTH, hasher())
+}
 
 /// simulated blockchain state for testing
 #[derive(Clone, Serialize, Deserialize)]
@@ -20,8 +31,8 @@ pub struct CLVMZkSimulator {
     #[serde(with = "hex_hashmap")]
     utxo_set: HashMap<[u8; 32], CoinInfo>,
     #[serde(skip)]
-    #[serde(default = "MerkleTree::new")]
-    coin_tree: MerkleTree<MerkleHasher>,
+    #[serde(default = "default_coin_tree")]
+    coin_tree: SparseMerkleTree,
     #[serde(with = "hex_hashmap")]
     commitment_to_index: HashMap<[u8; 32], usize>,
     merkle_leaves: Vec<[u8; 32]>, // persisted leaves to rebuild tree
@@ -101,7 +112,7 @@ impl CLVMZkSimulator {
         Self {
             nullifier_set: HashSet::new(),
             utxo_set: HashMap::new(),
-            coin_tree: MerkleTree::<MerkleHasher>::new(),
+            coin_tree: default_coin_tree(),
             commitment_to_index: HashMap::new(),
             merkle_leaves: Vec::new(),
             transactions: Vec::new(),
@@ -111,11 +122,11 @@ impl CLVMZkSimulator {
 
     /// rebuild merkle tree from persisted leaves (call after deserialization)
     pub fn rebuild_tree(&mut self) {
-        self.coin_tree = MerkleTree::<MerkleHasher>::new();
+        let h = hasher();
+        self.coin_tree = SparseMerkleTree::new(SIMULATOR_TREE_DEPTH, h);
         for leaf in &self.merkle_leaves {
-            self.coin_tree.insert(*leaf);
+            self.coin_tree.insert(*leaf, h);
         }
-        self.coin_tree.commit();
     }
 
     pub fn add_coin(
@@ -141,9 +152,9 @@ impl CLVMZkSimulator {
             crate::crypto_utils::hash_data_default,
         );
 
-        let leaf_index = self.coin_tree.leaves_len();
-        self.coin_tree.insert(coin_commitment.0);
-        self.coin_tree.commit();
+        let h = hasher();
+        let leaf_index = self.coin_tree.len();
+        self.coin_tree.insert(coin_commitment.0, h);
         self.merkle_leaves.push(coin_commitment.0); // track leaf for persistence
         self.commitment_to_index
             .insert(coin_commitment.0, leaf_index);
@@ -178,9 +189,9 @@ impl CLVMZkSimulator {
             crate::crypto_utils::hash_data_default,
         );
 
-        let leaf_index = self.coin_tree.leaves_len();
-        self.coin_tree.insert(coin_commitment.0);
-        self.coin_tree.commit();
+        let h = hasher();
+        let leaf_index = self.coin_tree.len();
+        self.coin_tree.insert(coin_commitment.0, h);
         self.merkle_leaves.push(coin_commitment.0);
         self.commitment_to_index
             .insert(coin_commitment.0, leaf_index);
@@ -231,10 +242,7 @@ impl CLVMZkSimulator {
             CoinMetadata,
         )>,
     ) -> Result<SimulatedTransaction, SimulatorError> {
-        let merkle_root = self
-            .coin_tree
-            .root()
-            .ok_or_else(|| SimulatorError::TestFailed("merkle tree has no root".to_string()))?;
+        let merkle_root = self.coin_tree.root();
 
         let mut spend_bundles = Vec::new();
         let mut spent_serial_numbers = Vec::new();
@@ -294,7 +302,7 @@ impl CLVMZkSimulator {
                     merkle_path,
                     merkle_root,
                     leaf_index,
-                    None,   // XCH spend: no TAIL required
+                    None, // XCH spend: no TAIL required
                     vec![],
                 ) {
                     Ok(bundle) => {
@@ -363,16 +371,12 @@ impl CLVMZkSimulator {
         }
 
         // Add new coin_commitments to merkle tree
+        let h = hasher();
         for commitment in &new_coin_commitments {
-            let leaf_index = self.coin_tree.leaves_len();
-            self.coin_tree.insert(*commitment);
+            let leaf_index = self.coin_tree.len();
+            self.coin_tree.insert(*commitment, h);
             self.commitment_to_index.insert(*commitment, leaf_index);
             self.merkle_leaves.push(*commitment);
-        }
-
-        // Commit tree after adding all new coins
-        if !new_coin_commitments.is_empty() {
-            self.coin_tree.commit();
         }
 
         // If output coins provided (for simulator testing), validate and track them
@@ -473,17 +477,18 @@ impl CLVMZkSimulator {
         );
 
         let leaf_index = *self.commitment_to_index.get(&coin_commitment.0)?;
-        let proof = self.coin_tree.proof(&[leaf_index]);
-        let proof_hashes = proof.proof_hashes();
-
-        let path = proof_hashes
-            .iter()
-            .map(|hash| {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(hash);
-                arr
+        let h = hasher();
+        let proof = self
+            .coin_tree
+            .generate_proof(leaf_index, h)
+            .inspect_err(|e| {
+                eprintln!(
+                    "WARN: merkle proof generation failed for leaf_index {}: {}",
+                    leaf_index, e
+                );
             })
-            .collect();
+            .ok()?;
+        let path = proof.path;
 
         Some((path, leaf_index))
     }
@@ -526,8 +531,12 @@ impl CLVMZkSimulator {
         };
 
         // Get the merkle proof
-        let proof = self.coin_tree.proof(&[leaf_index]);
-        let proof_hashes = proof.proof_hashes();
+        let h = hasher();
+        let proof = self
+            .coin_tree
+            .generate_proof(leaf_index, h)
+            .map_err(|e| e.to_string())?;
+        let proof_hashes = &proof.path;
         eprintln!("  merkle_path length: {}", proof_hashes.len());
         for (i, hash) in proof_hashes.iter().enumerate() {
             eprintln!("    path[{}]: {}", i, hex::encode(hash));
@@ -535,7 +544,7 @@ impl CLVMZkSimulator {
 
         // Get the expected root
         let expected_root = self.coin_tree.root();
-        eprintln!("  expected_root: {:?}", expected_root.map(hex::encode));
+        eprintln!("  expected_root: {}", hex::encode(expected_root));
 
         // Manually verify the path (same logic as guest)
         let mut current_hash = coin_commitment.0;
@@ -571,15 +580,15 @@ impl CLVMZkSimulator {
         let computed_root = current_hash;
         eprintln!("  computed_root: {}", hex::encode(computed_root));
 
-        if Some(computed_root) == expected_root {
+        if computed_root == expected_root {
             eprintln!("  RESULT: ✓ MERKLE PROOF VALID");
             Ok(())
         } else {
             eprintln!("  RESULT: ✗ MERKLE PROOF INVALID!");
             Err(format!(
-                "root mismatch: computed={}, expected={:?}",
+                "root mismatch: computed={}, expected={}",
                 hex::encode(computed_root),
-                expected_root.map(hex::encode)
+                hex::encode(expected_root)
             ))
         }
     }
@@ -587,8 +596,8 @@ impl CLVMZkSimulator {
     /// Debug helper: dump entire merkle tree state
     pub fn debug_dump_tree_state(&self) {
         eprintln!("\n=== MERKLE TREE STATE ===");
-        eprintln!("  leaves_len: {}", self.coin_tree.leaves_len());
-        eprintln!("  root: {:?}", self.coin_tree.root().map(hex::encode));
+        eprintln!("  leaves_len: {}", self.coin_tree.len());
+        eprintln!("  root: {}", hex::encode(self.coin_tree.root()));
         eprintln!("  merkle_leaves ({}):", self.merkle_leaves.len());
         for (i, leaf) in self.merkle_leaves.iter().enumerate() {
             eprintln!("    [{}]: {}", i, hex::encode(leaf));
@@ -602,7 +611,7 @@ impl CLVMZkSimulator {
         }
     }
 
-    pub fn get_merkle_root(&self) -> Option<[u8; 32]> {
+    pub fn get_merkle_root(&self) -> [u8; 32] {
         self.coin_tree.root()
     }
 
@@ -631,7 +640,7 @@ impl CLVMZkSimulator {
     pub fn reset(&mut self) {
         self.nullifier_set.clear();
         self.utxo_set.clear();
-        self.coin_tree = MerkleTree::<MerkleHasher>::new();
+        self.coin_tree = default_coin_tree();
         self.commitment_to_index.clear();
         self.merkle_leaves.clear();
         self.transactions.clear();
@@ -639,7 +648,17 @@ impl CLVMZkSimulator {
     }
 
     /// process settlement output: add nullifiers and commitments to simulator state
-    pub fn process_settlement(&mut self, output: &crate::protocol::SettlementOutput) {
+    pub fn process_settlement(
+        &mut self,
+        output: &crate::protocol::SettlementOutput,
+    ) -> Result<(), String> {
+        // reject already-spent nullifiers (double-spend protection)
+        if self.nullifier_set.contains(&output.maker_nullifier) {
+            return Err("maker nullifier already spent".into());
+        }
+        if self.nullifier_set.contains(&output.taker_nullifier) {
+            return Err("taker nullifier already spent".into());
+        }
         // add nullifiers to nullifier set
         self.nullifier_set.insert(output.maker_nullifier);
         self.nullifier_set.insert(output.taker_nullifier);
@@ -652,15 +671,14 @@ impl CLVMZkSimulator {
             output.taker_change_commitment,
         ];
 
+        let h = hasher();
         for commitment in &commitments {
-            let leaf_index = self.coin_tree.leaves_len();
-            self.coin_tree.insert(*commitment);
+            let leaf_index = self.coin_tree.len();
+            self.coin_tree.insert(*commitment, h);
             self.commitment_to_index.insert(*commitment, leaf_index);
             self.merkle_leaves.push(*commitment);
         }
-
-        // commit tree after adding all commitments
-        self.coin_tree.commit();
+        Ok(())
     }
 }
 

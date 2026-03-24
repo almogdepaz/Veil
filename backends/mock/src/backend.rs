@@ -1,7 +1,7 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
     compile_chialisp_to_bytecode, compute_coin_commitment, compute_nullifier,
-    compute_serial_commitment, create_veil_evaluator, enforce_ring_balance,
+    compute_serial_commitment, create_veil_evaluator, enforce_ring_balance, is_clvm_nil,
     parse_variable_length_amount, run_clvm_with_conditions, serialize_params_to_clvm,
     verify_merkle_proof, ClvmResult, ClvmZkError, CoinMode, Condition, ProgramParameter,
     ProofOutput, ZKClvmResult, BLS_DST,
@@ -223,6 +223,17 @@ impl MockBackend {
         let args = serialize_params_to_clvm(&inputs.program_parameters);
 
         let max_cost = 1_000_000_000;
+
+        // guard: Execute mode with a non-zero tail_hash is semantically invalid —
+        // TAIL is never run in Execute mode, producing a misleading CAT-labelled proof.
+        if matches!(inputs.coin_mode, CoinMode::Execute)
+            && inputs.tail_hash.is_some_and(|h| h != [0u8; 32])
+        {
+            return Err(ClvmZkError::ProofGenerationFailed(
+                "Execute mode with non-zero tail_hash is not allowed — use CoinMode::Spend for CAT operations".to_string(),
+            ));
+        }
+
         let (output_bytes, mut conditions) =
             run_clvm_with_conditions(&evaluator, &instance_bytecode, &args, max_cost).map_err(
                 |e| ClvmZkError::ProofGenerationFailed(format!("clvm execution failed: {:?}", e)),
@@ -283,7 +294,8 @@ impl MockBackend {
                     hash_data,
                     computed_coin_commitment,
                     &commitment_data.merkle_path,
-                    usize::try_from(commitment_data.leaf_index).expect("leaf_index exceeds usize — tree larger than platform supports"),
+                    usize::try_from(commitment_data.leaf_index)
+                        .expect("leaf_index exceeds usize — tree larger than platform supports"),
                     commitment_data.merkle_root,
                 )
                 .map_err(|e| {
@@ -302,10 +314,12 @@ impl MockBackend {
                         ))?;
 
                     let (tail_bytecode, tail_program_hash) =
-                        compile_chialisp_to_bytecode(hash_data, tail_src)
-                            .map_err(|e| ClvmZkError::ProofGenerationFailed(
-                                format!("TAIL program compilation failed: {:?}", e)
-                            ))?;
+                        compile_chialisp_to_bytecode(hash_data, tail_src).map_err(|e| {
+                            ClvmZkError::ProofGenerationFailed(format!(
+                                "TAIL program compilation failed: {:?}",
+                                e
+                            ))
+                        })?;
 
                     if tail_program_hash != effective_tail_hash {
                         return Err(ClvmZkError::ProofGenerationFailed(
@@ -314,10 +328,19 @@ impl MockBackend {
                     }
 
                     let tail_args = serialize_params_to_clvm(&inputs.tail_params);
-                    run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
-                        .map_err(|e| ClvmZkError::ProofGenerationFailed(
-                            format!("TAIL authorization failed: TAIL program rejected this CAT spend: {:?}", e)
-                        ))?;
+                    let (tail_output, _) =
+                        run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
+                            .map_err(|e| {
+                                ClvmZkError::ProofGenerationFailed(format!(
+                            "TAIL authorization failed: TAIL program rejected this CAT spend: {:?}",
+                            e
+                        ))
+                            })?;
+                    if is_clvm_nil(&tail_output) {
+                        return Err(ClvmZkError::ProofGenerationFailed(
+                            "TAIL authorization failed: TAIL returned nil/0 — must return a truthy value to authorize".to_string(),
+                        ));
+                    }
                 }
 
                 Some(compute_nullifier(
@@ -352,6 +375,48 @@ impl MockBackend {
                             ))
                         },
                     )?;
+
+                // TAIL enforcement for ring coins (same logic as primary coin)
+                if coin.tail_hash != [0u8; 32] {
+                    let tail_src = coin.tail_source
+                        .as_deref()
+                        .ok_or_else(|| ClvmZkError::ProofGenerationFailed(
+                            "CAT ring coin requires tail_source: tail_hash is committed but tail_source was not provided".to_string()
+                        ))?;
+
+                    let (ring_tail_bytecode, ring_tail_program_hash) =
+                        compile_chialisp_to_bytecode(hash_data, tail_src).map_err(|e| {
+                            ClvmZkError::ProofGenerationFailed(format!(
+                                "ring coin TAIL compilation failed: {:?}",
+                                e
+                            ))
+                        })?;
+
+                    if ring_tail_program_hash != coin.tail_hash {
+                        return Err(ClvmZkError::ProofGenerationFailed(
+                            "ring coin tail_hash mismatch: tail_source does not compile to the committed tail_hash".to_string()
+                        ));
+                    }
+
+                    let ring_tail_args = serialize_params_to_clvm(&coin.tail_params);
+                    let (ring_tail_output, _) = run_clvm_with_conditions(
+                        &evaluator,
+                        &ring_tail_bytecode,
+                        &ring_tail_args,
+                        max_cost,
+                    )
+                    .map_err(|e| {
+                        ClvmZkError::ProofGenerationFailed(format!(
+                            "ring coin TAIL authorization failed: {:?}",
+                            e
+                        ))
+                    })?;
+                    if is_clvm_nil(&ring_tail_output) {
+                        return Err(ClvmZkError::ProofGenerationFailed(
+                            "ring coin TAIL authorization failed: TAIL returned nil/0 — must return a truthy value to authorize".to_string(),
+                        ));
+                    }
+                }
 
                 nullifiers.push(compute_nullifier(
                     hash_data,

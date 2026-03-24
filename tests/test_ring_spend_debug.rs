@@ -106,7 +106,7 @@ fn test_ring_spend_merkle_debug() {
     }
 
     // Get merkle paths and root
-    let merkle_root = sim.get_merkle_root().expect("no merkle root");
+    let merkle_root = sim.get_merkle_root();
     eprintln!("\n--- PREPARING RING SPEND ---");
     eprintln!("merkle_root: {}", hex::encode(merkle_root));
 
@@ -199,7 +199,7 @@ fn test_ring_spend_xch_debug() {
     let _ = sim.debug_verify_merkle_path(&coin2, "XCH COIN 2");
 
     // Get merkle paths and root
-    let merkle_root = sim.get_merkle_root().expect("no merkle root");
+    let merkle_root = sim.get_merkle_root();
     let (path1, idx1) = sim
         .get_merkle_path_and_index(&coin1)
         .expect("no path for coin1");
@@ -296,7 +296,7 @@ fn test_single_coin_vs_ring_merkle() {
 
     // Now test ring spend with remaining coins
     eprintln!("\n--- RING SPEND (coin2 + coin3) ---");
-    let merkle_root = sim.get_merkle_root().expect("no merkle root");
+    let merkle_root = sim.get_merkle_root();
     let (path2, idx2) = sim
         .get_merkle_path_and_index(&coin2)
         .expect("no path for coin2");

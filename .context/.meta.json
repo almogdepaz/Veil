@@ -1,0 +1,66 @@
+{
+  "lastCommit": "0d2e8e8778612035731a6045d032488ef6e6b779",
+  "lastFullBuild": "0d2e8e8778612035731a6045d032488ef6e6b779",
+  "lastUpdate": "2026-03-24T22:17:27Z",
+  "modules": {
+    "commitments-and-nullifiers": {
+      "files": [
+        "clvm_zk_core/src/types.rs",
+        "clvm_zk_core/src/coin_commitment.rs",
+        "clvm_zk_core/src/merkle.rs"
+      ],
+      "contextFile": ".context/commitments-and-nullifiers.md"
+    },
+    "clvm-evaluation": {
+      "files": [
+        "clvm_zk_core/src/lib.rs",
+        "clvm_zk_core/src/operators.rs",
+        "clvm_zk_core/src/clvm_parser.rs",
+        "clvm_zk_core/src/backend_utils.rs"
+      ],
+      "contextFile": ".context/clvm-evaluation.md"
+    },
+    "backends-and-guests": {
+      "files": [
+        "backends/mock/src/backend.rs",
+        "backends/risc0/guest/src/main.rs",
+        "backends/risc0/src/lib.rs",
+        "backends/risc0/src/recursive.rs",
+        "backends/risc0/guest_settlement/src/main.rs",
+        "backends/sp1/program/src/main.rs",
+        "backends/sp1/src/lib.rs",
+        "backends/sp1/src/recursive.rs",
+        "backends/sp1/program_settlement/src/main.rs"
+      ],
+      "contextFile": ".context/backends-and-guests.md"
+    },
+    "protocol": {
+      "files": [
+        "src/protocol/spender.rs",
+        "src/protocol/settlement.rs",
+        "src/protocol/structures.rs",
+        "src/protocol/puzzles.rs",
+        "src/protocol/recursive.rs",
+        "src/lib.rs"
+      ],
+      "contextFile": ".context/protocol.md"
+    },
+    "simulator": {
+      "files": [
+        "src/simulator.rs"
+      ],
+      "contextFile": ".context/simulator.md"
+    },
+    "stealth-and-wallet": {
+      "files": [
+        "src/wallet/stealth.rs",
+        "src/wallet/hd_wallet.rs",
+        "src/wallet/types.rs",
+        "src/wallet/mod.rs",
+        "src/crypto_utils.rs",
+        "src/payment_keys.rs"
+      ],
+      "contextFile": ".context/stealth-and-wallet.md"
+    }
+  }
+}

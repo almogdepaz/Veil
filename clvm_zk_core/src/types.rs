@@ -130,8 +130,7 @@ pub struct ZKClvmResult {
 /// Coin execution mode — determines what the zkVM guest does with this input.
 /// Enforces at compile time that spend and mint are mutually exclusive.
 #[derive(
-    Serialize, Deserialize, Debug, Clone, Default,
-    borsh::BorshSerialize, borsh::BorshDeserialize,
+    Serialize, Deserialize, Debug, Clone, Default, borsh::BorshSerialize, borsh::BorshDeserialize,
 )]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum CoinMode {
@@ -254,6 +253,15 @@ pub struct AdditionalCoinInput {
     pub serial_commitment_data: SerialCommitmentData,
     /// Asset type (must match primary coin's tail_hash for valid ring)
     pub tail_hash: [u8; 32],
+    /// TAIL program source for this ring coin.
+    /// Required when tail_hash != [0;32] (i.e., this is a CAT ring coin).
+    /// Typically the same source as the primary coin's tail_source — all ring
+    /// coins share the same TAIL since they share the same asset type.
+    pub tail_source: Option<String>,
+    /// Parameters for this ring coin's TAIL program.
+    /// Only used when tail_source is Some (CAT ring coins).
+    #[serde(default)]
+    pub tail_params: Vec<ProgramParameter>,
 }
 
 /// Serial commitment protocol data for nullifier-based spending

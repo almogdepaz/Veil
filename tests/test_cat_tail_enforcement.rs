@@ -10,8 +10,8 @@ mod cat_tail_enforcement {
     use clvm_zk_core::coin_commitment::XCH_TAIL;
     use clvm_zk_core::merkle::SparseMerkleTree;
     use clvm_zk_core::{
-        compile_chialisp_to_bytecode, compute_coin_commitment, compute_serial_commitment,
-        CoinMode, Input, ProgramParameter, SerialCommitmentData,
+        compile_chialisp_to_bytecode, compute_coin_commitment, compute_serial_commitment, CoinMode,
+        Input, ProgramParameter, SerialCommitmentData,
     };
     use clvm_zk_mock::MockBackend;
     use sha2::{Digest, Sha256};
@@ -36,7 +36,9 @@ mod cat_tail_enforcement {
 
         // compute the tail_hash to commit to
         let effective_tail_hash = tail_hash_override.unwrap_or_else(|| {
-            let src = tail_source.as_deref().expect("need tail_source or tail_hash_override");
+            let src = tail_source
+                .as_deref()
+                .expect("need tail_source or tail_hash_override");
             let (_, h) = compile_chialisp_to_bytecode(hash_data, src).expect("tail compile");
             h
         });
@@ -60,7 +62,9 @@ mod cat_tail_enforcement {
         let mut tree = SparseMerkleTree::new(20, hash_data);
         let leaf_index = tree.insert(coin_commitment, hash_data);
         let merkle_root = tree.root();
-        let proof = tree.generate_proof(leaf_index, hash_data).expect("merkle proof");
+        let proof = tree
+            .generate_proof(leaf_index, hash_data)
+            .expect("merkle proof");
 
         Input {
             chialisp_source: inner_puzzle.to_string(),
@@ -95,7 +99,11 @@ mod cat_tail_enforcement {
 
         let backend = MockBackend::new().expect("backend");
         let result = backend.prove_with_input(input);
-        assert!(result.is_ok(), "valid CAT spend should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "valid CAT spend should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -110,7 +118,11 @@ mod cat_tail_enforcement {
 
         let backend = MockBackend::new().expect("backend");
         let result = backend.prove_with_input(input);
-        assert!(result.is_ok(), "CAT spend with truthy TAIL param should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "CAT spend with truthy TAIL param should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -128,7 +140,7 @@ mod cat_tail_enforcement {
             compute_serial_commitment(hash_data, &serial_number, &serial_randomness);
         let coin_commitment = compute_coin_commitment(
             hash_data,
-            XCH_TAIL,  // XCH: [0;32]
+            XCH_TAIL, // XCH: [0;32]
             amount,
             &program_hash,
             &serial_commitment,
@@ -161,7 +173,11 @@ mod cat_tail_enforcement {
 
         let backend = MockBackend::new().expect("backend");
         let result = backend.prove_with_input(input);
-        assert!(result.is_ok(), "XCH spend without tail_source should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "XCH spend without tail_source should succeed: {:?}",
+            result.err()
+        );
     }
 
     // ------------------------------------------------------------------
@@ -173,9 +189,9 @@ mod cat_tail_enforcement {
         // tail_hash is set but tail_source is None → must be rejected
         let dummy_tail_hash = [0xdeu8; 32]; // non-zero: marks as CAT
         let input = build_cat_spend_input(
-            None,                        // no tail_source
+            None, // no tail_source
             vec![],
-            Some(dummy_tail_hash),       // but tail_hash is set
+            Some(dummy_tail_hash), // but tail_hash is set
         );
 
         let backend = MockBackend::new().expect("backend");
@@ -196,7 +212,7 @@ mod cat_tail_enforcement {
         // tail_source compiles to a DIFFERENT hash than what's committed in the coin
         // — the hash mismatch must be caught
         let committed_tail = "(mod () 1)".to_string(); // this is what's in the commitment
-        let wrong_tail = "(mod () 2)".to_string();     // attacker provides different TAIL
+        let wrong_tail = "(mod () 2)".to_string(); // attacker provides different TAIL
 
         // compute the hash of the CORRECT tail (what gets committed)
         let (_, correct_hash) =
@@ -204,7 +220,7 @@ mod cat_tail_enforcement {
 
         // build input committing to correct_hash but passing wrong_tail as source
         let input = build_cat_spend_input(
-            Some(wrong_tail),   // wrong TAIL source
+            Some(wrong_tail), // wrong TAIL source
             vec![],
             Some(correct_hash), // commitment uses the correct hash
         );
@@ -223,11 +239,10 @@ mod cat_tail_enforcement {
     }
 
     #[test]
-    fn test_cat_spend_failing_tail_rejected() {
-        // TAIL program that always fails: "(mod () 0)" → returns 0 (falsy in CLVM → raises exception)
-        // Actually in CLVM, returning 0 is valid — the program needs to explicitly fail.
-        // "(mod () (x))" → calls opcode x on nil, which raises an exception.
-        let failing_tail = "(mod () (x))".to_string(); // guaranteed to throw
+    fn test_cat_spend_failing_tail_via_exception_rejected() {
+        // "(mod () (x))" → calls opcode x on nil, which raises a CLVM exception.
+        // Raising is the correct way for a TAIL to reject a spend.
+        let failing_tail = "(mod () (x))".to_string();
         let input = build_cat_spend_input(Some(failing_tail), vec![], None);
 
         let backend = MockBackend::new().expect("backend");
@@ -240,6 +255,51 @@ mod cat_tail_enforcement {
         assert!(
             err_msg.contains("TAIL authorization failed") || err_msg.contains("TAIL"),
             "error should indicate TAIL failure, got: {err_msg}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // strict nil-return rejection (M-01)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_cat_spend_tail_returning_nil_rejected() {
+        // TAIL returns () — nil in CLVM, no exception raised.
+        // Under strict semantics, nil return = not authorized.
+        // A TAIL author writing "(mod () ())" expecting "deny all" must get denial.
+        let nil_tail = "(mod () ())".to_string();
+        let input = build_cat_spend_input(Some(nil_tail), vec![], None);
+
+        let backend = MockBackend::new().expect("backend");
+        let result = backend.prove_with_input(input);
+        assert!(
+            result.is_err(),
+            "TAIL returning nil must be rejected under strict semantics"
+        );
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            err_msg.contains("nil") || err_msg.contains("truthy") || err_msg.contains("TAIL"),
+            "error should indicate nil/truthy failure, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_cat_spend_tail_returning_zero_rejected() {
+        // TAIL returns 0 — in CLVM, 0 == nil (same encoding: 0x80).
+        // "(mod () 0)" must be rejected for the same reason as "(mod () ())".
+        let zero_tail = "(mod () 0)".to_string();
+        let input = build_cat_spend_input(Some(zero_tail), vec![], None);
+
+        let backend = MockBackend::new().expect("backend");
+        let result = backend.prove_with_input(input);
+        assert!(
+            result.is_err(),
+            "TAIL returning 0/nil must be rejected under strict semantics"
+        );
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            err_msg.contains("nil") || err_msg.contains("truthy") || err_msg.contains("TAIL"),
+            "error should indicate nil/truthy failure, got: {err_msg}"
         );
     }
 }

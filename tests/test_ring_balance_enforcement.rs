@@ -64,7 +64,7 @@ async fn test_ring_spend_rejects_inflation_attack() {
         },
     );
 
-    let merkle_root = sim.get_merkle_root().expect("no merkle root");
+    let merkle_root = sim.get_merkle_root();
     let (path1, idx1) = sim.get_merkle_path_and_index(&coin1).expect("no path");
     let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path");
     let (path3, idx3) = sim.get_merkle_path_and_index(&coin3).expect("no path");
@@ -132,7 +132,7 @@ async fn test_ring_spend_rejects_no_outputs() {
         },
     );
 
-    let merkle_root = sim.get_merkle_root().expect("no merkle root");
+    let merkle_root = sim.get_merkle_root();
     let (path1, idx1) = sim.get_merkle_path_and_index(&coin1).expect("no path");
     let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path");
 
@@ -202,7 +202,7 @@ async fn test_ring_spend_accepts_balanced() {
         },
     );
 
-    let merkle_root = sim.get_merkle_root().expect("no merkle root");
+    let merkle_root = sim.get_merkle_root();
     let (path1, idx1) = sim.get_merkle_path_and_index(&coin1).expect("no path");
     let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path");
 
@@ -267,7 +267,7 @@ async fn test_ring_spend_rejects_deflation() {
         },
     );
 
-    let merkle_root = sim.get_merkle_root().expect("no merkle root");
+    let merkle_root = sim.get_merkle_root();
     let (path1, idx1) = sim.get_merkle_path_and_index(&coin1).expect("no path");
     let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path");
 

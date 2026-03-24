@@ -7,6 +7,7 @@ pub struct Spender;
 
 impl Spender {
     /// spend a coin by proving knowledge of secrets and merkle membership
+    #[allow(clippy::too_many_arguments)]
     pub fn create_spend_with_serial(
         coin: &PrivateCoin,
         puzzle_code: &str,
@@ -211,6 +212,11 @@ impl Spender {
                     amount: coin.amount,
                 },
                 tail_hash: coin.tail_hash,
+                // all ring coins share the same TAIL — the ring balance check
+                // (enforce_ring_balance) guarantees all coins have the same tail_hash,
+                // so they all authorize under the same TAIL program.
+                tail_source: tail_source.clone(),
+                tail_params: tail_params.clone(),
             });
         }
 
@@ -270,6 +276,7 @@ impl Spender {
     ///
     /// # v2.0 coin commitments
     /// uses v2.0 format with tail_hash for CAT support
+    #[allow(clippy::too_many_arguments)]
     pub fn create_conditional_spend(
         coin: &PrivateCoin,
         puzzle_code: &str,

@@ -100,6 +100,12 @@ pub struct SettlementParams {
     pub taker_tail_hash: [u8; 32],
     /// goods asset (what maker is offering, XCH = zeros)
     pub goods_tail_hash: [u8; 32],
+    /// TAIL program source for taker's CAT coin authorization.
+    /// Required when taker_tail_hash != [0;32].
+    /// Guest compiles this, verifies hash matches taker_tail_hash, then executes it.
+    pub taker_tail_source: Option<String>,
+    /// Parameters for the taker's TAIL program.
+    pub taker_tail_params: Vec<clvm_zk_core::ProgramParameter>,
 }
 
 /// prove settlement transaction (V2: optimized without recursive verification)
@@ -136,14 +142,13 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
     #[cfg(feature = "risc0")]
     {
         use clvm_zk_risc0::SETTLEMENT_ELF;
-        use sha2::{Digest, Sha256};
 
-        // compute serial commitment
-        let mut serial_commit_data = Vec::new();
-        serial_commit_data.extend_from_slice(b"clvm_zk_serial_v1.0");
-        serial_commit_data.extend_from_slice(&params.taker_secrets.serial_number);
-        serial_commit_data.extend_from_slice(&params.taker_secrets.serial_randomness);
-        let serial_commitment: [u8; 32] = Sha256::digest(&serial_commit_data).into();
+        // compute serial commitment via clvm_zk_core (avoids domain prefix drift)
+        let serial_commitment = clvm_zk_core::compute_serial_commitment(
+            crate::crypto_utils::hash_data_default,
+            &params.taker_secrets.serial_number,
+            &params.taker_secrets.serial_randomness,
+        );
 
         // deserialize maker's receipt to extract settlement terms
         let maker_receipt: risc0_zkvm::Receipt =
@@ -194,6 +199,9 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
             // v2.0 coin commitment: tail_hash identifies asset type
             taker_tail_hash: [u8; 32],
             goods_tail_hash: [u8; 32],
+            // TAIL enforcement for taker's CAT coin
+            taker_tail_source: Option<String>,
+            taker_tail_params: Vec<clvm_zk_core::ProgramParameter>,
         }
 
         #[derive(serde::Serialize)]
@@ -235,6 +243,8 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
             change_rand: params.change_rand,
             taker_tail_hash: params.taker_tail_hash,
             goods_tail_hash: params.goods_tail_hash,
+            taker_tail_source: params.taker_tail_source,
+            taker_tail_params: params.taker_tail_params,
         };
 
         use risc0_zkvm::{default_prover, ExecutorEnv};
@@ -275,14 +285,13 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
         use clvm_zk_sp1::bincode;
         use clvm_zk_sp1::sp1_sdk::{ProverClient, SP1ProofWithPublicValues, SP1Stdin};
         use clvm_zk_sp1::SETTLEMENT_SP1_ELF;
-        use sha2::{Digest, Sha256};
 
-        // compute serial commitment
-        let mut serial_commit_data = Vec::new();
-        serial_commit_data.extend_from_slice(b"clvm_zk_serial_v1.0");
-        serial_commit_data.extend_from_slice(&params.taker_secrets.serial_number);
-        serial_commit_data.extend_from_slice(&params.taker_secrets.serial_randomness);
-        let serial_commitment: [u8; 32] = Sha256::digest(&serial_commit_data).into();
+        // compute serial commitment via clvm_zk_core (avoids domain prefix drift)
+        let serial_commitment = clvm_zk_core::compute_serial_commitment(
+            crate::crypto_utils::hash_data_default,
+            &params.taker_secrets.serial_number,
+            &params.taker_secrets.serial_randomness,
+        );
 
         // deserialize maker's proof to extract settlement terms
         let maker_proof: SP1ProofWithPublicValues =
@@ -325,6 +334,9 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
             change_rand: [u8; 32],
             taker_tail_hash: [u8; 32],
             goods_tail_hash: [u8; 32],
+            // TAIL enforcement for taker's CAT coin
+            taker_tail_source: Option<String>,
+            taker_tail_params: Vec<clvm_zk_core::ProgramParameter>,
         }
 
         #[derive(serde::Serialize)]
@@ -366,6 +378,8 @@ pub fn prove_settlement(params: SettlementParams) -> Result<SettlementProof, Pro
             change_rand: params.change_rand,
             taker_tail_hash: params.taker_tail_hash,
             goods_tail_hash: params.goods_tail_hash,
+            taker_tail_source: params.taker_tail_source,
+            taker_tail_params: params.taker_tail_params,
         };
 
         let mut stdin = SP1Stdin::new();

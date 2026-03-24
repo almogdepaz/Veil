@@ -214,6 +214,18 @@ pub fn nil() -> ClvmValue {
     ClvmValue::Atom(vec![])
 }
 
+/// Returns true if a serialized CLVM output represents nil (0 / empty atom).
+///
+/// In Veil TAIL semantics, a TAIL returning nil is NOT authorized — it must
+/// return a truthy value. Only raising an exception (→ Err from run_program)
+/// OR returning nil causes authorization failure.
+///
+/// Nil encoding: `[0x80]` (empty atom). Integer 0 also serializes to `[0x80]`
+/// in CLVM (0 and nil are the same value).
+pub fn is_clvm_nil(output: &[u8]) -> bool {
+    output.is_empty() || output == [0x80]
+}
+
 pub fn extract_list_from_clvm(value: &ClvmValue) -> Result<Vec<ClvmValue>, &'static str> {
     let mut result = Vec::new();
     let mut current = value;
@@ -775,10 +787,10 @@ mod security_tests {
 
     #[test]
     fn test_modular_pow_basic() {
-        assert_eq!(modular_pow(2, 10, 1000), 24);  // 1024 mod 1000
-        assert_eq!(modular_pow(3, 0, 7), 1);        // anything^0 mod m == 1 (for m > 1)
+        assert_eq!(modular_pow(2, 10, 1000), 24); // 1024 mod 1000
+        assert_eq!(modular_pow(3, 0, 7), 1); // anything^0 mod m == 1 (for m > 1)
         assert_eq!(modular_pow(5, 1, 13), 5);
-        assert_eq!(modular_pow(2, 3, 5), 3);        // 8 mod 5
+        assert_eq!(modular_pow(2, 3, 5), 3); // 8 mod 5
     }
 
     #[test]
@@ -842,9 +854,15 @@ pub fn enforce_ring_balance(
                         0
                     }
                 }
-                _ => 0,
+                _ => {
+                    return Err(
+                        "malformed CREATE_COIN: unexpected argument count (expected 2 or 4)",
+                    )
+                }
             };
-            total_output_amount = total_output_amount.checked_add(amount).expect("output amount overflow");
+            total_output_amount = total_output_amount
+                .checked_add(amount)
+                .expect("output amount overflow");
         }
     }
 
@@ -862,7 +880,9 @@ pub fn enforce_ring_balance(
                         return Err("ring spend: all coins must have same tail_hash");
                     }
 
-                    input_sum = input_sum.checked_add(coin.serial_commitment_data.amount).expect("input amount overflow");
+                    input_sum = input_sum
+                        .checked_add(coin.serial_commitment_data.amount)
+                        .expect("input amount overflow");
                 }
             }
 

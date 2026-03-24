@@ -106,6 +106,16 @@ impl Risc0Backend {
     ) -> Result<ZKClvmResult, ClvmZkError> {
         use risc0_zkvm::{default_prover, ExecutorEnv};
 
+        // guard: Execute mode with a non-zero tail_hash is semantically invalid —
+        // TAIL is never run in Execute mode, producing a misleading CAT-labelled proof.
+        if matches!(inputs.coin_mode, CoinMode::Execute) {
+            if inputs.tail_hash.map_or(false, |h| h != [0u8; 32]) {
+                return Err(ClvmZkError::ProofGenerationFailed(
+                    "Execute mode with non-zero tail_hash is not allowed — use CoinMode::Spend for CAT operations".to_string(),
+                ));
+            }
+        }
+
         // host-side guard: reject CoinMode::Mint before reaching the guest.
         // the guest panics on Mint (not yet implemented); this surfaces a clean error instead.
         if matches!(inputs.coin_mode, CoinMode::Mint(_)) {
@@ -117,10 +127,45 @@ impl Risc0Backend {
         // host-side guard: CAT spend without tail_source produces an opaque guest panic.
         // surface a clean error here instead.
         let is_cat = inputs.tail_hash.map_or(false, |h| h != [0u8; 32]);
-        if is_cat && matches!(inputs.coin_mode, CoinMode::Spend(_)) && inputs.tail_source.is_none() {
+        if is_cat && matches!(inputs.coin_mode, CoinMode::Spend(_)) && inputs.tail_source.is_none()
+        {
             return Err(ClvmZkError::ProofGenerationFailed(
-                "CAT spend requires tail_source: tail_hash is set but tail_source was not provided".to_string(),
+                "CAT spend requires tail_source: tail_hash is set but tail_source was not provided"
+                    .to_string(),
             ));
+        }
+
+        // guard: CAT ring coins without tail_source produce opaque guest panics.
+        if let Some(ref additional_coins) = inputs.additional_coins {
+            for (i, coin) in additional_coins.iter().enumerate() {
+                if coin.tail_hash != [0u8; 32] && coin.tail_source.is_none() {
+                    return Err(ClvmZkError::ProofGenerationFailed(format!(
+                        "CAT ring coin {i} requires tail_source: tail_hash is set but tail_source was not provided"
+                    )));
+                }
+            }
+        }
+
+        // host-side guard: leaf_index values must fit in u32 since the guest runs on 32-bit RISC-V.
+        // catch this here to avoid an opaque guest panic.
+        const MAX_LEAF: u64 = u32::MAX as u64;
+        if let CoinMode::Spend(ref d) = inputs.coin_mode {
+            if d.leaf_index > MAX_LEAF {
+                return Err(ClvmZkError::ProofGenerationFailed(format!(
+                    "primary coin leaf_index {} exceeds 32-bit platform limit ({})",
+                    d.leaf_index, MAX_LEAF
+                )));
+            }
+        }
+        if let Some(ref additional_coins) = inputs.additional_coins {
+            for (i, coin) in additional_coins.iter().enumerate() {
+                if coin.serial_commitment_data.leaf_index > MAX_LEAF {
+                    return Err(ClvmZkError::ProofGenerationFailed(format!(
+                        "ring coin {i} leaf_index {} exceeds 32-bit platform limit ({})",
+                        coin.serial_commitment_data.leaf_index, MAX_LEAF
+                    )));
+                }
+            }
         }
 
         let env = ExecutorEnv::builder()

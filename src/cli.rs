@@ -2381,10 +2381,7 @@ fn offer_create_command(
         .get_merkle_path_and_index(&spend_coin.to_private_coin())
         .ok_or_else(|| ClvmZkError::InvalidProgram("coin not in merkle tree".to_string()))?;
 
-    let merkle_root = state
-        .simulator
-        .get_merkle_root()
-        .ok_or_else(|| ClvmZkError::InvalidProgram("merkle tree has no root".to_string()))?;
+    let merkle_root = state.simulator.get_merkle_root();
 
     // create conditional spend proof using delegated puzzle
     let conditional_proof = crate::protocol::Spender::create_conditional_spend(
@@ -2395,7 +2392,7 @@ fn offer_create_command(
         merkle_path,
         merkle_root,
         leaf_index,
-        None,   // XCH spend: no TAIL required
+        None, // XCH spend: no TAIL required
         vec![],
     )
     .map_err(|e| ClvmZkError::InvalidProgram(format!("conditional proof failed: {:?}", e)))?;
@@ -2531,10 +2528,7 @@ fn offer_take_command(
         .get_merkle_path_and_index(&taker_coin.to_private_coin())
         .ok_or_else(|| ClvmZkError::InvalidProgram("coin not in merkle tree".to_string()))?;
 
-    let merkle_root = state
-        .simulator
-        .get_merkle_root()
-        .ok_or_else(|| ClvmZkError::InvalidProgram("merkle tree has no root".to_string()))?;
+    let merkle_root = state.simulator.get_merkle_root();
 
     // create settlement proof parameters
     let settlement_params = crate::protocol::SettlementParams {
@@ -2558,6 +2552,8 @@ fn offer_take_command(
         taker_tail_hash: taker_coin.to_private_coin().tail_hash,
         // goods (what taker receives) match maker's offered asset type
         goods_tail_hash: offer.offered_tail_hash,
+        taker_tail_source: None, // XCH taker: no TAIL required
+        taker_tail_params: vec![],
     };
 
     // generate settlement proof
@@ -2673,8 +2669,19 @@ fn offer_take_command(
         println!("✅ both proofs verified concurrently");
     }
 
+    // NM-002: assert maker pubkey from proof matches stored offer (prevents tampered offer metadata)
+    if settlement_proof.output.maker_pubkey != offer.maker_pubkey {
+        return Err(ClvmZkError::InvalidProgram(
+            "maker_pubkey mismatch: settlement proof output does not match stored offer"
+                .to_string(),
+        ));
+    }
+
     // process settlement output: add nullifiers and commitments to simulator state
-    state.simulator.process_settlement(&settlement_proof.output);
+    state
+        .simulator
+        .process_settlement(&settlement_proof.output)
+        .map_err(|e| ClvmZkError::InvalidProgram(format!("settlement double-spend: {e}")))?;
 
     println!("   added 2 nullifiers and 4 commitments to state");
 

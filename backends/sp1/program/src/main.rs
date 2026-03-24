@@ -7,7 +7,7 @@ use alloc::vec;
 
 use clvm_zk_core::{
     compile_chialisp_to_bytecode, compute_coin_commitment, compute_nullifier,
-    compute_serial_commitment, create_veil_evaluator, parse_variable_length_amount,
+    compute_serial_commitment, create_veil_evaluator, is_clvm_nil, parse_variable_length_amount,
     run_clvm_with_conditions, serialize_params_to_clvm, verify_merkle_proof, ClvmResult, CoinMode,
     Input, ProofOutput, BLS_DST,
 };
@@ -233,7 +233,8 @@ fn main() {
                 sp1_hasher,
                 computed_coin_commitment,
                 &commitment_data.merkle_path,
-                usize::try_from(commitment_data.leaf_index).expect("leaf_index exceeds usize — tree larger than platform supports"),
+                usize::try_from(commitment_data.leaf_index)
+                    .expect("leaf_index exceeds usize — tree larger than platform supports"),
                 commitment_data.merkle_root,
             )
             .expect("merkle root mismatch: coin not in current tree state");
@@ -257,8 +258,13 @@ fn main() {
                 );
 
                 let tail_args = serialize_params_to_clvm(&private_inputs.tail_params);
-                run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
-                    .expect("TAIL authorization failed: TAIL program rejected this CAT spend");
+                let (tail_output, _) =
+                    run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
+                        .expect("TAIL authorization failed: TAIL program rejected this CAT spend");
+                assert!(
+                    !is_clvm_nil(&tail_output),
+                    "TAIL authorization failed: TAIL returned nil/0 — must return a truthy value to authorize"
+                );
             }
 
             Some(compute_nullifier(
@@ -322,10 +328,40 @@ fn main() {
                 sp1_hasher,
                 computed_coin_commitment,
                 &coin_data.merkle_path,
-                usize::try_from(coin_data.leaf_index).expect("leaf_index exceeds usize — tree larger than platform supports"),
+                usize::try_from(coin_data.leaf_index)
+                    .expect("leaf_index exceeds usize — tree larger than platform supports"),
                 coin_data.merkle_root,
             )
             .expect("additional coin: merkle root mismatch");
+
+            // TAIL enforcement for ring coins: same rules as primary coin
+            if coin.tail_hash != [0u8; 32] {
+                let ring_tail_src = coin.tail_source
+                    .as_deref()
+                    .expect("CAT ring coin requires tail_source: tail_hash is committed but tail_source was not provided");
+
+                let (ring_tail_bytecode, ring_tail_program_hash) =
+                    compile_chialisp_to_bytecode(sp1_hasher, ring_tail_src)
+                        .expect("ring coin TAIL compilation failed");
+
+                assert_eq!(
+                    ring_tail_program_hash, coin.tail_hash,
+                    "ring coin tail_hash mismatch: tail_source does not compile to the committed tail_hash"
+                );
+
+                let ring_tail_args = serialize_params_to_clvm(&coin.tail_params);
+                let (ring_tail_output, _) = run_clvm_with_conditions(
+                    &evaluator,
+                    &ring_tail_bytecode,
+                    &ring_tail_args,
+                    max_cost,
+                )
+                .expect("ring coin TAIL authorization failed");
+                assert!(
+                    !is_clvm_nil(&ring_tail_output),
+                    "ring coin TAIL authorization failed: TAIL returned nil/0 — must return a truthy value to authorize"
+                );
+            }
 
             nullifiers.push(compute_nullifier(
                 sp1_hasher,
