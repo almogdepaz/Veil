@@ -758,6 +758,8 @@ struct SimulatorState {
     simulator: CLVMZkSimulator,
     #[serde(default)]
     pending_offers: Vec<StoredOffer>,
+    #[serde(default)]
+    next_offer_id: usize,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -779,6 +781,9 @@ struct StoredOffer {
     offered_tail_hash: [u8; 32], // asset type maker is offering
     #[serde(default)]
     requested_tail_hash: [u8; 32], // asset type maker is requesting
+    // maker's change puzzle program (stored at offer creation, used verbatim at settlement)
+    #[serde(default)]
+    change_program: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -811,6 +816,9 @@ struct WalletCoinWrapper {
     program: String,
     /// whether this coin has been spent
     spent: bool,
+    /// TAIL program source for CAT coins (None for XCH)
+    #[serde(default)]
+    tail_source: Option<String>,
 }
 
 impl WalletCoinWrapper {
@@ -893,6 +901,7 @@ impl WalletData {
             wallet_coin,
             program,
             spent: false,
+            tail_source: None,
         })
     }
 }
@@ -965,6 +974,7 @@ impl SimulatorState {
             spend_bundles: Vec::new(),
             simulator: CLVMZkSimulator::new(),
             pending_offers: Vec::new(),
+            next_offer_id: 0,
         }
     }
 
@@ -1796,7 +1806,13 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut total_amount = 0u64;
 
     for (puzzle_hash, nonce, info) in &scannable_coins {
-        // Skip if serial_commitment already in wallet (FIX-05: dedup by unique coin identifier)
+        // try to scan this coin with the nonce — confirm ownership FIRST
+        let scanned = match view_key.try_scan_with_nonce(puzzle_hash, nonce) {
+            Some(s) => s,
+            None => continue, // not our coin
+        };
+
+        // F-05: dedup check AFTER ownership confirmed — avoids false-positive skips
         if existing_serial_commitments.contains(info.coin.serial_commitment.as_bytes()) {
             println!(
                 "  found coin {} (already in wallet, skipping)",
@@ -1804,12 +1820,6 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
             );
             continue;
         }
-
-        // try to scan this coin with the nonce
-        let scanned = match view_key.try_scan_with_nonce(puzzle_hash, nonce) {
-            Some(s) => s,
-            None => continue, // not our coin
-        };
 
         // found a coin!
         let coin_info = Some(*info);
@@ -1841,6 +1851,7 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
                 wallet_coin,
                 program,
                 spent: false,
+                tail_source: None,
             };
 
             // Add to wallet
@@ -2344,8 +2355,9 @@ fn offer_create_command(
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut change_serial);
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut change_rand);
 
-    // use delegated puzzle for maker's change
-    let (_, change_puzzle) = crate::protocol::create_delegated_puzzle()?;
+    // use delegated puzzle for maker's change — capture code once for proof + storage
+    let (delegated_code, change_puzzle) = crate::protocol::create_delegated_puzzle()?;
+    let delegated_hash = change_puzzle;
 
     // get settlement assertion puzzle
     let (_assertion_program, _assertion_hash) =
@@ -2363,9 +2375,6 @@ fn offer_create_command(
         &change_serial,
         &change_rand,
     );
-
-    // get delegated puzzle (settlement-specific - directly embeds assertion logic)
-    let (delegated_code, delegated_hash) = crate::protocol::create_delegated_puzzle()?;
 
     // verify coin uses delegated puzzle
     if spend_coin.puzzle_hash() != delegated_hash {
@@ -2413,8 +2422,9 @@ fn offer_create_command(
 
     // change secrets are stored in StoredOffer and added to maker's wallet during offer-take
 
-    // store the offer
-    let offer_id = state.pending_offers.len();
+    // store the offer — F-02: monotonic ID, never reused after removal
+    let offer_id = state.next_offer_id;
+    state.next_offer_id += 1;
     state.pending_offers.push(StoredOffer {
         id: offer_id,
         maker: maker_name.to_string(),
@@ -2429,6 +2439,7 @@ fn offer_create_command(
         change_rand,
         offered_tail_hash: spend_coin.to_private_coin().tail_hash,
         requested_tail_hash,
+        change_program: delegated_code, // F-01: store at creation, use verbatim at settlement
     });
 
     state.save(data_dir)?;
@@ -2527,8 +2538,8 @@ fn offer_take_command(
     let (taker_goods_program, taker_goods_puzzle) = create_faucet_puzzle(offer.offered);
     let (taker_change_program, taker_change_puzzle) = create_faucet_puzzle(offer.offered);
 
-    // maker's change puzzle program (same deterministic result as offer_create_command used)
-    let (maker_change_program, _) = crate::protocol::create_delegated_puzzle()?;
+    // F-01: use program captured at offer creation — no re-derivation, immune to puzzle changes
+    let maker_change_program = offer.change_program.clone();
 
     // get merkle path for taker's coin
     let (merkle_path, leaf_index) = state
@@ -2560,7 +2571,8 @@ fn offer_take_command(
         taker_tail_hash: taker_coin.to_private_coin().tail_hash,
         // goods (what taker receives) match maker's offered asset type
         goods_tail_hash: offer.offered_tail_hash,
-        taker_tail_source: None, // XCH taker: no TAIL required
+        // F-07: use tail_source from taker's coin; XCH coins have None
+        taker_tail_source: taker_coin.tail_source.clone(),
         taker_tail_params: vec![],
     };
 
@@ -2745,6 +2757,7 @@ fn offer_take_command(
         wallet_coin: goods_wallet_coin,
         program: taker_goods_program,
         spent: false,
+        tail_source: None,
     });
 
     // 2. change coin (taker's leftover, asset B = taker's own asset type)
@@ -2773,6 +2786,7 @@ fn offer_take_command(
         wallet_coin: change_wallet_coin,
         program: taker_change_program,
         spent: false,
+        tail_source: None,
     });
 
     println!("   added 2 coins to taker's wallet (goods, change)");
@@ -2808,6 +2822,7 @@ fn offer_take_command(
         wallet_coin: maker_change_wallet_coin,
         program: maker_change_program,
         spent: false,
+        tail_source: None,
     });
 
     // 4b. maker's payment coin (taker → maker, asset B = taker's asset type)
@@ -2840,6 +2855,7 @@ fn offer_take_command(
         wallet_coin: maker_payment_wallet_coin,
         program: "(stealth)".to_string(),
         spent: false,
+        tail_source: None,
     });
 
     println!("   added 2 coins to maker's wallet (change, payment)");
