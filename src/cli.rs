@@ -1758,7 +1758,7 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
     // Get wallet and derive stealth view key
-    let (view_key, existing_puzzle_hashes) = {
+    let (view_key, existing_serial_commitments) = {
         let wallet = state.wallets.get(wallet_name).ok_or_else(|| {
             ClvmZkError::InvalidProgram(format!("wallet '{}' not found", wallet_name))
         })?;
@@ -1772,9 +1772,13 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
 
         let view_key = account_keys.stealth_keys.view_only();
 
-        // Get existing puzzle hashes to avoid duplicates
-        let existing: std::collections::HashSet<[u8; 32]> =
-            wallet.coins.iter().map(|c| c.puzzle_hash()).collect();
+        // FIX-05: dedup by serial_commitment (unique per coin), not puzzle_hash
+        // (multiple coins can share the same puzzle hash, e.g. faucet puzzle)
+        let existing: std::collections::HashSet<[u8; 32]> = wallet
+            .coins
+            .iter()
+            .map(|c| *c.wallet_coin.coin.serial_commitment.as_bytes())
+            .collect();
 
         (view_key, existing)
     };
@@ -1792,8 +1796,8 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut total_amount = 0u64;
 
     for (puzzle_hash, nonce, info) in &scannable_coins {
-        // Skip if already in wallet
-        if existing_puzzle_hashes.contains(*puzzle_hash) {
+        // Skip if serial_commitment already in wallet (FIX-05: dedup by unique coin identifier)
+        if existing_serial_commitments.contains(info.coin.serial_commitment.as_bytes()) {
             println!(
                 "  found coin {} (already in wallet, skipping)",
                 hex::encode(&puzzle_hash[..4])
@@ -2458,12 +2462,13 @@ fn offer_take_command(
 ) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
-    // get offer
-    if offer_id >= state.pending_offers.len() {
-        return Err(ClvmZkError::InvalidProgram("offer not found".to_string()));
-    }
-
-    let offer = state.pending_offers[offer_id].clone();
+    // FIX-02: find offer by stored ID (not vec index) — stable against concurrent removal
+    let offer_pos = state
+        .pending_offers
+        .iter()
+        .position(|o| o.id == offer_id)
+        .ok_or_else(|| ClvmZkError::InvalidProgram(format!("offer {} not found", offer_id)))?;
+    let offer = state.pending_offers[offer_pos].clone();
 
     // get taker wallet
     let wallet = state
@@ -2518,9 +2523,12 @@ fn offer_take_command(
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut change_serial);
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut change_rand);
 
-    // use faucet puzzle for taker's goods and change
-    let (_, taker_goods_puzzle) = create_faucet_puzzle(offer.offered);
-    let (_, taker_change_puzzle) = create_faucet_puzzle(offer.offered);
+    // faucet puzzle for taker's received coins — capture program source for spendability
+    let (taker_goods_program, taker_goods_puzzle) = create_faucet_puzzle(offer.offered);
+    let (taker_change_program, taker_change_puzzle) = create_faucet_puzzle(offer.offered);
+
+    // maker's change puzzle program (same deterministic result as offer_create_command used)
+    let (maker_change_program, _) = crate::protocol::create_delegated_puzzle()?;
 
     // get merkle path for taker's coin
     let (merkle_path, leaf_index) = state
@@ -2700,44 +2708,30 @@ fn offer_take_command(
     let goods_amount = offer.offered;
     let change_amount = taker_coin.amount() - offer.requested;
 
-    // create 3 coins for taker's wallet
+    // NM-001: taker receives 2 coins (goods + change); payment goes to maker — do NOT add here.
     let taker_wallet = state.wallets.get_mut(taker_name).unwrap();
 
-    // 1. payment coin (taker → maker, asset B)
-    let payment_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
-        &payment_serial,
-        &payment_rand,
-        crate::crypto_utils::hash_data_default,
-    );
-    let payment_coin = crate::protocol::PrivateCoin::new(
-        payment_puzzle,
-        payment_amount,
-        payment_serial_commitment,
-    );
-    let payment_secrets =
-        clvm_zk_core::coin_commitment::CoinSecrets::new(payment_serial, payment_rand);
-    let payment_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
-        coin: payment_coin,
-        secrets: payment_secrets,
-        account_index: 0, // non-HD coin
-        coin_index: 0,
-    };
-    taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
-        wallet_coin: payment_wallet_coin,
-        program: "(mod () (q . ()))".to_string(), // placeholder program
-        spent: false,
-    });
+    // FIX-06: mark taker's spent coin as spent
+    let spent_serial = taker_coin.wallet_coin.coin.serial_commitment;
+    for w in &mut taker_wallet.coins {
+        if w.wallet_coin.coin.serial_commitment == spent_serial {
+            w.spent = true;
+            break;
+        }
+    }
 
-    // 2. goods coin (maker → taker, asset A)
+    // 1. goods coin (maker → taker, asset A — taker receives offered goods)
     let goods_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
         &goods_serial,
         &goods_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let goods_coin = crate::protocol::PrivateCoin::new(
+    // NM-001: correct tail_hash = offered asset type (maker's asset)
+    let goods_coin = crate::protocol::PrivateCoin::new_with_tail(
         taker_goods_puzzle,
         goods_amount,
         goods_serial_commitment,
+        offer.offered_tail_hash,
     );
     let goods_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(goods_serial, goods_rand);
     let goods_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
@@ -2746,22 +2740,25 @@ fn offer_take_command(
         account_index: 0,
         coin_index: 0,
     };
+    // NM-001: use actual program source so this coin is spendable
     taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: goods_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),
+        program: taker_goods_program,
         spent: false,
     });
 
-    // 3. change coin (taker's leftover, asset B)
+    // 2. change coin (taker's leftover, asset B = taker's own asset type)
     let change_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
         &change_serial,
         &change_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let change_coin = crate::protocol::PrivateCoin::new(
+    // NM-001: correct tail_hash = taker's asset type
+    let change_coin = crate::protocol::PrivateCoin::new_with_tail(
         taker_change_puzzle,
         change_amount,
         change_serial_commitment,
+        taker_coin.to_private_coin().tail_hash,
     );
     let change_secrets =
         clvm_zk_core::coin_commitment::CoinSecrets::new(change_serial, change_rand);
@@ -2771,29 +2768,32 @@ fn offer_take_command(
         account_index: 0,
         coin_index: 0,
     };
+    // NM-001: use actual program source so this coin is spendable
     taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: change_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),
+        program: taker_change_program,
         spent: false,
     });
 
-    println!("   added 3 coins to taker's wallet (payment, goods, change)");
+    println!("   added 2 coins to taker's wallet (goods, change)");
 
     // 4. add maker's coins to maker's wallet
     let maker_wallet = state.wallets.get_mut(&offer.maker).ok_or_else(|| {
         ClvmZkError::InvalidProgram(format!("maker wallet '{}' not found", offer.maker))
     })?;
 
-    // 4a. maker's change coin (returned to maker, asset A)
+    // 4a. maker's change coin (returned to maker, asset A = offered asset type)
     let maker_change_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
         &offer.change_serial,
         &offer.change_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let maker_change_coin = crate::protocol::PrivateCoin::new(
+    // NM-001: correct tail_hash = maker's offered asset type
+    let maker_change_coin = crate::protocol::PrivateCoin::new_with_tail(
         offer.change_puzzle,
         offer.change_amount,
         maker_change_serial_commitment,
+        offer.offered_tail_hash,
     );
     let maker_change_secrets =
         clvm_zk_core::coin_commitment::CoinSecrets::new(offer.change_serial, offer.change_rand);
@@ -2803,23 +2803,28 @@ fn offer_take_command(
         account_index: 0,
         coin_index: 0,
     };
+    // NM-001: use actual delegated puzzle program so this coin is spendable
     maker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: maker_change_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),
+        program: maker_change_program,
         spent: false,
     });
 
-    // 4b. maker's payment coin (taker → maker, asset B)
-    // the payment_puzzle was derived via hash-based stealth above, amount is offer.requested
+    // 4b. maker's payment coin (taker → maker, asset B = taker's asset type)
+    // puzzle_hash = sha256("stealth_v1" || maker_pubkey || nonce) — stealth address.
+    // This is NOT a standard Chialisp program hash; spending requires the maker to
+    // decrypt payment_nonce from the transaction and use a stealth-claim mechanism (PR4+).
     let maker_payment_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
         &payment_serial,
         &payment_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let maker_payment_coin = crate::protocol::PrivateCoin::new(
+    // NM-001: correct tail_hash = taker's asset type (what taker paid with)
+    let maker_payment_coin = crate::protocol::PrivateCoin::new_with_tail(
         payment_puzzle,
         payment_amount,
         maker_payment_serial_commitment,
+        taker_coin.to_private_coin().tail_hash,
     );
     let maker_payment_secrets =
         clvm_zk_core::coin_commitment::CoinSecrets::new(payment_serial, payment_rand);
@@ -2829,16 +2834,18 @@ fn offer_take_command(
         account_index: 0,
         coin_index: 0,
     };
+    // NM-001: stealth payment — no standard Chialisp program corresponds to this puzzle hash.
+    // Marked "(stealth)" so wallet display shows it as a received but not-yet-claimable coin.
     maker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: maker_payment_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),
+        program: "(stealth)".to_string(),
         spent: false,
     });
 
     println!("   added 2 coins to maker's wallet (change, payment)");
 
-    // 5. remove offer from pending
-    state.pending_offers.remove(offer_id);
+    // 5. remove offer from pending (by position, not by offer_id)
+    state.pending_offers.remove(offer_pos);
 
     state.save(data_dir)?;
 
