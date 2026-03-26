@@ -1,12 +1,18 @@
 // blockchain simulator for testing protocol
 
 use crate::protocol::{PrivateCoin, PrivateSpendBundle, ProtocolError, Spender};
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    ChaCha20Poly1305, Key, Nonce,
+};
 use clvm_zk_core::coin_commitment::CoinCommitment;
 use clvm_zk_core::merkle::SparseMerkleTree;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
 /// tree depth for simulator merkle tree (supports 2^20 = ~1M coins)
 const SIMULATOR_TREE_DEPTH: usize = 20;
@@ -17,6 +23,36 @@ fn hasher() -> fn(&[u8]) -> [u8; 32] {
 
 fn default_coin_tree() -> SparseMerkleTree {
     SparseMerkleTree::new(SIMULATOR_TREE_DEPTH, hasher())
+}
+
+/// Encrypt a 32-byte stealth nonce for the given x25519 recipient public key.
+///
+/// Output: ephemeral_pubkey(32) || chacha_nonce(12) || ciphertext+tag(48) = 92 bytes.
+/// The shared secret is derived via ECDH then hashed with SHA-256 to produce the
+/// ChaCha20Poly1305 key.
+fn encrypt_stealth_nonce(nonce: &[u8; 32], recipient_pubkey: &[u8; 32]) -> Vec<u8> {
+    let ephemeral_secret = EphemeralSecret::random_from_rng(rand::thread_rng());
+    let ephemeral_public = PublicKey::from(&ephemeral_secret);
+
+    let recipient_public = PublicKey::from(*recipient_pubkey);
+    let shared = ephemeral_secret.diffie_hellman(&recipient_public);
+
+    let key_bytes = Sha256::digest(shared.as_bytes());
+    let cipher = ChaCha20Poly1305::new(Key::from_slice(key_bytes.as_slice()));
+
+    let mut chacha_nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut chacha_nonce_bytes);
+
+    // encrypt: 32 bytes plaintext → 48 bytes ciphertext (32 + 16 AEAD tag)
+    let ciphertext = cipher
+        .encrypt(Nonce::from_slice(&chacha_nonce_bytes), nonce.as_slice())
+        .expect("ChaCha20Poly1305 encryption cannot fail for valid inputs");
+
+    let mut blob = Vec::with_capacity(92);
+    blob.extend_from_slice(ephemeral_public.as_bytes()); // 32 bytes
+    blob.extend_from_slice(&chacha_nonce_bytes); // 12 bytes
+    blob.extend_from_slice(&ciphertext); // 48 bytes
+    blob
 }
 
 /// simulated blockchain state for testing
@@ -163,7 +199,9 @@ impl CLVMZkSimulator {
         serial_number
     }
 
-    /// Add coin with stealth nonce for hash-based stealth address scanning
+    /// Add coin with stealth nonce for hash-based stealth address scanning.
+    /// The nonce is encrypted for `recipient_pubkey` using x25519 ECDH + ChaCha20Poly1305.
+    /// Stored format: ephemeral_pubkey(32) || chacha_nonce(12) || ciphertext+tag(48) = 92 bytes.
     pub fn add_coin_with_stealth_nonce(
         &mut self,
         coin: PrivateCoin,
@@ -171,13 +209,15 @@ impl CLVMZkSimulator {
         stealth_nonce: [u8; 32],
         puzzle_source: String,
         metadata: CoinMetadata,
+        recipient_pubkey: [u8; 32],
     ) -> [u8; 32] {
         let serial_number = secrets.serial_number();
+        let encrypted_nonce = encrypt_stealth_nonce(&stealth_nonce, &recipient_pubkey);
         let info = CoinInfo {
             coin: coin.clone(),
             metadata,
             created_at_height: self.block_height,
-            stealth_nonce: Some(stealth_nonce.to_vec()),
+            stealth_nonce: Some(encrypted_nonce),
             puzzle_source: Some(puzzle_source),
         };
 
@@ -448,17 +488,17 @@ impl CLVMZkSimulator {
         self.utxo_set.iter()
     }
 
-    /// Get all coins with stealth nonces for hash-based stealth scanning
-    /// Returns (puzzle_hash, stealth_nonce, coin_info) for each stealth coin
-    pub fn get_stealth_scannable_coins(&self) -> Vec<(&[u8; 32], [u8; 32], &CoinInfo)> {
+    /// Get all coins with stealth nonces for hash-based stealth scanning.
+    /// Returns `(puzzle_hash, nonce_blob, coin_info)` for each stealth coin.
+    /// `nonce_blob` is either 92 bytes (encrypted, PR4+) or 32 bytes (plaintext, legacy).
+    /// Callers must decrypt with `decrypt_stealth_nonce` before use.
+    pub fn get_stealth_scannable_coins(&self) -> Vec<(&[u8; 32], Vec<u8>, &CoinInfo)> {
         self.utxo_set
             .iter()
             .filter_map(|(_serial, info)| {
                 info.stealth_nonce.as_ref().and_then(|nonce| {
-                    if nonce.len() == 32 {
-                        let mut arr = [0u8; 32];
-                        arr.copy_from_slice(nonce);
-                        Some((&info.coin.puzzle_hash, arr, info))
+                    if nonce.len() == 32 || nonce.len() == 92 {
+                        Some((&info.coin.puzzle_hash, nonce.clone(), info))
                     } else {
                         None
                     }

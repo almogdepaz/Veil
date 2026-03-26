@@ -2,6 +2,10 @@ use crate::protocol::PrivateCoin;
 use crate::simulator::{CLVMZkSimulator, CoinMetadata, CoinType};
 use crate::wallet::{CLVMHDWallet, Network, WalletError};
 use crate::{ClvmZkError, ClvmZkProver, ProgramParameter};
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    ChaCha20Poly1305, Key, Nonce,
+};
 use clap::{Parser, Subcommand};
 use clvm_zk_core::compile_chialisp_template_hash_default;
 use clvm_zk_core::{atom_to_number, ClvmParser};
@@ -11,6 +15,47 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
+
+/// Decrypt a stealth nonce blob encrypted by `encrypt_stealth_nonce` in the simulator.
+///
+/// Accepts:
+/// - 92-byte encrypted blob (PR4+): ephemeral_pubkey(32) || chacha_nonce(12) || ciphertext+tag(48)
+/// - 32-byte plaintext (legacy, pre-PR4 state files)
+///
+/// Returns `None` on decryption failure (wrong key, corrupted blob, or not our coin).
+fn decrypt_stealth_nonce(encrypted: &[u8], private_key: &[u8; 32]) -> Option<[u8; 32]> {
+    match encrypted.len() {
+        92 => {
+            let ephemeral_pub = X25519PublicKey::from(<[u8; 32]>::try_from(&encrypted[..32]).ok()?);
+            let chacha_nonce = &encrypted[32..44];
+            let ciphertext = &encrypted[44..]; // 48 bytes: 32 plaintext + 16 AEAD tag
+
+            let static_secret = StaticSecret::from(*private_key);
+            let shared = static_secret.diffie_hellman(&ephemeral_pub);
+            let key_bytes = Sha256::digest(shared.as_bytes());
+            let cipher = ChaCha20Poly1305::new(Key::from_slice(key_bytes.as_slice()));
+
+            let plaintext = cipher
+                .decrypt(Nonce::from_slice(chacha_nonce), ciphertext)
+                .ok()?;
+            if plaintext.len() == 32 {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&plaintext);
+                Some(arr)
+            } else {
+                None
+            }
+        }
+        32 => {
+            // backwards compat: pre-PR4 plaintext nonce stored directly
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(encrypted);
+            Some(arr)
+        }
+        _ => None,
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "clvm-zk")]
@@ -805,6 +850,10 @@ struct WalletData {
     note_encryption_public: Option<[u8; 32]>,
     #[serde(default)]
     note_encryption_private: Option<[u8; 32]>,
+    /// FIX-04: per-recipient stealth nonce counter (keyed by recipient view pubkey hex)
+    /// prevents nonce reuse when sending multiple payments to the same recipient
+    #[serde(default)]
+    nonce_counter: HashMap<String, u32>,
 }
 
 /// wrapper around WalletPrivateCoin with additional CLI-specific state
@@ -1266,6 +1315,7 @@ fn wallet_command(data_dir: &Path, name: &str, action: WalletAction) -> Result<(
                 stealth_spend_pubkey: Some(stealth_address.spend_pubkey.to_vec()),
                 note_encryption_public: Some(note_encryption_public),
                 note_encryption_private: Some(note_encryption_private),
+                nonce_counter: HashMap::new(),
             };
 
             state.wallets.insert(name.to_string(), wallet);
@@ -1633,8 +1683,8 @@ fn send_command(
             if amount > 0 {
                 let to_wallet = state.wallets.get_mut(to).unwrap();
 
-                // Get recipient's stealth address
-                let recipient_stealth = {
+                // Get recipient's stealth address and note encryption pubkey
+                let (recipient_stealth, recipient_enc_pubkey) = {
                     let view_pub = to_wallet.stealth_view_pubkey.as_ref().ok_or_else(|| {
                         ClvmZkError::InvalidProgram(format!(
                             "recipient wallet '{}' has no stealth address (old wallet, recreate it)",
@@ -1644,6 +1694,12 @@ fn send_command(
                     let spend_pub = to_wallet.stealth_spend_pubkey.as_ref().ok_or_else(|| {
                         ClvmZkError::InvalidProgram(format!(
                             "recipient wallet '{}' has no stealth address",
+                            to
+                        ))
+                    })?;
+                    let enc_pub = to_wallet.note_encryption_public.ok_or_else(|| {
+                        ClvmZkError::InvalidProgram(format!(
+                            "recipient wallet '{}' has no note encryption key (old wallet, recreate it)",
                             to
                         ))
                     })?;
@@ -1661,10 +1717,13 @@ fn send_command(
                     } else {
                         spend_arr.copy_from_slice(&spend_pub[..32]);
                     }
-                    crate::wallet::StealthAddress {
-                        view_pubkey: view_arr,
-                        spend_pubkey: spend_arr,
-                    }
+                    (
+                        crate::wallet::StealthAddress {
+                            view_pubkey: view_arr,
+                            spend_pubkey: spend_arr,
+                        },
+                        enc_pub,
+                    )
                 };
 
                 // create stealth payment (nullifier mode) - derives shared_secret via hash
@@ -1677,9 +1736,20 @@ fn send_command(
                 let sender_account = sender_hd.derive_account(0).map_err(|e| {
                     ClvmZkError::InvalidProgram(format!("account derivation error: {}", e))
                 })?;
+
+                // FIX-04: per-recipient nonce counter — prevents nonce reuse on repeated sends
+                let nonce_index: u32 = {
+                    let recipient_key = hex::encode(recipient_stealth.view_pubkey);
+                    let from_w = state.wallets.get_mut(from).unwrap();
+                    let counter = from_w.nonce_counter.entry(recipient_key).or_insert(0u32);
+                    let idx = *counter;
+                    *counter += 1;
+                    idx
+                };
+
                 let stealth_payment = crate::wallet::create_stealth_payment_hd(
                     &sender_account.stealth_keys,
-                    0, // nonce_index
+                    nonce_index,
                     &recipient_stealth,
                 );
 
@@ -1695,7 +1765,7 @@ fn send_command(
                 let coin =
                     crate::protocol::PrivateCoin::new(puzzle_hash, amount, serial_commitment);
 
-                // add coin to global simulator state with stealth nonce and puzzle_source
+                // add coin to global simulator state with encrypted stealth nonce
                 state.simulator.add_coin_with_stealth_nonce(
                     coin,
                     &secrets,
@@ -1706,6 +1776,7 @@ fn send_command(
                         coin_type: CoinType::Regular,
                         notes: format!("stealth payment from {} (nullifier mode)", from),
                     },
+                    recipient_enc_pubkey,
                 );
 
                 // NOTE: coin is NOT added to recipient's wallet directly
@@ -1767,8 +1838,8 @@ fn send_command(
 fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
-    // Get wallet and derive stealth view key
-    let (view_key, existing_serial_commitments) = {
+    // Get wallet and derive stealth view key + note decryption key
+    let (view_key, note_enc_private, existing_serial_commitments) = {
         let wallet = state.wallets.get(wallet_name).ok_or_else(|| {
             ClvmZkError::InvalidProgram(format!("wallet '{}' not found", wallet_name))
         })?;
@@ -1782,6 +1853,13 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
 
         let view_key = account_keys.stealth_keys.view_only();
 
+        let note_enc_private = wallet.note_encryption_private.ok_or_else(|| {
+            ClvmZkError::InvalidProgram(format!(
+                "wallet '{}' has no note encryption key (old wallet, recreate it)",
+                wallet_name
+            ))
+        })?;
+
         // FIX-05: dedup by serial_commitment (unique per coin), not puzzle_hash
         // (multiple coins can share the same puzzle hash, e.g. faucet puzzle)
         let existing: std::collections::HashSet<[u8; 32]> = wallet
@@ -1790,7 +1868,7 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
             .map(|c| *c.wallet_coin.coin.serial_commitment.as_bytes())
             .collect();
 
-        (view_key, existing)
+        (view_key, note_enc_private, existing)
     };
 
     // Get stealth-scannable coins from simulator (now returns nonces instead of ephemeral pubkeys)
@@ -1805,9 +1883,15 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut found_count = 0;
     let mut total_amount = 0u64;
 
-    for (puzzle_hash, nonce, info) in &scannable_coins {
-        // try to scan this coin with the nonce — confirm ownership FIRST
-        let scanned = match view_key.try_scan_with_nonce(puzzle_hash, nonce) {
+    for (puzzle_hash, nonce_blob, info) in &scannable_coins {
+        // decrypt the stealth nonce — failure means coin is not addressed to us
+        let nonce = match decrypt_stealth_nonce(nonce_blob, &note_enc_private) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        // confirm ownership via stealth key derivation
+        let scanned = match view_key.try_scan_with_nonce(puzzle_hash, &nonce) {
             Some(s) => s,
             None => continue, // not our coin
         };
