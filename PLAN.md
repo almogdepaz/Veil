@@ -64,7 +64,7 @@ cargo run-risc0    — runs with real RISC-0 proofs (slow, needs --release)
 | 3 | `pr/03-offer-fixes` | ✅ pushed | NM-001, FIX-02/05/06, offer indexing |
 | 4 | `pr/04-stealth-nonce-encryption` | ✅ pushed | x25519+ChaCha20Poly1305, FIX-04 |
 | 5 | `pr/05-cat-minting` | ✅ pushed | CoinMode::Mint, genesis nullifier, mint_cat, CLI, 6 tests |
-| 6+7 | `pr/06-e2e-docs` | ☐ todo | combined: nullifier v2, e2e tests, docs |
+| 6+7 | `pr/06-e2e-docs` | ✅ pushed | nullifier v2 (in PR5), 8 E2E tests, Security Model docs |
 
 ---
 
@@ -319,7 +319,7 @@ cargo test-mock   # full suite must still pass
 
 ---
 
-## PR 6+7 (combined): Nullifier v2, E2E tests, documentation
+## ~~PR 6+7 (combined): Nullifier v2, E2E tests, documentation~~
 
 **Branch:** `pr/06-e2e-docs`
 **Base:** `pr/05-cat-minting`

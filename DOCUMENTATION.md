@@ -551,6 +551,55 @@ example bytecode for `(+ 5 3)`:
 [cons, +, cons, cons, q, 5, cons, cons, q, 3, nil]
 ```
 
+---
+
+## Security Model
+
+### Nullifier Scheme (v2)
+
+```
+nullifier = SHA256("clvm_zk_nullifier_v2.0" || tail_hash || serial_number || program_hash || amount)
+```
+
+The `tail_hash` binding is CRITICAL: without it an adversary with serial number control could
+pre-poison any XCH coin's nullifier slot by minting a CAT coin with identical parameters and
+spending it first. v1 lacked this domain and tail_hash binding — v1 is deprecated.
+
+Genesis nullifier (for one-time-use mint authorization):
+```
+genesis_nullifier = SHA256("clvm_zk_genesis_v1.0" || serial_number || tail_hash)
+```
+
+### AGG_SIG_UNSAFE (opcode 49)
+
+Does NOT bind signature to coin context (coin ID, puzzle hash). A valid AGG_SIG_UNSAFE signature
+can be replayed to any coin using the same puzzle + public key. Use AGG_SIG_ME (opcode 50) in
+production puzzles requiring spend-specific authorization.
+
+### Commitment Scheme Trade-offs
+
+Serial/coin commitments use SHA-256. Sound for current use. Not homomorphic — no efficient range
+proofs. Pedersen commitments would unlock homomorphic properties at the cost of additional circuit
+complexity. Acceptable trade-off for v1.
+
+### Known Limitations (open issues)
+
+- Stealth payment coin (offer output) uses raw stealth hash as puzzle — not spendable via standard
+  flow until stealth-claim mechanism (PR8+)
+- CoinMode::Mint supports unlimited TAILs (`(mod () 1)`) — production TAILs should be signature-gated
+
+---
+
+## Protocol Version History
+
+| Field | v1 | v2 (current) | PR |
+|-------|----|--------------|----|
+| nullifier | SHA256(serial ‖ program ‖ amount) | SHA256(domain ‖ tail_hash ‖ serial ‖ program ‖ amount) | PR6+7 |
+| coin_commitment | SHA256("clvm_zk_coin_v2.0" ‖ ...) | unchanged | PR1 |
+| serial_commitment | SHA256("clvm_zk_serial_v1.0" ‖ ...) | unchanged | initial |
+
+---
+
 ### references
 
 - [chia clvm reference](https://chialisp.com/docs/ref/clvm)

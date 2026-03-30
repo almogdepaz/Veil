@@ -200,6 +200,43 @@ impl CLVMZkSimulator {
         serial_number
     }
 
+    /// Add coin with TAIL source for CAT spending.
+    pub fn add_coin_with_tail(
+        &mut self,
+        coin: PrivateCoin,
+        secrets: &clvm_zk_core::coin_commitment::CoinSecrets,
+        metadata: CoinMetadata,
+        tail_source: String,
+    ) -> [u8; 32] {
+        let serial_number = secrets.serial_number();
+        let info = CoinInfo {
+            coin: coin.clone(),
+            metadata,
+            created_at_height: self.block_height,
+            stealth_nonce: None,
+            puzzle_source: None,
+            tail_source: Some(tail_source),
+        };
+
+        let coin_commitment = CoinCommitment::compute(
+            &coin.tail_hash,
+            coin.amount,
+            &coin.puzzle_hash,
+            &coin.serial_commitment,
+            crate::crypto_utils::hash_data_default,
+        );
+
+        let h = hasher();
+        let leaf_index = self.coin_tree.len();
+        self.coin_tree.insert(coin_commitment.0, h);
+        self.merkle_leaves.push(coin_commitment.0);
+        self.commitment_to_index
+            .insert(coin_commitment.0, leaf_index);
+
+        self.utxo_set.insert(serial_number, info);
+        serial_number
+    }
+
     /// Add coin with stealth nonce for hash-based stealth address scanning.
     /// The nonce is encrypted for `recipient_pubkey` using x25519 ECDH + ChaCha20Poly1305.
     /// Stored format: ephemeral_pubkey(32) || chacha_nonce(12) || ciphertext+tag(48) = 92 bytes.
@@ -319,7 +356,13 @@ impl CLVMZkSimulator {
                 })
                 .collect::<Result<Vec<_>, SimulatorError>>()?;
 
-            match Spender::create_ring_spend(coin_data, merkle_root, None, vec![]) {
+            // for CAT ring spends, look up tail_source from the first coin's UTXO
+            let ring_tail_source = self
+                .utxo_set
+                .get(&spends[0].3.serial_number)
+                .and_then(|info| info.tail_source.clone());
+
+            match Spender::create_ring_spend(coin_data, merkle_root, ring_tail_source, vec![]) {
                 Ok(bundle) => {
                     spend_bundles.push(bundle);
                     for (_, _, _, secrets) in &spends {
