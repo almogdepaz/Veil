@@ -6,7 +6,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, compute_coin_commitment, compute_nullifier,
+    compile_chialisp_to_bytecode, compute_coin_commitment, compute_nullifier_v2,
     compute_serial_commitment, create_veil_evaluator, is_clvm_nil, run_clvm_with_conditions,
     serialize_params_to_clvm, verify_merkle_proof, ProgramParameter,
 };
@@ -191,8 +191,9 @@ fn main() {
     // let commitments_cycles = env::cycle_count();
 
     // compute taker's nullifier
-    let taker_nullifier = compute_nullifier(
+    let taker_nullifier = compute_nullifier_v2(
         risc0_hasher,
+        &input.taker_tail_hash,
         &input.taker_coin.serial_number,
         &input.taker_coin.puzzle_hash,
         input.taker_coin.amount,

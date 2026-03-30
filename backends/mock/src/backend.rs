@@ -1,8 +1,8 @@
 use clvm_zk_core::verify_ecdsa_signature_with_hasher;
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, compute_coin_commitment, compute_nullifier,
-    compute_serial_commitment, create_veil_evaluator, enforce_ring_balance, is_clvm_nil,
-    parse_variable_length_amount, run_clvm_with_conditions, serialize_params_to_clvm,
+    compile_chialisp_to_bytecode, compute_coin_commitment, compute_genesis_nullifier,
+    compute_nullifier_v2, compute_serial_commitment, create_veil_evaluator, enforce_ring_balance,
+    is_clvm_nil, parse_variable_length_amount, run_clvm_with_conditions, serialize_params_to_clvm,
     verify_merkle_proof, ClvmResult, ClvmZkError, CoinMode, Condition, ProgramParameter,
     ProofOutput, ZKClvmResult, BLS_DST,
 };
@@ -242,9 +242,12 @@ impl MockBackend {
         // BALANCE ENFORCEMENT (critical security check)
         // verify sum(inputs) == sum(outputs) and tail_hash consistency
         // MUST run BEFORE CREATE_COIN transformation
-        enforce_ring_balance(&inputs, &conditions).map_err(|e| {
-            ClvmZkError::ProofGenerationFailed(format!("balance enforcement failed: {}", e))
-        })?;
+        // skipped for Mint: no input coin, balance enforced by TAIL program instead
+        if !matches!(inputs.coin_mode, CoinMode::Mint(_)) {
+            enforce_ring_balance(&inputs, &conditions).map_err(|e| {
+                ClvmZkError::ProofGenerationFailed(format!("balance enforcement failed: {}", e))
+            })?;
+        }
 
         validate_signature_conditions(&conditions)?;
         let tail_hash = inputs.tail_hash.unwrap_or([0u8; 32]);
@@ -252,7 +255,7 @@ impl MockBackend {
             transform_create_coin_conditions(&mut conditions, output_bytes, tail_hash)?;
 
         let clvm_output = ClvmResult {
-            output: final_output,
+            output: final_output.clone(),
             cost: 0,
         };
 
@@ -343,18 +346,136 @@ impl MockBackend {
                     }
                 }
 
-                Some(compute_nullifier(
+                Some(compute_nullifier_v2(
                     hash_data,
+                    &tail_hash,
                     &commitment_data.serial_number,
                     &program_hash,
                     commitment_data.amount,
                 ))
             }
             CoinMode::Execute => None,
-            CoinMode::Mint(_) => {
-                return Err(ClvmZkError::ProofGenerationFailed(
-                    "mint mode not yet implemented in mock backend".to_string(),
-                ))
+            CoinMode::Mint(mint_data) => {
+                // Step 1: compile tail_source and verify hash matches inputs.tail_hash
+                let (tail_bytecode, tail_program_hash) =
+                    compile_chialisp_to_bytecode(hash_data, &mint_data.tail_source).map_err(
+                        |e| {
+                            ClvmZkError::ProofGenerationFailed(format!(
+                                "TAIL compilation failed: {:?}",
+                                e
+                            ))
+                        },
+                    )?;
+
+                if let Some(expected_tail_hash) = inputs.tail_hash {
+                    if tail_program_hash != expected_tail_hash {
+                        return Err(ClvmZkError::ProofGenerationFailed(
+                            "tail_hash mismatch: tail_source does not compile to the committed tail_hash".to_string()
+                        ));
+                    }
+                }
+
+                // Step 2: execute TAIL with tail_params — must return truthy
+                let tail_args = serialize_params_to_clvm(&mint_data.tail_params);
+                let (tail_output, _) =
+                    run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
+                        .map_err(|e| {
+                            ClvmZkError::ProofGenerationFailed(format!(
+                                "TAIL execution failed: {:?}",
+                                e
+                            ))
+                        })?;
+                if is_clvm_nil(&tail_output) {
+                    return Err(ClvmZkError::ProofGenerationFailed(
+                        "TAIL authorization failed: TAIL returned nil — must return truthy to authorize mint".to_string(),
+                    ));
+                }
+
+                // Step 3: handle genesis coin (single-issuance enforcement)
+                let genesis_nullifier = if let Some(genesis) = &mint_data.genesis_coin {
+                    let computed_serial =
+                        compute_serial_commitment(hash_data, &genesis.serial_number, &genesis.serial_randomness);
+                    if computed_serial != genesis.serial_commitment {
+                        return Err(ClvmZkError::ProofGenerationFailed(
+                            "genesis coin: serial commitment verification failed".to_string(),
+                        ));
+                    }
+
+                    let computed_coin = compute_coin_commitment(
+                        hash_data,
+                        genesis.tail_hash,
+                        genesis.amount,
+                        &genesis.puzzle_hash,
+                        &computed_serial,
+                    );
+                    if computed_coin != genesis.coin_commitment {
+                        return Err(ClvmZkError::ProofGenerationFailed(
+                            "genesis coin: coin commitment verification failed".to_string(),
+                        ));
+                    }
+
+                    verify_merkle_proof(
+                        hash_data,
+                        computed_coin,
+                        &genesis.merkle_path,
+                        usize::try_from(genesis.leaf_index)
+                            .expect("genesis leaf_index exceeds usize"),
+                        genesis.merkle_root,
+                    )
+                    .map_err(|e| {
+                        ClvmZkError::ProofGenerationFailed(format!(
+                            "genesis coin merkle verification failed: {}",
+                            e
+                        ))
+                    })?;
+
+                    Some(compute_genesis_nullifier(
+                        hash_data,
+                        &genesis.serial_number,
+                        &genesis.tail_hash,
+                    ))
+                } else {
+                    None
+                };
+
+                // Steps 4-6: compute output serial_commitment and coin_commitment
+                let output_serial_commitment = compute_serial_commitment(
+                    hash_data,
+                    &mint_data.output_serial,
+                    &mint_data.output_rand,
+                );
+                let tail_hash = inputs.tail_hash.unwrap_or(tail_program_hash);
+                let output_coin_commitment = compute_coin_commitment(
+                    hash_data,
+                    tail_hash,
+                    mint_data.output_amount,
+                    &mint_data.output_puzzle_hash,
+                    &output_serial_commitment,
+                );
+
+                // Step 7: emit proof — genesis_nullifier in nullifiers, coin_commitment in public_values
+                let nullifiers = genesis_nullifier.map(|n| vec![n]).unwrap_or_default();
+                let proof_output = ProofOutput {
+                    program_hash,
+                    nullifiers,
+                    clvm_res: ClvmResult {
+                        output: final_output,
+                        cost: 0,
+                    },
+                    proof_type: 3, // Mint
+                    public_values: vec![output_coin_commitment.to_vec()],
+                };
+
+                let proof_bytes = borsh::to_vec(&proof_output).map_err(|e| {
+                    ClvmZkError::SerializationError(format!(
+                        "failed to serialize mint proof: {e}"
+                    ))
+                })?;
+
+                return Ok(ZKClvmResult {
+                    proof_output,
+                    proof_bytes,
+                });
             }
         };
 
@@ -418,8 +539,9 @@ impl MockBackend {
                     }
                 }
 
-                nullifiers.push(compute_nullifier(
+                nullifiers.push(compute_nullifier_v2(
                     hash_data,
+                    &coin.tail_hash,
                     &coin_data.serial_number,
                     &coin_program_hash,
                     coin_data.amount,

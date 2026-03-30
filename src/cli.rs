@@ -250,6 +250,20 @@ pub enum SimAction {
     /// List pending offers
     #[command(name = "offer-list")]
     OfferList,
+    /// Mint new CAT tokens using a TAIL program
+    Mint {
+        /// Wallet name to receive the minted coins
+        wallet: String,
+        /// TAIL program source (Chialisp). e.g. "(mod () 1)" for unlimited mint.
+        #[arg(long)]
+        tail: String,
+        /// Amount to mint
+        #[arg(long)]
+        amount: u64,
+        /// Wallet coin index of the genesis coin (optional, for single-issuance TAILs)
+        #[arg(long)]
+        genesis_coin: Option<usize>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1165,6 +1179,15 @@ fn run_simulator_command(data_dir: &Path, action: SimAction) -> Result<(), ClvmZ
         SimAction::OfferList => {
             offer_list_command(data_dir)?;
         }
+
+        SimAction::Mint {
+            wallet,
+            tail,
+            amount,
+            genesis_coin,
+        } => {
+            mint_command(data_dir, &wallet, &tail, amount, genesis_coin)?;
+        }
     }
 
     Ok(())
@@ -1258,6 +1281,143 @@ fn faucet_command(
     println!(
         "funded wallet '{}' with {} {} coins of {} each (total: {})",
         wallet_name, count, asset_str, amount, total_funded
+    );
+
+    Ok(())
+}
+
+fn mint_command(
+    data_dir: &Path,
+    wallet_name: &str,
+    tail_source: &str,
+    amount: u64,
+    genesis_coin_index: Option<usize>,
+) -> Result<(), ClvmZkError> {
+    let mut state = SimulatorState::load(data_dir)?;
+
+    if !state.wallets.contains_key(wallet_name) {
+        return Err(ClvmZkError::InvalidProgram(format!(
+            "wallet '{}' not found. create it first with: sim wallet {} create",
+            wallet_name, wallet_name
+        )));
+    }
+
+    // generate random output secrets
+    let mut output_serial = [0u8; 32];
+    let mut output_rand = [0u8; 32];
+    thread_rng().fill_bytes(&mut output_serial);
+    thread_rng().fill_bytes(&mut output_rand);
+
+    // output coin gets a faucet puzzle
+    let (puzzle_source, output_puzzle_hash) = create_faucet_puzzle(amount);
+
+    // extract genesis_coin if requested
+    let genesis_spend: Option<clvm_zk_core::GenesisSpend> = if let Some(idx) = genesis_coin_index {
+        let wallet = state.wallets.get(wallet_name).unwrap();
+        let unspent: Vec<&WalletCoinWrapper> =
+            wallet.coins.iter().filter(|c| !c.spent).collect();
+
+        if idx >= unspent.len() {
+            return Err(ClvmZkError::InvalidProgram(format!(
+                "genesis coin index {} out of range (0-{})",
+                idx,
+                unspent.len().saturating_sub(1)
+            )));
+        }
+        let genesis_wrapper = unspent[idx];
+        let private_coin = genesis_wrapper.to_private_coin();
+        let secrets = genesis_wrapper.secrets();
+
+        let (merkle_path, leaf_index) = state
+            .simulator
+            .get_merkle_path_and_index(&private_coin)
+            .ok_or_else(|| {
+                ClvmZkError::InvalidProgram("genesis coin not found in merkle tree".to_string())
+            })?;
+
+        let merkle_root = state.simulator.get_merkle_root();
+
+        let serial_commitment_bytes = *private_coin.serial_commitment.as_bytes();
+        let coin_commitment = clvm_zk_core::coin_commitment::CoinCommitment::compute(
+            &private_coin.tail_hash,
+            private_coin.amount,
+            &private_coin.puzzle_hash,
+            &private_coin.serial_commitment,
+            crate::crypto_utils::hash_data_default,
+        );
+
+        Some(clvm_zk_core::GenesisSpend {
+            serial_number: secrets.serial_number,
+            serial_randomness: secrets.serial_randomness,
+            puzzle_hash: private_coin.puzzle_hash,
+            amount: private_coin.amount,
+            tail_hash: private_coin.tail_hash,
+            serial_commitment: serial_commitment_bytes,
+            coin_commitment: coin_commitment.0,
+            merkle_path,
+            merkle_root,
+            leaf_index: leaf_index as u64,
+        })
+    } else {
+        None
+    };
+
+    // call mint_cat on simulator
+    let (coin_commitment, confirmed_tail_hash) = state
+        .simulator
+        .mint_cat(
+            tail_source,
+            vec![],
+            output_puzzle_hash,
+            &puzzle_source,
+            amount,
+            output_serial,
+            output_rand,
+            genesis_spend,
+        )
+        .map_err(|e| ClvmZkError::InvalidProgram(format!("mint failed: {}", e)))?;
+
+    // construct WalletPrivateCoin with the known secrets
+    let serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
+        &output_serial,
+        &output_rand,
+        crate::crypto_utils::hash_data_default,
+    );
+    let private_coin = crate::protocol::PrivateCoin::new_with_tail(
+        output_puzzle_hash,
+        amount,
+        serial_commitment,
+        confirmed_tail_hash,
+    );
+    let secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(output_serial, output_rand);
+    let wallet_private_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
+        coin: private_coin,
+        secrets,
+        account_index: state.wallets[wallet_name].account_index,
+        coin_index: 0,
+    };
+
+    let minted_wrapper = WalletCoinWrapper {
+        wallet_coin: wallet_private_coin,
+        program: puzzle_source,
+        spent: false,
+        tail_source: Some(tail_source.to_string()),
+    };
+
+    state
+        .wallets
+        .get_mut(wallet_name)
+        .unwrap()
+        .coins
+        .push(minted_wrapper);
+
+    state.save(data_dir)?;
+
+    println!(
+        "minted {} CAT (tail: {}) → commitment {}",
+        amount,
+        hex::encode(confirmed_tail_hash),
+        hex::encode(coin_commitment)
     );
 
     Ok(())

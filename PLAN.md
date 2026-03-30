@@ -1,18 +1,49 @@
-# PR Breakdown Plan: stealth_addresses_new → main
+# Veil PR Implementation Plan
 
-**Goal:** Decompose PR #17 into 7 focused PRs merged in dependency order.
-**Net result:** After all 7 are merged, diff vs current `stealth_addresses_new` should be empty.
-**Source branch:** `stealth_addresses_new`
+**Project:** Privacy-preserving zkVM for Chialisp. WIP research, MIT licensed.
 **Target:** `main`
+**Current state (2026-03-29):** PRs 1–4 are complete and pushed. PRs 5 and 6+7 remain.
 
-## Background reading
+## Essential reading before starting
 
-- `CLAUDE.md` — project rules, dev tips, architecture invariants
+- `CLAUDE.md` — project rules, dev tips, architecture invariants (scope discipline, test-first, etc.)
 - `DOCUMENTATION.md` — protocol details: nullifiers, stealth addresses, CATs, simulator, CLVM opcodes
-- `VEIL_DIFFERENTIAL_REVIEW_2026-03-15.md` — security review of this branch. F-01 through F-04 referenced throughout this plan all come from that document. Read it before touching PRs 3–5.
-- PR #17 on GitHub (`stealth_addresses_new`) — original monolithic PR this plan decomposes
+- `.context/full-context.md` — complete architecture context: commitment scheme, TAIL flow, ring spend, settlement
+- `.context/issues.md` — all known bugs and coverage gaps; cross-reference when implementing tests
 
-## Key concepts for PRs 3–5
+## Codebase orientation
+
+```
+clvm_zk_core/src/     — no_std core: types, commitments, merkle, CLVM eval (shared by host + guest)
+src/                  — host: ClvmZkProver facade, simulator, protocol, wallet, CLI
+backends/mock/        — mock backend: full logic, no ZK (used for all tests via `cargo test-mock`)
+backends/risc0/guest/ — RISC-0 zkVM guest: the actual ZK circuit
+backends/sp1/program/ — SP1 zkVM guest: mirrors risc0 guest
+```
+
+**How proof generation works (critical for PR5):**
+1. CLI calls `state.simulator.spend_coins(...)` or `simulator.mint_cat(...)` (new)
+2. Simulator calls `Spender::create_spend_with_serial(...)` from `src/protocol/spender.rs`
+3. Spender calls `ClvmZkProver::prove_with_serial_commitment(...)` — a static method in `src/lib.rs`
+4. `ClvmZkProver` builds an `Input` struct and calls `backend.prove_with_input(input)`
+5. Backend (mock/risc0/sp1) executes the circuit and returns `ZKClvmResult { proof_output, proof_bytes }`
+
+For Mint: same chain, but use `ClvmZkProver::prove_with_input(Input { coin_mode: CoinMode::Mint(mint_data), ... })` directly (no existing `Spender` method for mint yet — add one or call prover directly from simulator).
+
+**Key types (all in `clvm_zk_core/src/types.rs`):**
+- `CoinMode` — `Execute` | `Spend(SerialCommitmentData)` | `Mint(MintData)` — exclusively selects proof type
+- `MintData` — contains `tail_source`, `tail_params`, `output_puzzle_hash`, `output_amount`, `output_serial`, `output_rand`, `genesis_coin: Option<GenesisSpend>`
+- `GenesisSpend` — serial, randomness, puzzle_hash, amount, merkle_path, merkle_root, leaf_index for the genesis coin
+- `ProofOutput` — what the guest commits: `program_hash`, `nullifiers: Vec<[u8;32]>`, `clvm_res`, `public_values: Vec<Vec<u8>>`
+- `SimulatorError` — defined at `src/simulator.rs:775`: `DoubleSpend`, `ProgramHashMismatch`, `ProofGeneration`, `TestFailed`, `Protocol`
+
+**Test command aliases (defined in `.cargo/config.toml`):**
+```
+cargo test-mock    — runs all tests with mock backend (fast, no ZK)
+cargo run-risc0    — runs with real RISC-0 proofs (slow, needs --release)
+```
+
+## Key concepts (read before touching guest code in PR5)
 
 **TAIL program:** a Chialisp program that controls who can mint or melt a CAT asset. Its SHA256 hash is the asset's identifier (`tail_hash`). A coin's `tail_hash` is permanently bound at creation — you can't substitute a different TAIL program at spend time without detection.
 
@@ -29,16 +60,20 @@
 | PR | Branch | Status | Notes |
 |----|--------|--------|-------|
 | 1 | `pr/01-core-types` | ✅ merged PR #20 | |
-| 2 | `pr/02-simulator-migration` | ☐ todo | |
-| 3 | `pr/03-offer-fixes` | ☐ todo | |
-| 4 | `pr/04-stealth-nonce-encryption` | ☐ todo | |
-| 5 | `pr/05-cat-minting` | ☐ todo | cli.rs hunk split needed |
-| 6 | `pr/06-e2e-tests` | ☐ todo | |
-| 7 | `pr/07-examples-docs` | ☐ todo | |
+| 2 | `pr/02-simulator-migration` | ✅ pushed | |
+| 3 | `pr/03-offer-fixes` | ✅ pushed | NM-001, FIX-02/05/06, offer indexing |
+| 4 | `pr/04-stealth-nonce-encryption` | ✅ pushed | x25519+ChaCha20Poly1305, FIX-04 |
+| 5 | `pr/05-cat-minting` | ✅ pushed | CoinMode::Mint, genesis nullifier, mint_cat, CLI, 6 tests |
+| 6+7 | `pr/06-e2e-docs` | ☐ todo | combined: nullifier v2, e2e tests, docs |
 
 ---
 
-## PR 1: Core types + security hardening
+> PRs 1–4 below are **complete and pushed** — documented for reference only.
+> Start implementation at [PR 5](#pr-5-cat-minting--guests--mock--cli--tests).
+
+---
+
+## PR 1: Core types + security hardening ✅ MERGED
 
 **Branch:** `pr/01-core-types`
 **Base:** `main`
@@ -62,7 +97,7 @@ cargo test-mock
 
 ---
 
-## PR 2: Simulator — SparseMerkleTree migration + settlement double-spend
+## PR 2: Simulator — SparseMerkleTree migration + settlement double-spend ✅ PUSHED
 
 **Branch:** `pr/02-simulator-migration`
 **Base:** `pr/01-core-types` (or main after PR 1 merged)
@@ -85,7 +120,7 @@ cargo test-mock --test test_settlement_api
 
 ---
 
-## PR 3: Offer system bugfixes
+## PR 3: Offer system bugfixes ✅ PUSHED
 
 **Branch:** `pr/03-offer-fixes`
 **Base:** `pr/02-simulator-migration` (or main after PR 2 merged)
@@ -114,7 +149,7 @@ cargo test-mock --test test_settlement_api
 
 ---
 
-## PR 4: Stealth address nonce encryption
+## PR 4: Stealth address nonce encryption ✅ PUSHED
 
 **Branch:** `pr/04-stealth-nonce-encryption`
 **Base:** `pr/03-offer-fixes` (or main after PR 3 merged)
@@ -142,96 +177,338 @@ cargo test-mock -- crypto_utils::tests
 
 ---
 
-## PR 5: CAT minting — guests + mock + CLI + tests
+## ~~PR 5: CAT minting — guests + mock + CLI + tests~~
 
 **Branch:** `pr/05-cat-minting`
-**Base:** `pr/04-stealth-nonce-encryption` (or main after PR 4 merged)
-**Depends on:** PR 1 (MintData/GenesisSpend types), PR 2 (simulator for tests)
-**Description:** Full CAT minting stack: zkVM guest mint mode, TAIL-on-delta authorization with F-01 security fix, mock backend parity, CLI mint command, and the minting test suite. See "Key concepts" above for TAIL-on-delta and ring spend semantics before touching guest code.
+**Base:** `pr/04-stealth-nonce-encryption`
+**Depends on:** PR 1 (MintData/GenesisSpend types), PR 4 (base branch)
 
-**Security context (read before editing guests):**
-- **F-01 fix** (`VEIL_DIFFERENTIAL_REVIEW_2026-03-15.md`): guests now call `assert_eq!(compiled_tail_hash, tail_hash)` after compiling `tail_source`. This prevents an attacker substituting a permissive TAIL for a restrictive one at spend time.
-- **Ring spend carve-out**: the original F-01 fix incorrectly added `else { panic!("CAT supply change requires tail_source") }`. This fires for ring spends (where `tail_source = None` and `total_input != total_output` by design). That `else` branch was removed — if `tail_source` is `None`, the TAIL block is simply skipped. Do not re-add it.
-- **Mock backend parity**: the mock backend previously skipped TAIL-on-delta entirely. It now mirrors the guest logic: verify `hash(tail_source) == tail_hash`, then execute the TAIL and check it returns truthy. This ensures tests that pass mock also pass the real guests.
+**Description:** Full CAT minting stack. `CoinMode::Mint` currently panics in all backends. This PR
+implements mint in mock, risc0, and sp1 — including genesis coin one-time-use enforcement.
 
-**Files:**
-- `backends/risc0/guest/src/main.rs` — mint mode (new `if mint_data.is_some()` branch at top of main), TAIL-on-delta block with F-01 `assert_eq!`, ring spend carve-out (no `else` panic)
-- `backends/sp1/program/src/main.rs` — identical to risc0 guest changes
-- `backends/mock/src/backend.rs` — capture `(total_input, total_output)` from `enforce_ring_balance`; add TAIL-on-delta check block; `None` arm is a no-op (not an error)
-- `src/lib.rs` — add `#[cfg(feature = "mock")] pub use clvm_zk_mock::MockBackend` so integration tests can access it
-- `tests/test_cat_minting.rs` — new file: 6 tests including `test_f01_tail_substitution_rejected_mock` (F-01 regression)
+### What Mint proves (in-guest)
 
-**cli.rs functions changed (apply only these hunks):**
-- `SimAction` enum — add `Mint { ... }` variant
-- `run_simulator_command` — add routing arm for `SimAction::Mint`
-- `mint_command` — entirely new function (~132 lines); uses dummy BLS/ECDSA verifiers for CLI pre-check (see issue #18 for why this is acceptable)
+1. Compile `tail_source` → verify `hash(bytecode) == tail_hash` (F-01 same TAIL-hash check as Spend)
+2. Execute TAIL with `tail_params` → assert `!is_clvm_nil(output)` (TAIL authorizes the mint)
+3. If `genesis_coin` present:
+   - Verify `serial_commitment = hash(serial || rand)`
+   - Verify `coin_commitment = hash(tail_hash || amount || puzzle_hash || serial_commitment)` matches merkle leaf
+   - Verify merkle proof (genesis coin is in tree)
+   - Compute `genesis_nullifier = SHA256("clvm_zk_genesis_v1.0" || genesis_serial_number || genesis_tail_hash)`
+   - Emit genesis_nullifier in `ProofOutput.nullifiers` — validator adds to nullifier set → prevents re-minting
+4. Compute output `serial_commitment = hash(output_serial || output_rand)`
+5. Compute output `coin_commitment = hash(tail_hash || output_amount || output_puzzle_hash || serial_commitment)`
+6. Emit: `ProofOutput { nullifiers: [genesis_nullifier?], public_values: [output_coin_commitment] }`
 
-**Do NOT touch in this PR:**
-- `offer_take_command` (PR 3)
-- `send_command`, `scan_command`, `faucet_command`, `wallet_command` (PR 4)
+Note: minted coin commitment goes in `public_values[0]` (not nullifiers) — it's an output not a spend.
+
+### enforce_ring_balance guard
+
+`enforce_ring_balance` checks `Σ(inputs) ≥ Σ(outputs)`. For Mint there's no input coin — balance
+is not applicable. Add a guard in both mock and guests:
+```rust
+if !matches!(inputs.coin_mode, CoinMode::Mint(_)) {
+    enforce_ring_balance(&inputs, &conditions)?;
+}
+```
+
+### Files
+
+- `clvm_zk_core/src/lib.rs` — add:
+  ```rust
+  pub const GENESIS_NULLIFIER_DOMAIN: &[u8] = b"clvm_zk_genesis_v1.0";
+  pub fn compute_genesis_nullifier<H>(hasher: H, serial: &[u8;32], tail_hash: &[u8;32]) -> [u8;32]
+  ```
+  Note: genesis nullifier intentionally binds `tail_hash` (unlike spend nullifier — see ZK-01 in PR6+7).
+
+- `backends/mock/src/backend.rs` — replace `CoinMode::Mint(_) => Err(...)` with full mint path (steps 1–6 above). Add `enforce_ring_balance` guard before Spend path.
+
+- `backends/risc0/guest/src/main.rs` — same mint logic using `risc0_hasher`. Add Mint guard before `enforce_ring_balance`. CoinMode::Mint arm replaces the existing `panic!`.
+
+- `backends/sp1/program/src/main.rs` — mirror risc0 guest changes.
+
+- `backends/risc0/src/lib.rs`, `backends/sp1/src/lib.rs` — remove the host-side guard that rejects `CoinMode::Mint` before reaching guest (no longer needed).
+
+- `src/simulator.rs` — add `mint_cat` method. **Do NOT add a `prover` parameter** — the simulator
+  uses `ClvmZkProver` static methods internally (see `spend_coins_with_params_and_outputs` as the
+  pattern, which calls `Spender::create_spend_with_serial` → `ClvmZkProver::prove_with_serial_commitment`).
+  For mint, call `ClvmZkProver::prove_with_input` directly with `CoinMode::Mint(mint_data)`:
+  ```rust
+  pub fn mint_cat(
+      &mut self,
+      tail_source: &str,
+      tail_params: Vec<ProgramParameter>,
+      output_puzzle_hash: [u8; 32],
+      output_puzzle_source: &str,   // needed to record WalletCoinWrapper.program
+      output_amount: u64,
+      output_serial: [u8; 32],
+      output_rand: [u8; 32],
+      genesis_coin: Option<GenesisSpend>,
+  ) -> Result<([u8; 32], [u8; 32]), SimulatorError>
+  // returns (coin_commitment, tail_hash)
+  ```
+  Implementation:
+  1. Compile `tail_source` → get `tail_hash` (`compile_chialisp_to_bytecode` from `clvm_zk_core`)
+  2. Build `MintData { tail_source, tail_params, output_puzzle_hash, output_amount, output_serial, output_rand, genesis_coin }`
+  3. Build `Input { chialisp_source: "(mod () ())", program_parameters: vec![], coin_mode: CoinMode::Mint(mint_data), tail_hash: Some(tail_hash), ... }`
+  4. Call `crate::ClvmZkProver::prove_with_input(input)` → `ZKClvmResult`
+  5. Extract `coin_commitment` from `proof_output.public_values[0]` (32 bytes)
+  6. Insert genesis nullifier (`proof_output.nullifiers[0]` if present) into `self.nullifier_set`
+  7. Compute `serial_commitment = compute_serial_commitment(hash_data_default, output_serial, output_rand)`
+  8. Insert new `CoinInfo` into `self.utxo_set` keyed by `serial_commitment`
+  9. Insert `coin_commitment` into `self.coin_tree` + update `commitment_to_index`
+  10. Return `(coin_commitment, tail_hash)`
+
+- `src/cli.rs` — two changes:
+
+  **Add `SimAction::Mint` variant** (follows the same clap pattern as `SimAction::Faucet`):
+  ```rust
+  /// Mint new CAT tokens using a TAIL program
+  Mint {
+      /// Wallet name to receive the minted coins
+      wallet: String,
+      /// TAIL program source (Chialisp). e.g. "(mod () 1)" for unlimited mint.
+      #[arg(long)]
+      tail: String,
+      /// Amount to mint
+      #[arg(long)]
+      amount: u64,
+      /// Wallet coin index of the genesis coin (optional, for single-issuance TAILs)
+      #[arg(long)]
+      genesis_coin: Option<usize>,
+  }
+  ```
+
+  **Add `mint_command` function** (add routing arm `SimAction::Mint { wallet, tail, amount, genesis_coin }` in `run_simulator_command`, calling `mint_command(data_dir, &wallet, &tail, amount, genesis_coin)`):
+  ```rust
+  fn mint_command(
+      data_dir: &Path,
+      wallet_name: &str,
+      tail_source: &str,
+      amount: u64,
+      genesis_coin_index: Option<usize>,
+  ) -> Result<(), ClvmZkError>
+  ```
+  Implementation:
+  1. Load `SimulatorState::load(data_dir)`
+  2. Check wallet exists (same error pattern as `faucet_command`)
+  3. Generate `output_serial` and `output_rand` via `rand::thread_rng().fill_bytes(...)`
+  4. Get wallet's standard puzzle: `create_faucet_puzzle(amount)` or reuse wallet's last puzzle type
+  5. If `genesis_coin_index` is Some: extract `GenesisSpend` from `wallet.coins[idx]`
+     - Need serial/randomness/puzzle_hash/amount/tail_hash from the stored `WalletCoinWrapper`
+     - Need merkle path: call `state.simulator.get_merkle_path_and_index(serial_commitment)`
+  6. Call `state.simulator.mint_cat(tail_source, vec![], output_puzzle_hash, puzzle_source, amount, output_serial, output_rand, genesis_coin_opt)`
+  7. Create `WalletCoinWrapper` for the minted coin with `tail_source: Some(tail_source.to_string())`
+  8. Push to `wallet.coins`
+  9. Call `state.save(data_dir)`
+  10. Print: `"minted {} CAT (tail: {}) → commitment {}"` with amount, hex(tail_hash), hex(coin_commitment)
+
+- `tests/test_cat_minting.rs` — new file:
+  - `test_mint_unlimited_tail` — `(mod () 1)` TAIL mints, commitment in `public_values[0]`
+  - `test_mint_genesis_nullifier` — genesis coin path: nullifier in `nullifiers[0]`
+  - `test_mint_genesis_prevents_remint` — second mint with same genesis → rejected (nullifier set)
+  - `test_mint_tail_nil_rejected` — TAIL returns nil → `Err`
+  - `test_mint_tail_hash_mismatch` — wrong tail_source (hash mismatch) → `Err`
+  - `test_mint_then_spend` — mint then spend the minted coin in same simulator session
 
 **Test commands:**
 ```
 cargo test-mock --test test_cat_minting
 cargo test-mock   # full suite must still pass
-cargo check --no-default-features --features mock,testing
 ```
 
 ---
 
-## PR 6: E2E risc0 test suite
+## PR 6+7 (combined): Nullifier v2, E2E tests, documentation
 
-**Branch:** `pr/06-e2e-tests`
-**Base:** `pr/05-cat-minting` (or main after PR 5 merged)
-**Depends on:** PR 5 (guests must have mint mode + TAIL-on-delta for tests to be valid)
-**Description:** Pure test addition, no production code changes. 8 end-to-end tests covering the full protocol stack with real ZK proofs.
+**Branch:** `pr/06-e2e-docs`
+**Base:** `pr/05-cat-minting`
+**Depends on:** PR 5 (CAT lifecycle test requires mint)
 
-**Files:**
-- `tests/test_e2e_risc0.rs` — 8 tests: XCH spend, CAT mint+spend, genesis mint, ring spend, offer, TAIL-on-delta melt, settlement (x2), F-01 substitution regression
-
-**Test:** `cargo test-risc0 --test test_e2e_risc0` (requires risc0 build; slow).
+**Description:** Three areas in one PR: (1) security fix from zkdocs review (nullifier missing
+`tail_hash` and domain), (2) E2E test suite closing all coverage gaps, (3) documentation.
 
 ---
 
-## PR 7: Examples, demos, docs, cleanup
+### Security Background: zkdocs Review Findings
 
-**Branch:** `pr/07-examples-docs`
-**Base:** `pr/06-e2e-tests` (or main after PR 6 merged)
-**Depends on:** nothing (no logic)
-**Description:** Non-code changes. Reviewed separately so they don't dilute security review of PRs 1–6.
+Reviewed Trail of Bits zkdocs (https://www.zkdocs.com/docs/zkdocs/) against Veil.
+
+**ZK-01 (HIGH): Nullifier missing `tail_hash` — cross-asset collision attack**
+
+Current `compute_nullifier` = `SHA256(serial_number || program_hash || amount)` — no domain
+separator, no asset type binding. An adversary who controls serial number selection can create a
+CAT coin with identical `(serial_number, program_hash, amount)` to a target XCH coin. Spending the
+CAT coin inserts the nullifier first, permanently blocking the XCH coin. In a multi-asset system
+this is a soundness hole.
+
+Also: `full-context.md` documents `"clvm_zk_nullifier_v1.0"` as a domain prefix — that domain does
+NOT exist in the current code. Documentation is wrong.
+
+Fix: new v2 scheme:
+```
+nullifier_v2 = SHA256("clvm_zk_nullifier_v2.0" || tail_hash || serial_number || program_hash || amount)
+```
+
+**ZK-02 (LOW): AGG_SIG_UNSAFE replay risk**
+
+Opcode 49 does not bind to coin context. Document in DOCUMENTATION.md. No code change.
+
+**ZK-03/04 (INFORMATIONAL):** SHA-256 commitments are sound. Fiat-Shamir handled by zkVM. No action.
+
+---
+
+### Part 1: Nullifier v2
+
+**Exact callsites to update** (verified by grep — these are ALL the callsites):
+```
+backends/mock/src/backend.rs:346      — primary coin nullifier in CoinMode::Spend arm
+backends/mock/src/backend.rs:421      — ring coin nullifier in additional_coins loop
+backends/risc0/guest/src/main.rs:285  — primary coin nullifier
+backends/risc0/guest/src/main.rs:381  — ring coin nullifier
+backends/sp1/program/src/main.rs:270  — primary coin nullifier
+backends/sp1/program/src/main.rs:366  — ring coin nullifier
+```
+The simulator does NOT call `compute_nullifier` — it consumes nullifiers from `proof_output.nullifiers`
+already computed by the backend. `src/cli.rs` also needs no change.
 
 **Files:**
-- `examples/cat_offer_demo.rs` — demo showing full CAT offer flow
-- `cat_offer_demo.sh` — shell demo script
-- `demo.sh` — shell demo script
-- `scripts/multi_cat_demo.sh` — multi-CAT demo
-- `README.md` — updated docs
-- `.gitignore` — add audit files
-- `Cargo.toml` — minor cleanup
+- `clvm_zk_core/src/lib.rs` — add alongside the existing `compute_nullifier`:
+  ```rust
+  pub const NULLIFIER_V2_DOMAIN: &[u8] = b"clvm_zk_nullifier_v2.0"; // 22 bytes
+  // domain(22) + tail(32) + serial(32) + program(32) + amount(8) = 126
+  pub const NULLIFIER_V2_DATA_SIZE: usize = 126;
 
-**Test commands:**
+  pub fn compute_nullifier_v2<H>(
+      hasher: H,
+      tail_hash: &[u8; 32],
+      serial_number: &[u8; 32],
+      program_hash: &[u8; 32],
+      amount: u64,
+  ) -> [u8; 32]
+  where H: Fn(&[u8]) -> [u8; 32]
+  ```
+  Also add `#[deprecated(note = "use compute_nullifier_v2 — v1 lacks tail_hash binding")]` to
+  `compute_nullifier`. Update imports in the 3 backend files.
+
+- `backends/mock/src/backend.rs` — at lines 346 and 421: change `compute_nullifier(` →
+  `compute_nullifier_v2(hash_data,` and add `&tail_hash,` as first arg after hasher.
+  Update import line 3 to include `compute_nullifier_v2`.
+
+- `backends/risc0/guest/src/main.rs` — at lines 285 and 381: same pattern, hasher = `risc0_hasher`,
+  `tail_hash = private_inputs.tail_hash.unwrap_or([0u8;32])` for primary coin,
+  `tail_hash = coin.tail_hash` for ring coins.
+  Update import line 10.
+
+- `backends/sp1/program/src/main.rs` — at lines 270 and 366: same as risc0 guest.
+  Update import line 9.
+
+**Tests in `tests/test_nullifier_v2.rs`:**
+- `test_v2_includes_tail_hash` — XCH and CAT coins with same serial/program/amount → DIFFERENT v2 nullifiers
+- `test_v2_domain_separates_from_v1` — v2 output ≠ v1 output for same inputs
+- `test_cross_asset_isolation` — mock backend: spending XCH coin does NOT block CAT coin with same serial
+
+---
+
+### Part 2: E2E Test Suite (coverage gap closure)
+
+**`tests/test_e2e_xch_lifecycle.rs`**
+Full XCH lifecycle: `faucet → send(A→B) → scan(B) → spend(B's coin) → verify nullifier + new output commitment`
+
+**`tests/test_e2e_cat_lifecycle.rs`**
+Full CAT lifecycle: `mint_cat(tail="(mod () 1)") → send_cat(A→B with stealth) → scan(B) → spend_cat`
+Asserts CAT nullifier ≠ XCH nullifier for same serial (v2 enforcement in action).
+
+**`tests/test_e2e_settlement.rs`**
+Settlement lifecycle: `wallet_a has XCH, wallet_b has CAT → offer_create → offer_take → 4 outputs verified`
+Post-settlement spend assertions (NM-001 regression guard):
+- maker_change coin passes `spend` without error
+- taker_change coin passes `spend` without error
+
+**`tests/test_e2e_cat_ring_spend.rs`**
+Currently untested path (see coverage gaps in issues.md):
+`mint 2 CAT coins with same tail → ring_spend(coin_a + coin_b → output_c)`
+Asserts TAIL run per-ring-coin, 2 nullifiers emitted, balance enforced.
+
+**`tests/test_simulator_serde.rs`**
+Addresses `rebuild_tree after deserialization` coverage gap:
+`5-coin simulator state → serde_json round-trip → rebuild_tree() → all proofs valid, root matches`
+
+---
+
+### Part 3: Documentation
+
+**`DOCUMENTATION.md`** — add section **Security Model**:
+
+```markdown
+## Security Model
+
+### Nullifier Scheme (v2)
+nullifier = SHA256("clvm_zk_nullifier_v2.0" || tail_hash || serial_number || program_hash || amount)
+
+The tail_hash binding is CRITICAL: without it an adversary with serial number control could
+pre-poison any XCH coin's nullifier slot by minting a CAT coin with identical parameters and
+spending it first. v1 lacked this domain and tail_hash binding — v1 is deprecated.
+
+### AGG_SIG_UNSAFE (opcode 49)
+Does NOT bind signature to coin context (coin ID, puzzle hash). A valid AGG_SIG_UNSAFE signature
+can be replayed to any coin using the same puzzle + public key. Use AGG_SIG_ME (opcode 50) in
+production puzzles requiring spend-specific authorization.
+
+### Commitment Scheme Trade-offs
+Serial/coin commitments use SHA-256. Sound for current use. Not homomorphic — no efficient range
+proofs. Pedersen commitments would unlock homomorphic properties at the cost of additional circuit
+complexity. Acceptable trade-off for v1.
+
+### Known Limitations (open issues)
+- Stealth payment coin (offer output) uses raw stealth hash as puzzle — not spendable via standard
+  flow until stealth-claim mechanism (PR8+)
+- CoinMode::Mint supports unlimited TAILs (`(mod () 1)`) — production TAILs should be signature-gated
 ```
-cargo check --no-default-features --features mock,testing
+
+**`DOCUMENTATION.md`** — add section **Protocol Version History**:
+
+| Field | v1 | v2 (current) | PR |
+|-------|----|--------------|----|
+| nullifier | SHA256(serial ‖ program ‖ amount) | SHA256(domain ‖ tail_hash ‖ serial ‖ program ‖ amount) | PR6+7 |
+| coin_commitment | SHA256("clvm_zk_coin_v2.0" ‖ ...) | unchanged | PR1 |
+| serial_commitment | SHA256("clvm_zk_serial_v1.0" ‖ ...) | unchanged | initial |
+
+**`DOCUMENTATION.md`** — update existing demo scripts / examples to show `--tail` flag for minting.
+
+---
+
+### Test commands
+```
+cargo test-mock                              # full mock suite (all 5 new test files)
+cargo test-mock --test test_nullifier_v2
+cargo test-mock --test test_e2e_xch_lifecycle
+cargo test-mock --test test_e2e_cat_lifecycle
+cargo test-mock --test test_e2e_settlement
+cargo test-mock --test test_e2e_cat_ring_spend
+cargo test-mock --test test_simulator_serde
 ```
 
 ---
 
 ## Implementation notes
 
-### Creating branches
-Each branch is created off the current `stealth_addresses_new` tip and then pruned down to only the files/hunks for that PR:
+### Branch creation (PR5, PR6+7)
 ```
 git fetch origin main:main
-git checkout -b pr/01-core-types main
-# apply only the relevant files via: git checkout stealth_addresses_new -- <files>
-# or apply specific hunks via: git diff main stealth_addresses_new -- <file> | git apply --include=<hunk>
-```
-
-### Verification after all 7 merged
-```
-git diff <final-merge-commit> stealth_addresses_new
-# should be empty (or only whitespace/ordering diffs)
+git checkout pr/04-stealth-nonce-encryption
+git checkout -b pr/05-cat-minting
+# ... implement PR5 ...
+git checkout pr/05-cat-minting
+git checkout -b pr/06-e2e-docs
+# ... implement PR6+7 ...
 ```
 
 ### Order matters
-PRs must be merged in order 1→7. Each PR's branch is based on the previous PR's merge commit (or rebased onto main after each merge).
+PRs must be merged in order 1→6+7. PR6+7 depends on PR5 (CAT lifecycle test requires mint).
+PR5 depends on PR4 (base branch and wallet tail_source field).
+
+### zkdocs reference
+https://www.zkdocs.com/docs/zkdocs/ — Trail of Bits ZK documentation.
+ZK-01 through ZK-04 findings above reference sections on nullifier schemes, Fiat-Shamir,
+hash-based commitments, and signature replay.

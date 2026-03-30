@@ -134,14 +134,6 @@ impl Sp1Backend {
             }
         }
 
-        // host-side guard: reject CoinMode::Mint before reaching the guest.
-        // the guest panics on Mint (not yet implemented); this surfaces a clean error instead.
-        if matches!(inputs.coin_mode, CoinMode::Mint(_)) {
-            return Err(ClvmZkError::ProofGenerationFailed(
-                "mint mode not yet supported in sp1 backend".to_string(),
-            ));
-        }
-
         // host-side guard: CAT spend without tail_source produces an opaque guest panic.
         // surface a clean error here instead.
         let is_cat = inputs.tail_hash.map_or(false, |h| h != [0u8; 32]);

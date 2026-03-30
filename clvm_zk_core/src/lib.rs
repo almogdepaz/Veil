@@ -957,6 +957,7 @@ where
 }
 
 /// compute nullifier: hash(serial_number || program_hash || amount)
+#[deprecated(note = "use compute_nullifier_v2 — v1 lacks tail_hash binding, enabling cross-asset collision attacks")]
 pub fn compute_nullifier<H>(
     hasher: H,
     serial_number: &[u8; 32],
@@ -971,6 +972,52 @@ where
     nullifier_data.extend_from_slice(program_hash);
     nullifier_data.extend_from_slice(&amount.to_be_bytes());
     hasher(&nullifier_data)
+}
+
+pub const NULLIFIER_V2_DOMAIN: &[u8] = b"clvm_zk_nullifier_v2.0"; // 22 bytes
+pub const NULLIFIER_V2_DATA_SIZE: usize = 126; // domain(22) + tail(32) + serial(32) + program(32) + amount(8)
+
+/// compute spend nullifier v2: hash(domain || tail_hash || serial_number || program_hash || amount)
+///
+/// the tail_hash binding is CRITICAL: without it an adversary with serial number control could
+/// pre-poison an XCH coin's nullifier slot by spending a CAT coin with identical parameters first.
+pub fn compute_nullifier_v2<H>(
+    hasher: H,
+    tail_hash: &[u8; 32],
+    serial_number: &[u8; 32],
+    program_hash: &[u8; 32],
+    amount: u64,
+) -> [u8; 32]
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    let mut data = [0u8; NULLIFIER_V2_DATA_SIZE];
+    data[..22].copy_from_slice(NULLIFIER_V2_DOMAIN);
+    data[22..54].copy_from_slice(tail_hash);
+    data[54..86].copy_from_slice(serial_number);
+    data[86..118].copy_from_slice(program_hash);
+    data[118..126].copy_from_slice(&amount.to_be_bytes());
+    hasher(&data)
+}
+
+pub const GENESIS_NULLIFIER_DOMAIN: &[u8] = b"clvm_zk_genesis_v1.0";
+pub const GENESIS_NULLIFIER_DATA_SIZE: usize = 84; // domain(20) + serial_number(32) + tail_hash(32)
+
+/// compute genesis nullifier: hash(domain || serial_number || tail_hash)
+/// binds tail_hash to prevent cross-asset nullifier collisions at mint time
+pub fn compute_genesis_nullifier<H>(
+    hasher: H,
+    serial_number: &[u8; 32],
+    tail_hash: &[u8; 32],
+) -> [u8; 32]
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    let mut data = [0u8; GENESIS_NULLIFIER_DATA_SIZE];
+    data[..20].copy_from_slice(GENESIS_NULLIFIER_DOMAIN);
+    data[20..52].copy_from_slice(serial_number);
+    data[52..84].copy_from_slice(tail_hash);
+    hasher(&data)
 }
 
 // ============================================================================

@@ -7,10 +7,10 @@ use risc0_zkvm::guest::env;
 use risc0_zkvm::sha::{Impl, Sha256 as RiscSha256};
 
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, compute_coin_commitment, compute_nullifier,
-    compute_serial_commitment, create_veil_evaluator, is_clvm_nil, parse_variable_length_amount,
-    run_clvm_with_conditions, serialize_params_to_clvm, verify_merkle_proof, ClvmResult, CoinMode,
-    Input, ProofOutput, BLS_DST,
+    compile_chialisp_to_bytecode, compute_coin_commitment, compute_genesis_nullifier,
+    compute_nullifier_v2, compute_serial_commitment, create_veil_evaluator, is_clvm_nil,
+    parse_variable_length_amount, run_clvm_with_conditions, serialize_params_to_clvm,
+    verify_merkle_proof, ClvmResult, CoinMode, Input, ProofOutput, BLS_DST,
 };
 
 use bls12_381::hash_to_curve::{ExpandMsgXmd, HashToCurve};
@@ -154,8 +154,11 @@ fn main() {
     // ============================================================================
     // verify sum(inputs) == sum(outputs) and tail_hash consistency
     // MUST run BEFORE CREATE_COIN transformation (which replaces args)
-    clvm_zk_core::enforce_ring_balance(&private_inputs, &conditions)
-        .expect("balance enforcement failed");
+    // skipped for Mint: no input coin, balance enforced by TAIL program instead
+    if !matches!(private_inputs.coin_mode, CoinMode::Mint(_)) {
+        clvm_zk_core::enforce_ring_balance(&private_inputs, &conditions)
+            .expect("balance enforcement failed");
+    }
 
     // Transform CREATE_COIN conditions for output privacy
     let mut has_transformations = false;
@@ -282,17 +285,112 @@ fn main() {
                 );
             }
 
-            Some(compute_nullifier(
+            Some(compute_nullifier_v2(
                 risc0_hasher,
+                &tail_hash,
                 &commitment_data.serial_number,
                 &program_hash,
                 commitment_data.amount,
             ))
         }
         CoinMode::Execute => None,
-        // host-side guard in risc0/src/lib.rs prevents this from being reached;
-        // this arm is a secondary defense — the guest cannot produce a valid proof for Mint yet.
-        CoinMode::Mint(_) => panic!("mint mode not yet implemented in this guest version"),
+        CoinMode::Mint(mint_data) => {
+            // Step 1: compile tail_source and verify hash matches private_inputs.tail_hash
+            let (tail_bytecode, tail_program_hash) =
+                compile_chialisp_to_bytecode(risc0_hasher, &mint_data.tail_source)
+                    .expect("TAIL compilation failed");
+
+            if let Some(expected_tail_hash) = private_inputs.tail_hash {
+                assert_eq!(
+                    tail_program_hash, expected_tail_hash,
+                    "tail_hash mismatch: tail_source does not compile to the committed tail_hash"
+                );
+            }
+
+            // Step 2: execute TAIL — must return truthy to authorize mint
+            let tail_args = serialize_params_to_clvm(&mint_data.tail_params);
+            let (tail_output, _) =
+                run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
+                    .expect("TAIL execution failed");
+            assert!(
+                !is_clvm_nil(&tail_output),
+                "TAIL authorization failed: TAIL returned nil — must return truthy to authorize mint"
+            );
+
+            // Step 3: handle genesis coin (single-issuance enforcement)
+            let genesis_nullifier = if let Some(genesis) = &mint_data.genesis_coin {
+                let computed_serial = compute_serial_commitment(
+                    risc0_hasher,
+                    &genesis.serial_number,
+                    &genesis.serial_randomness,
+                );
+                assert_eq!(
+                    computed_serial, genesis.serial_commitment,
+                    "genesis coin: serial commitment verification failed"
+                );
+
+                let computed_coin = compute_coin_commitment(
+                    risc0_hasher,
+                    genesis.tail_hash,
+                    genesis.amount,
+                    &genesis.puzzle_hash,
+                    &computed_serial,
+                );
+                assert_eq!(
+                    computed_coin, genesis.coin_commitment,
+                    "genesis coin: coin commitment verification failed"
+                );
+
+                verify_merkle_proof(
+                    risc0_hasher,
+                    computed_coin,
+                    &genesis.merkle_path,
+                    usize::try_from(genesis.leaf_index)
+                        .expect("genesis leaf_index exceeds usize"),
+                    genesis.merkle_root,
+                )
+                .expect("genesis coin merkle verification failed");
+
+                Some(compute_genesis_nullifier(
+                    risc0_hasher,
+                    &genesis.serial_number,
+                    &genesis.tail_hash,
+                ))
+            } else {
+                None
+            };
+
+            // Steps 4-6: compute output serial_commitment and coin_commitment
+            let output_serial_commitment = compute_serial_commitment(
+                risc0_hasher,
+                &mint_data.output_serial,
+                &mint_data.output_rand,
+            );
+            let tail_hash = private_inputs.tail_hash.unwrap_or(tail_program_hash);
+            let output_coin_commitment = compute_coin_commitment(
+                risc0_hasher,
+                tail_hash,
+                mint_data.output_amount,
+                &mint_data.output_puzzle_hash,
+                &output_serial_commitment,
+            );
+
+            // Step 7: emit — genesis_nullifier in nullifiers, coin_commitment in public_values
+            let nullifiers = genesis_nullifier.map(|n| vec![n]).unwrap_or_default();
+            let end_cycles = env::cycle_count();
+            let total_cycles = end_cycles.saturating_sub(start_cycles);
+            env::commit(&ProofOutput {
+                program_hash,
+                nullifiers,
+                clvm_res: ClvmResult {
+                    output: final_output,
+                    cost: total_cycles,
+                },
+                proof_type: 3, // Mint
+                public_values: vec![output_coin_commitment.to_vec()],
+            });
+            return;
+        }
     };
 
     // collect nullifiers: primary coin + additional coins for ring spends
@@ -378,8 +476,9 @@ fn main() {
                 );
             }
 
-            nullifiers.push(compute_nullifier(
+            nullifiers.push(compute_nullifier_v2(
                 risc0_hasher,
+                &coin.tail_hash,
                 &coin_data.serial_number,
                 &coin_program_hash,
                 coin_data.amount,

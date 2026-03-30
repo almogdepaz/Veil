@@ -260,6 +260,28 @@ impl ClvmZkProver {
         }
     }
 
+    /// prove with a pre-built Input struct (used by mint and other direct-construction paths)
+    #[allow(clippy::needless_return)]
+    pub fn prove_with_input(input: Input) -> Result<ZKClvmResult, ClvmZkError> {
+        #[cfg(feature = "risc0")]
+        {
+            let backend = clvm_zk_risc0::Risc0Backend::new()?;
+            return backend.prove_with_input(input);
+        }
+
+        #[cfg(feature = "sp1")]
+        {
+            let backend = clvm_zk_sp1::Sp1Backend::new()?;
+            return backend.prove_with_input(input);
+        }
+
+        #[cfg(feature = "mock")]
+        {
+            let backend = clvm_zk_mock::MockBackend::new()?;
+            backend.prove_with_input(input)
+        }
+    }
+
     /// aggregate multiple proofs into a single recursive proof
     ///
     /// this compresses N transaction proofs into 1 proof while preserving

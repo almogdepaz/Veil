@@ -178,6 +178,7 @@ impl CLVMZkSimulator {
             created_at_height: self.block_height,
             stealth_nonce: None,
             puzzle_source: None,
+            tail_source: None,
         };
 
         let coin_commitment = CoinCommitment::compute(
@@ -219,6 +220,7 @@ impl CLVMZkSimulator {
             created_at_height: self.block_height,
             stealth_nonce: Some(encrypted_nonce),
             puzzle_source: Some(puzzle_source),
+            tail_source: None,
         };
 
         let coin_commitment = CoinCommitment::compute(
@@ -334,6 +336,12 @@ impl CLVMZkSimulator {
                         SimulatorError::TestFailed("coin not found in merkle tree".to_string())
                     })?;
 
+                // for CAT coins, look up the stored tail_source so the backend can authorize
+                let coin_tail_source = self
+                    .utxo_set
+                    .get(&secrets.serial_number)
+                    .and_then(|info| info.tail_source.clone());
+
                 match Spender::create_spend_with_serial(
                     &coin,
                     &program,
@@ -342,7 +350,7 @@ impl CLVMZkSimulator {
                     merkle_path,
                     merkle_root,
                     leaf_index,
-                    None, // XCH spend: no TAIL required
+                    coin_tail_source,
                     vec![],
                 ) {
                     Ok(bundle) => {
@@ -459,6 +467,7 @@ impl CLVMZkSimulator {
                         created_at_height: self.block_height,
                         stealth_nonce: None,
                         puzzle_source: None,
+                        tail_source: None,
                     },
                 );
             }
@@ -473,6 +482,128 @@ impl CLVMZkSimulator {
         self.block_height += 1;
 
         Ok(tx)
+    }
+
+    /// mint new CAT tokens using a TAIL program
+    ///
+    /// calls ClvmZkProver::prove_with_input with CoinMode::Mint, then registers the minted
+    /// coin in the simulator state (merkle tree + utxo_set).
+    ///
+    /// returns (coin_commitment, tail_hash)
+    pub fn mint_cat(
+        &mut self,
+        tail_source: &str,
+        tail_params: Vec<crate::ProgramParameter>,
+        output_puzzle_hash: [u8; 32],
+        output_puzzle_source: &str,
+        output_amount: u64,
+        output_serial: [u8; 32],
+        output_rand: [u8; 32],
+        genesis_coin: Option<clvm_zk_core::GenesisSpend>,
+    ) -> Result<([u8; 32], [u8; 32]), SimulatorError> {
+        // Step 1: compile tail_source to get tail_hash
+        let (_, tail_hash) =
+            clvm_zk_core::compile_chialisp_to_bytecode(crate::crypto_utils::hash_data_default, tail_source)
+                .map_err(|e| {
+                    SimulatorError::ProofGeneration(format!("TAIL compilation failed: {:?}", e))
+                })?;
+
+        // Step 1b: pre-check genesis nullifier to prevent double-mint
+        if let Some(ref gen) = genesis_coin {
+            let genesis_nullifier = clvm_zk_core::compute_genesis_nullifier(
+                crate::crypto_utils::hash_data_default,
+                &gen.serial_number,
+                &gen.tail_hash,
+            );
+            if self.nullifier_set.contains(&genesis_nullifier) {
+                return Err(SimulatorError::DoubleSpend(hex::encode(genesis_nullifier)));
+            }
+        }
+
+        // Step 2: build MintData
+        let mint_data = clvm_zk_core::MintData {
+            tail_source: tail_source.to_string(),
+            tail_params,
+            output_puzzle_hash,
+            output_amount,
+            output_serial,
+            output_rand,
+            genesis_coin,
+        };
+
+        // Step 3: build Input with CoinMode::Mint
+        let input = crate::Input {
+            chialisp_source: "(mod () ())".to_string(),
+            program_parameters: vec![],
+            coin_mode: crate::CoinMode::Mint(mint_data),
+            tail_hash: Some(tail_hash),
+            tail_source: None,
+            tail_params: vec![],
+            additional_coins: None,
+        };
+
+        // Step 4: prove
+        let result = crate::ClvmZkProver::prove_with_input(input)
+            .map_err(|e| SimulatorError::ProofGeneration(format!("{}", e)))?;
+
+        // Step 5: extract coin_commitment from public_values[0]
+        let coin_commitment_vec = result.proof_output.public_values.first().ok_or_else(|| {
+            SimulatorError::ProofGeneration(
+                "mint proof missing coin_commitment in public_values[0]".to_string(),
+            )
+        })?;
+        if coin_commitment_vec.len() != 32 {
+            return Err(SimulatorError::ProofGeneration(
+                "coin_commitment must be 32 bytes".to_string(),
+            ));
+        }
+        let mut coin_commitment = [0u8; 32];
+        coin_commitment.copy_from_slice(coin_commitment_vec);
+
+        // Step 6: insert genesis nullifier if present
+        for nullifier in &result.proof_output.nullifiers {
+            self.nullifier_set.insert(*nullifier);
+        }
+
+        // Step 7: compute serial_commitment for UTXO keying
+        let serial_commitment = clvm_zk_core::compute_serial_commitment(
+            crate::crypto_utils::hash_data_default,
+            &output_serial,
+            &output_rand,
+        );
+
+        // Step 8: insert new coin into utxo_set
+        let private_coin = PrivateCoin::new_with_tail(
+            output_puzzle_hash,
+            output_amount,
+            clvm_zk_core::coin_commitment::SerialCommitment::from_bytes(serial_commitment),
+            tail_hash,
+        );
+        self.utxo_set.insert(
+            output_serial,
+            CoinInfo {
+                coin: private_coin,
+                metadata: CoinMetadata {
+                    owner: "mint".to_string(),
+                    coin_type: CoinType::Cat,
+                    notes: format!("minted CAT tail:{}", hex::encode(&tail_hash[..8])),
+                },
+                created_at_height: self.block_height,
+                stealth_nonce: None,
+                puzzle_source: Some(output_puzzle_source.to_string()),
+                tail_source: Some(tail_source.to_string()),
+            },
+        );
+
+        // Step 9: insert coin_commitment into merkle tree
+        let h = hasher();
+        let leaf_index = self.coin_tree.len();
+        self.coin_tree.insert(coin_commitment, h);
+        self.commitment_to_index.insert(coin_commitment, leaf_index);
+        self.merkle_leaves.push(coin_commitment);
+
+        // Step 10: return (coin_commitment, tail_hash)
+        Ok((coin_commitment, tail_hash))
     }
 
     pub fn has_nullifier(&self, nullifier: &[u8; 32]) -> bool {
@@ -735,6 +866,9 @@ pub struct CoinInfo {
     /// chialisp source for stealth coins (needed for spending)
     #[serde(default)]
     pub puzzle_source: Option<String>,
+    /// TAIL source for CAT coins (needed to re-authorize spends)
+    #[serde(default)]
+    pub tail_source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
