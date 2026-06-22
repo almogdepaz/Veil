@@ -1,7 +1,7 @@
 {
-  "lastCommit": "0d2e8e8778612035731a6045d032488ef6e6b779",
+  "lastCommit": "07bba3b8abfe4d9cbe948a4ebe7b5f09f97a248c",
   "lastFullBuild": "0d2e8e8778612035731a6045d032488ef6e6b779",
-  "lastUpdate": "2026-03-24T22:17:27Z",
+  "lastUpdate": "2026-03-25T00:00:00Z",
   "modules": {
     "commitments-and-nullifiers": {
       "files": [
@@ -61,6 +61,12 @@
         "src/payment_keys.rs"
       ],
       "contextFile": ".context/stealth-and-wallet.md"
+    },
+    "cli": {
+      "files": [
+        "src/cli.rs"
+      ],
+      "contextFile": ".context/cli.md"
     }
   }
 }

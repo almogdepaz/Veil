@@ -231,7 +231,7 @@ Default is `Execute` (safe — does nothing with coins).
 
 ## 13. Known Issues / Gaps
 
-**NM-001 (nemesis-verified.md HIGH):** Settlement wallet insertion uses placeholder program and XCH-default tail — post-settlement coins are non-spendable. Fix scope: PR3.
+**NM-001 (FIXED in PR3):** Settlement wallet insertion now uses correct program sources and `new_with_tail` for all outputs. Residual: maker's payment coin uses a stealth-hash puzzle that has no Chialisp program equivalent — not spendable via standard flow (PR4+ scope).
 
 **CoinMode::Mint unimplemented:** Types and guards exist; guest panics. No test coverage.
 
@@ -261,9 +261,19 @@ Commitment domain: "clvm_zk_serial_v1.0", "clvm_zk_coin_v2.0", "clvm_zk_nullifie
 | PR | Branch | Status |
 |----|--------|--------|
 | 1 | pr/01-core-types | ✅ merged |
-| 2 | pr/02-simulator-migration | current (SparseMerkleTree + double-spend guard) |
+| 2 | pr/02-simulator-migration | ✅ pushed |
+| 3 | pr/03-offer-fixes | ✅ pushed (current) |
 | 3 | pr/03-offer-fixes | pending (NM-001 fix, offer indexing, taker spent tracking) |
 | 4 | pr/04-stealth-nonce-encryption | pending (x25519+ChaCha20Poly1305 stealth nonces) |
 | 5 | pr/05-cat-minting | pending (Mint mode guests + CLI) |
 | 6 | pr/06-e2e-tests | pending (real ZK e2e tests) |
 | 7 | pr/07-examples-docs | pending (non-code) |
+
+---
+## Incremental Update — 2026-03-25 (PR3)
+Base: 712addb (pr/02-simulator-migration tip)
+Head: 07bba3b (pr/03-offer-fixes)
+Changed files: src/cli.rs
+Modules re-analyzed: none (src/cli.rs not in module map — too large, tracked separately)
+Issues resolved: NM-001, NM-002, FIX-02, FIX-05, FIX-06
+Issues added: 1 (Stealth payment coin unspendable — residual from NM-001)

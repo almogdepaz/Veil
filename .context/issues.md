@@ -7,17 +7,7 @@ All known problems, risks, bugs, and fragility points in the Veil codebase.
 
 ## HIGH
 
-### NM-001: Post-Settlement Coins Are Non-Spendable
-**Affected:** `src/cli.rs` `offer_take_command` (~line 2681+)
-**Why it matters:** All 5 coins created by settlement are immediately locked — they can never be spent. This makes the settlement feature essentially useless until fixed.
-
-**Root cause:** `offer_take_command` inserts wallet coins using:
-- Placeholder program: `"(mod () (q . ()))"` for all outputs (wrong puzzle source)
-- XCH-default constructor: `PrivateCoin::new(...)` ignores `tail_hash` for CAT outputs
-
-**Effect:** At spend time, `program_hash mismatch` in guest verifier path. For CAT settlement outputs, commitment lookup also fails due to tail mismatch.
-
-**Fix scope:** PR3. Use correct puzzle sources per output type; use `PrivateCoin::new_with_tail` for CAT outputs.
+*(No open HIGH issues — NM-001 fixed in PR3)*
 
 ---
 
@@ -25,39 +15,49 @@ All known problems, risks, bugs, and fragility points in the Veil codebase.
 
 ### M-01: `get_merkle_path_and_index` Silently Swallows Proof Errors
 **Affected:** `src/simulator.rs:get_merkle_path_and_index`
-**Why it matters:** If `SparseMerkleTree::generate_proof` fails (out-of-bounds leaf_index, tree corruption), the error is converted to `None` and surfaces as "coin not found in merkle tree" at the spend site. Real cause is masked.
+**Why it matters:** If `SparseMerkleTree::generate_proof` fails (out-of-bounds leaf_index, tree corruption), the error surfaces as "coin not found in merkle tree" at the spend site. Real cause is logged but not propagated.
 
-**Status:** Partially mitigated in PR2 — error is now logged via `eprintln!` before swallowing. Root cause (caller sees wrong error) still exists.
-
-### M-02: Ring Spend TAIL Not Per-Coin (Fixed in PR1)
-**Status:** FIXED in PR1/PR1-review. `AdditionalCoinInput` now has `tail_source`/`tail_params`. All 3 backends enforce TAIL per ring coin.
+**Status:** Partially mitigated in PR2 — error is now logged via `eprintln!` before swallowing. Root cause (caller sees misleading error) still exists.
 
 ### Stealth Nonce Plaintext
 **Affected:** `src/simulator.rs:CoinInfo.stealth_nonce`, `src/cli.rs:send_command`, `src/cli.rs:faucet_command`
 **Why it matters:** Stealth nonces stored in plaintext in state file. Anyone reading the file can de-anonymize stealth payments.
 **Fix scope:** PR4 (x25519 + ChaCha20Poly1305 encryption).
 
+### Stealth Payment Coin Unspendable (Residual from NM-001)
+**Affected:** `src/cli.rs:offer_take_command` — maker's payment coin
+**Why it matters:** The payment coin's puzzle hash = `sha256("stealth_v1" || maker_pubkey || nonce)` — this is NOT derived from any Chialisp program. The maker can receive the coin but cannot spend it via the standard `Spender` flow. Coin is recorded with `program: "(stealth)"` as a marker.
+**Fix scope:** PR4+ — requires a stealth-claim mechanism or redesign of the payment puzzle to use a Chialisp-derivable hash.
+
 ---
 
 ## LOW
-
-### NM-002: Missing Maker Pubkey Assertion Before Settlement
-**Affected:** `src/cli.rs:offer_take_command`
-**Why it matters:** `StoredOffer.maker_pubkey` is not asserted equal to `SettlementOutput.maker_pubkey` before state transition. Tampered/imported offer metadata could diverge from proof output.
-**Fix scope:** PR3.
-
-### L-01: `get_merkle_root()` Return Type Mismatch (Fixed in PR2)
-**Status:** FIXED in PR2. Return type changed from `Option<[u8;32]>` to `[u8;32]`. All callers updated.
 
 ### FIX-04: Nonce Collision on Multiple Payments to Same Recipient
 **Affected:** `src/cli.rs:send_command`
 **Why it matters:** No per-recipient nonce counter → reusing nonces → breaks stealth unlinkability.
 **Fix scope:** PR4.
 
-### FIX-05: Scan Dedup Uses Wrong Key
-**Affected:** `src/cli.rs:scan_command`
-**Why it matters:** Deduplication by `puzzle_hash` instead of `serial_commitment` → false positive drops for multiple coins with same puzzle.
-**Fix scope:** PR4.
+### M-01 (simulator): Error propagation in get_merkle_path_and_index
+See MEDIUM above.
+
+---
+
+## FIXED (recent PRs)
+
+| Issue | Fixed in | Notes |
+|-------|----------|-------|
+| NM-001: Post-settlement coins non-spendable | PR3 | Correct tail_hash + program source for all 5 outputs; payment coin is a known residual (stealth, see above) |
+| NM-002: Missing maker_pubkey assertion | PR2 | Asserted before process_settlement |
+| FIX-02: Offer ID unstable (vec index) | PR3 | Now finds by stored .id |
+| FIX-05: Scan dedup by puzzle_hash | PR3 | Now deduplicates by serial_commitment |
+| FIX-06: Taker coin not marked spent | PR3 | Marked spent = true after settlement |
+| H-01: Execute + non-zero tail_hash | PR2-fixes | Host guard in all 3 backends |
+| H-02: Settlement TAIL bypass | PR2-fixes | TAIL enforcement added to settlement guests |
+| M-01 (ring TAIL): Per-coin TAIL enforcement | PR1 | AdditionalCoinInput has tail_source/tail_params |
+| M-02 (ring balance): Malformed CREATE_COIN | PR2-fixes | Err on unexpected arg counts |
+| M-04: Inline serial commitment in settlement | PR2-fixes | Uses clvm_zk_core::compute_serial_commitment |
+| L-01: get_merkle_root() Option type | PR2 | Return type is now [u8;32] |
 
 ---
 
@@ -74,5 +74,5 @@ All known problems, risks, bugs, and fragility points in the Veil codebase.
 
 - **CAT ring spend:** All ring spend tests use XCH. No test exercises multi-coin ring with per-coin TAIL enforcement.
 - **rebuild_tree after deserialization:** No serde round-trip test for simulator state.
-- **Settlement wallet insertion correctness:** No test verifies post-settlement coins are actually spendable (related to NM-001).
-- **Empty tree spend attempt:** No test for spending against empty simulator.
+- **Settlement wallet insertion:** No test verifies post-settlement coins are spendable (NM-001 fixed but untested end-to-end).
+- **Stealth payment claim:** No mechanism exists to spend a coin whose puzzle_hash is a raw stealth hash.
