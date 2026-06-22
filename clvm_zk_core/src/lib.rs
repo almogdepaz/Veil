@@ -214,6 +214,18 @@ pub fn nil() -> ClvmValue {
     ClvmValue::Atom(vec![])
 }
 
+/// Returns true if a serialized CLVM output represents nil (0 / empty atom).
+///
+/// In Veil TAIL semantics, a TAIL returning nil is NOT authorized — it must
+/// return a truthy value. Only raising an exception (→ Err from run_program)
+/// OR returning nil causes authorization failure.
+///
+/// Nil encoding: `[0x80]` (empty atom). Integer 0 also serializes to `[0x80]`
+/// in CLVM (0 and nil are the same value).
+pub fn is_clvm_nil(output: &[u8]) -> bool {
+    output.is_empty() || output == [0x80]
+}
+
 pub fn extract_list_from_clvm(value: &ClvmValue) -> Result<Vec<ClvmValue>, &'static str> {
     let mut result = Vec::new();
     let mut current = value;
@@ -300,7 +312,16 @@ pub fn verify_ecdsa_signature_with_hasher(
 
 /// compute modular exponentiation: base^exponent mod modulus
 /// uses binary exponentiation for efficiency
+///
+/// # Special cases
+/// - `modulus == 0`: returns 0 by convention (mathematically undefined; prevents division-by-zero panic)
+/// - `modulus == 1`: returns 0 (any integer mod 1 == 0)
+///
+/// Callers must not treat `modular_pow(x, y, 0) == 0` as a mathematically meaningful result.
 pub fn modular_pow(mut base: i64, mut exponent: i64, modulus: i64) -> i64 {
+    if modulus == 0 {
+        return 0;
+    }
     if modulus == 1 {
         return 0;
     }
@@ -752,6 +773,25 @@ pub fn create_veil_evaluator(
 mod security_tests {
     use crate::compile_chialisp_to_bytecode;
     use crate::hash_data;
+    use crate::modular_pow;
+
+    #[test]
+    fn test_modular_pow_zero_modulus_convention() {
+        // modulus == 0 is mathematically undefined; we return 0 by convention
+        // to prevent division-by-zero panic. callers must not treat this as a
+        // meaningful congruence result.
+        assert_eq!(modular_pow(5, 3, 0), 0);
+        assert_eq!(modular_pow(0, 0, 0), 0);
+        assert_eq!(modular_pow(-1, 2, 0), 0);
+    }
+
+    #[test]
+    fn test_modular_pow_basic() {
+        assert_eq!(modular_pow(2, 10, 1000), 24); // 1024 mod 1000
+        assert_eq!(modular_pow(3, 0, 7), 1); // anything^0 mod m == 1 (for m > 1)
+        assert_eq!(modular_pow(5, 1, 13), 5);
+        assert_eq!(modular_pow(2, 3, 5), 3); // 8 mod 5
+    }
 
     #[test]
     fn test_template_program_consistency_check() {
@@ -814,38 +854,53 @@ pub fn enforce_ring_balance(
                         0
                     }
                 }
-                _ => 0,
+                _ => {
+                    return Err(
+                        "malformed CREATE_COIN: unexpected argument count (expected 2 or 4)",
+                    )
+                }
             };
-            total_output_amount += amount;
+            total_output_amount = total_output_amount
+                .checked_add(amount)
+                .expect("output amount overflow");
         }
     }
 
     // sum input amounts and verify tail_hash consistency
-    let total_input_amount = if let Some(commitment_data) = &private_inputs.serial_commitment_data {
-        let mut input_sum = commitment_data.amount; // primary coin
+    let total_input_amount = match &private_inputs.coin_mode {
+        CoinMode::Spend(commitment_data) => {
+            let mut input_sum = commitment_data.amount; // primary coin
 
-        if let Some(additional_coins) = &private_inputs.additional_coins {
-            let primary_tail_hash = private_inputs.tail_hash.unwrap_or([0u8; 32]);
+            if let Some(additional_coins) = &private_inputs.additional_coins {
+                let primary_tail_hash = private_inputs.tail_hash.unwrap_or([0u8; 32]);
 
-            for coin in additional_coins {
-                // enforce single-asset ring (defense in depth)
-                if coin.tail_hash != primary_tail_hash {
-                    return Err("ring spend: all coins must have same tail_hash");
+                for coin in additional_coins {
+                    // enforce single-asset ring (defense in depth)
+                    if coin.tail_hash != primary_tail_hash {
+                        return Err("ring spend: all coins must have same tail_hash");
+                    }
+
+                    input_sum = input_sum
+                        .checked_add(coin.serial_commitment_data.amount)
+                        .expect("input amount overflow");
                 }
-
-                input_sum += coin.serial_commitment_data.amount;
             }
-        }
 
-        // prevent inflation: output cannot exceed input
-        // allows burning/locking (output < input) for fees, conditional spends, etc.
-        if total_output_amount > input_sum {
-            return Err("inflation: output exceeds input");
-        }
+            // prevent inflation: output cannot exceed input
+            // allows burning/locking (output < input) for fees, conditional spends, etc.
+            if total_output_amount > input_sum {
+                return Err("inflation: output exceeds input");
+            }
 
-        input_sum
-    } else {
-        0 // no serial commitment = simple program execution
+            input_sum
+        }
+        CoinMode::Execute => 0, // pure program execution: no coin input, no balance constraint
+        CoinMode::Mint(_) => {
+            // mint mode has its own supply rules — callers must use dedicated mint validation.
+            // rejecting here prevents a Mint input from bypassing balance enforcement by
+            // falling through with total_input_amount = 0.
+            return Err("mint mode must use dedicated mint validation, not enforce_ring_balance");
+        }
     };
 
     Ok((total_input_amount, total_output_amount))
@@ -902,6 +957,7 @@ where
 }
 
 /// compute nullifier: hash(serial_number || program_hash || amount)
+#[deprecated(note = "use compute_nullifier_v2 — v1 lacks tail_hash binding, enabling cross-asset collision attacks")]
 pub fn compute_nullifier<H>(
     hasher: H,
     serial_number: &[u8; 32],
@@ -916,6 +972,52 @@ where
     nullifier_data.extend_from_slice(program_hash);
     nullifier_data.extend_from_slice(&amount.to_be_bytes());
     hasher(&nullifier_data)
+}
+
+pub const NULLIFIER_V2_DOMAIN: &[u8] = b"clvm_zk_nullifier_v2.0"; // 22 bytes
+pub const NULLIFIER_V2_DATA_SIZE: usize = 126; // domain(22) + tail(32) + serial(32) + program(32) + amount(8)
+
+/// compute spend nullifier v2: hash(domain || tail_hash || serial_number || program_hash || amount)
+///
+/// the tail_hash binding is CRITICAL: without it an adversary with serial number control could
+/// pre-poison an XCH coin's nullifier slot by spending a CAT coin with identical parameters first.
+pub fn compute_nullifier_v2<H>(
+    hasher: H,
+    tail_hash: &[u8; 32],
+    serial_number: &[u8; 32],
+    program_hash: &[u8; 32],
+    amount: u64,
+) -> [u8; 32]
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    let mut data = [0u8; NULLIFIER_V2_DATA_SIZE];
+    data[..22].copy_from_slice(NULLIFIER_V2_DOMAIN);
+    data[22..54].copy_from_slice(tail_hash);
+    data[54..86].copy_from_slice(serial_number);
+    data[86..118].copy_from_slice(program_hash);
+    data[118..126].copy_from_slice(&amount.to_be_bytes());
+    hasher(&data)
+}
+
+pub const GENESIS_NULLIFIER_DOMAIN: &[u8] = b"clvm_zk_genesis_v1.0";
+pub const GENESIS_NULLIFIER_DATA_SIZE: usize = 84; // domain(20) + serial_number(32) + tail_hash(32)
+
+/// compute genesis nullifier: hash(domain || serial_number || tail_hash)
+/// binds tail_hash to prevent cross-asset nullifier collisions at mint time
+pub fn compute_genesis_nullifier<H>(
+    hasher: H,
+    serial_number: &[u8; 32],
+    tail_hash: &[u8; 32],
+) -> [u8; 32]
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    let mut data = [0u8; GENESIS_NULLIFIER_DATA_SIZE];
+    data[..20].copy_from_slice(GENESIS_NULLIFIER_DOMAIN);
+    data[20..52].copy_from_slice(serial_number);
+    data[52..84].copy_from_slice(tail_hash);
+    hasher(&data)
 }
 
 // ============================================================================

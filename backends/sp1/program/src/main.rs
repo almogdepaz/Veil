@@ -6,10 +6,10 @@ extern crate alloc;
 use alloc::vec;
 
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, compute_coin_commitment, compute_nullifier,
-    compute_serial_commitment, create_veil_evaluator, parse_variable_length_amount,
-    run_clvm_with_conditions, serialize_params_to_clvm, verify_merkle_proof, ClvmResult, Input,
-    ProofOutput, BLS_DST,
+    compile_chialisp_to_bytecode, compute_coin_commitment, compute_genesis_nullifier,
+    compute_nullifier_v2, compute_serial_commitment, create_veil_evaluator, is_clvm_nil,
+    parse_variable_length_amount, run_clvm_with_conditions, serialize_params_to_clvm,
+    verify_merkle_proof, ClvmResult, CoinMode, Input, ProofOutput, BLS_DST,
 };
 
 use bls12_381::hash_to_curve::{ExpandMsgXmd, HashToCurve};
@@ -139,8 +139,11 @@ fn main() {
     // ============================================================================
     // verify sum(inputs) == sum(outputs) and tail_hash consistency
     // MUST run BEFORE CREATE_COIN transformation (which replaces args)
-    clvm_zk_core::enforce_ring_balance(&private_inputs, &conditions)
-        .expect("balance enforcement failed");
+    // skipped for Mint: no input coin, balance enforced by TAIL program instead
+    if !matches!(private_inputs.coin_mode, CoinMode::Mint(_)) {
+        clvm_zk_core::enforce_ring_balance(&private_inputs, &conditions)
+            .expect("balance enforcement failed");
+    }
 
     // Transform CREATE_COIN conditions for output privacy
     let mut has_transformations = false;
@@ -199,8 +202,8 @@ fn main() {
         output_bytes
     };
 
-    let nullifier = match &private_inputs.serial_commitment_data {
-        Some(commitment_data) => {
+    let nullifier = match &private_inputs.coin_mode {
+        CoinMode::Spend(commitment_data) => {
             assert_eq!(
                 program_hash, commitment_data.program_hash,
                 "program_hash mismatch: cannot spend coin with different program"
@@ -233,19 +236,144 @@ fn main() {
                 sp1_hasher,
                 computed_coin_commitment,
                 &commitment_data.merkle_path,
-                commitment_data.leaf_index,
+                usize::try_from(commitment_data.leaf_index)
+                    .expect("leaf_index exceeds usize — tree larger than platform supports"),
                 commitment_data.merkle_root,
             )
             .expect("merkle root mismatch: coin not in current tree state");
 
-            Some(compute_nullifier(
+            // TAIL enforcement: run for all CAT coins (tail_hash != [0;32])
+            // tail_hash is committed in the coin commitment, so we verify the
+            // provided tail_source compiles to that exact hash, then execute it.
+            let effective_tail_hash = private_inputs.tail_hash.unwrap_or([0u8; 32]);
+            if effective_tail_hash != [0u8; 32] {
+                let tail_src = private_inputs.tail_source
+                    .as_deref()
+                    .expect("CAT spend requires tail_source: tail_hash is committed but tail_source was not provided");
+
+                let (tail_bytecode, tail_program_hash) =
+                    compile_chialisp_to_bytecode(sp1_hasher, tail_src)
+                        .expect("TAIL program compilation failed");
+
+                assert_eq!(
+                    tail_program_hash, effective_tail_hash,
+                    "tail_hash mismatch: tail_source does not compile to the committed tail_hash"
+                );
+
+                let tail_args = serialize_params_to_clvm(&private_inputs.tail_params);
+                let (tail_output, _) =
+                    run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
+                        .expect("TAIL authorization failed: TAIL program rejected this CAT spend");
+                assert!(
+                    !is_clvm_nil(&tail_output),
+                    "TAIL authorization failed: TAIL returned nil/0 — must return a truthy value to authorize"
+                );
+            }
+
+            Some(compute_nullifier_v2(
                 sp1_hasher,
+                &tail_hash,
                 &commitment_data.serial_number,
                 &program_hash,
                 commitment_data.amount,
             ))
         }
-        None => None,
+        CoinMode::Execute => None,
+        CoinMode::Mint(mint_data) => {
+            // Step 1: compile tail_source and verify hash matches private_inputs.tail_hash
+            let (tail_bytecode, tail_program_hash) =
+                compile_chialisp_to_bytecode(sp1_hasher, &mint_data.tail_source)
+                    .expect("TAIL compilation failed");
+
+            if let Some(expected_tail_hash) = private_inputs.tail_hash {
+                assert_eq!(
+                    tail_program_hash, expected_tail_hash,
+                    "tail_hash mismatch: tail_source does not compile to the committed tail_hash"
+                );
+            }
+
+            // Step 2: execute TAIL — must return truthy to authorize mint
+            let tail_args = serialize_params_to_clvm(&mint_data.tail_params);
+            let (tail_output, _) =
+                run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost)
+                    .expect("TAIL execution failed");
+            assert!(
+                !is_clvm_nil(&tail_output),
+                "TAIL authorization failed: TAIL returned nil — must return truthy to authorize mint"
+            );
+
+            // Step 3: handle genesis coin (single-issuance enforcement)
+            let genesis_nullifier = if let Some(genesis) = &mint_data.genesis_coin {
+                let computed_serial = compute_serial_commitment(
+                    sp1_hasher,
+                    &genesis.serial_number,
+                    &genesis.serial_randomness,
+                );
+                assert_eq!(
+                    computed_serial, genesis.serial_commitment,
+                    "genesis coin: serial commitment verification failed"
+                );
+
+                let computed_coin = compute_coin_commitment(
+                    sp1_hasher,
+                    genesis.tail_hash,
+                    genesis.amount,
+                    &genesis.puzzle_hash,
+                    &computed_serial,
+                );
+                assert_eq!(
+                    computed_coin, genesis.coin_commitment,
+                    "genesis coin: coin commitment verification failed"
+                );
+
+                verify_merkle_proof(
+                    sp1_hasher,
+                    computed_coin,
+                    &genesis.merkle_path,
+                    usize::try_from(genesis.leaf_index)
+                        .expect("genesis leaf_index exceeds usize"),
+                    genesis.merkle_root,
+                )
+                .expect("genesis coin merkle verification failed");
+
+                Some(compute_genesis_nullifier(
+                    sp1_hasher,
+                    &genesis.serial_number,
+                    &genesis.tail_hash,
+                ))
+            } else {
+                None
+            };
+
+            // Steps 4-6: compute output serial_commitment and coin_commitment
+            let output_serial_commitment = compute_serial_commitment(
+                sp1_hasher,
+                &mint_data.output_serial,
+                &mint_data.output_rand,
+            );
+            let tail_hash = private_inputs.tail_hash.unwrap_or(tail_program_hash);
+            let output_coin_commitment = compute_coin_commitment(
+                sp1_hasher,
+                tail_hash,
+                mint_data.output_amount,
+                &mint_data.output_puzzle_hash,
+                &output_serial_commitment,
+            );
+
+            // Step 7: emit — genesis_nullifier in nullifiers, coin_commitment in public_values
+            let nullifiers = genesis_nullifier.map(|n| vec![n]).unwrap_or_default();
+            io::commit(&ProofOutput {
+                program_hash,
+                nullifiers,
+                clvm_res: ClvmResult {
+                    output: final_output,
+                    cost: 0,
+                },
+                proof_type: 3, // Mint
+                public_values: vec![output_coin_commitment.to_vec()],
+            });
+            return;
+        }
     };
 
     // collect nullifiers: primary coin + additional coins for ring spends
@@ -296,13 +424,44 @@ fn main() {
                 sp1_hasher,
                 computed_coin_commitment,
                 &coin_data.merkle_path,
-                coin_data.leaf_index,
+                usize::try_from(coin_data.leaf_index)
+                    .expect("leaf_index exceeds usize — tree larger than platform supports"),
                 coin_data.merkle_root,
             )
             .expect("additional coin: merkle root mismatch");
 
-            nullifiers.push(compute_nullifier(
+            // TAIL enforcement for ring coins: same rules as primary coin
+            if coin.tail_hash != [0u8; 32] {
+                let ring_tail_src = coin.tail_source
+                    .as_deref()
+                    .expect("CAT ring coin requires tail_source: tail_hash is committed but tail_source was not provided");
+
+                let (ring_tail_bytecode, ring_tail_program_hash) =
+                    compile_chialisp_to_bytecode(sp1_hasher, ring_tail_src)
+                        .expect("ring coin TAIL compilation failed");
+
+                assert_eq!(
+                    ring_tail_program_hash, coin.tail_hash,
+                    "ring coin tail_hash mismatch: tail_source does not compile to the committed tail_hash"
+                );
+
+                let ring_tail_args = serialize_params_to_clvm(&coin.tail_params);
+                let (ring_tail_output, _) = run_clvm_with_conditions(
+                    &evaluator,
+                    &ring_tail_bytecode,
+                    &ring_tail_args,
+                    max_cost,
+                )
+                .expect("ring coin TAIL authorization failed");
+                assert!(
+                    !is_clvm_nil(&ring_tail_output),
+                    "ring coin TAIL authorization failed: TAIL returned nil/0 — must return a truthy value to authorize"
+                );
+            }
+
+            nullifiers.push(compute_nullifier_v2(
                 sp1_hasher,
+                &coin.tail_hash,
                 &coin_data.serial_number,
                 &coin_program_hash,
                 coin_data.amount,

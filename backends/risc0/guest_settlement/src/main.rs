@@ -6,7 +6,9 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use clvm_zk_core::{
-    compute_coin_commitment, compute_nullifier, compute_serial_commitment, verify_merkle_proof,
+    compile_chialisp_to_bytecode, compute_coin_commitment, compute_nullifier_v2,
+    compute_serial_commitment, create_veil_evaluator, is_clvm_nil, run_clvm_with_conditions,
+    serialize_params_to_clvm, verify_merkle_proof, ProgramParameter,
 };
 use risc0_zkvm::guest::env;
 use risc0_zkvm::sha::{Impl, Sha256};
@@ -16,6 +18,16 @@ fn risc0_hasher(data: &[u8]) -> [u8; 32] {
         .as_bytes()
         .try_into()
         .expect("sha256 digest must be 32 bytes")
+}
+
+/// TAIL verification in settlement does not support BLS-gated TAILs.
+/// BLS-using TAILs will raise a CLVM exception here, correctly rejecting the spend.
+fn settlement_bls_stub(_pk: &[u8], _sig: &[u8], _msg: &[u8]) -> Result<bool, &'static str> {
+    Err("BLS not supported in settlement TAIL check")
+}
+
+fn settlement_ecdsa_stub(_pk: &[u8], _sig: &[u8], _msg: &[u8]) -> Result<bool, &'static str> {
+    Err("ECDSA not supported in settlement TAIL check")
 }
 
 /// settlement output committed by taker's proof
@@ -41,7 +53,7 @@ struct TakerCoinData {
     serial_number: [u8; 32],
     serial_randomness: [u8; 32],
     merkle_path: Vec<[u8; 32]>,
-    leaf_index: usize,
+    leaf_index: u64,
 }
 
 /// settlement parameters
@@ -72,6 +84,9 @@ struct SettlementInput {
     // v2.0 coin commitment format: tail_hash identifies asset type
     taker_tail_hash: [u8; 32], // taker's coin asset (XCH = zeros)
     goods_tail_hash: [u8; 32], // offered goods asset (maker's asset)
+    // TAIL enforcement for taker's CAT coin
+    taker_tail_source: Option<String>,
+    taker_tail_params: Vec<ProgramParameter>,
 }
 
 fn main() {
@@ -93,6 +108,36 @@ fn main() {
     // verify taker's coin ownership (v2.0 format with tail_hash)
     verify_taker_coin(&input.taker_coin, input.merkle_root, &input.taker_tail_hash);
     // let verify_cycles = env::cycle_count();
+
+    // TAIL enforcement for taker's CAT coin
+    if input.taker_tail_hash != [0u8; 32] {
+        let tail_src = input
+            .taker_tail_source
+            .as_deref()
+            .expect("CAT settlement requires taker_tail_source: taker_tail_hash is set but taker_tail_source was not provided");
+
+        let (tail_bytecode, tail_program_hash) =
+            compile_chialisp_to_bytecode(risc0_hasher, tail_src)
+                .expect("taker TAIL program compilation failed");
+
+        assert_eq!(
+            tail_program_hash, input.taker_tail_hash,
+            "taker tail_hash mismatch: taker_tail_source does not compile to the committed taker_tail_hash"
+        );
+
+        let evaluator =
+            create_veil_evaluator(risc0_hasher, settlement_bls_stub, settlement_ecdsa_stub);
+        let max_cost: u64 = 1_000_000_000;
+        let tail_args = serialize_params_to_clvm(&input.taker_tail_params);
+        let (tail_output, _) =
+            run_clvm_with_conditions(&evaluator, &tail_bytecode, &tail_args, max_cost).expect(
+                "taker TAIL authorization failed: TAIL program rejected this CAT settlement",
+            );
+        assert!(
+            !is_clvm_nil(&tail_output),
+            "taker TAIL authorization failed: TAIL returned nil/0 — must return a truthy value to authorize"
+        );
+    }
 
     // assert taker has enough funds
     assert!(
@@ -146,8 +191,9 @@ fn main() {
     // let commitments_cycles = env::cycle_count();
 
     // compute taker's nullifier
-    let taker_nullifier = compute_nullifier(
+    let taker_nullifier = compute_nullifier_v2(
         risc0_hasher,
+        &input.taker_tail_hash,
         &input.taker_coin.serial_number,
         &input.taker_coin.puzzle_hash,
         input.taker_coin.amount,
@@ -217,7 +263,8 @@ fn verify_taker_coin(coin: &TakerCoinData, merkle_root: [u8; 32], tail_hash: &[u
         risc0_hasher,
         coin_commitment,
         &coin.merkle_path,
-        coin.leaf_index,
+        usize::try_from(coin.leaf_index)
+            .expect("leaf_index exceeds usize — tree larger than platform supports"),
         merkle_root,
     )
     .expect("merkle proof verification failed");

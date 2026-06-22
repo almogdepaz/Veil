@@ -105,6 +105,8 @@ fn test_settlement_mock() {
         vec![], // empty merkle path for single-leaf tree
         maker_merkle_root,
         0,
+        None, // XCH spend: no TAIL required
+        vec![],
     )
     .expect("maker conditional spend failed");
 
@@ -151,6 +153,8 @@ fn test_settlement_mock() {
         change_rand: change_rand_taker,
         taker_tail_hash: [0u8; 32], // XCH
         goods_tail_hash: [0u8; 32], // XCH
+        taker_tail_source: None,    // XCH: no TAIL required
+        taker_tail_params: vec![],
     };
 
     println!("generating settlement proof (recursive verification)...");

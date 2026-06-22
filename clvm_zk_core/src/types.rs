@@ -127,8 +127,25 @@ pub struct ZKClvmResult {
     pub proof_bytes: Vec<u8>,
 }
 
+/// Coin execution mode — determines what the zkVM guest does with this input.
+/// Enforces at compile time that spend and mint are mutually exclusive.
+#[derive(
+    Serialize, Deserialize, Debug, Clone, Default, borsh::BorshSerialize, borsh::BorshDeserialize,
+)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+pub enum CoinMode {
+    /// Pure program execution: no coin commitment, no nullifier emitted.
+    /// Used for BLS verification tests and other non-spending proofs.
+    #[default]
+    Execute,
+    /// Spend an existing coin: verify serial commitment + merkle membership, emit nullifier.
+    Spend(SerialCommitmentData),
+    /// Mint new CAT supply: run TAIL program to authorize, create new coin.
+    /// Mutually exclusive with Spend — enforced here, not at runtime.
+    Mint(MintData),
+}
+
 /// Unified guest program input type
-/// Supports both simple program execution and serial commitment protocol
 #[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct Input {
     /// Raw Chialisp source code (e.g., "(mod (x y) (+ x y))")
@@ -136,24 +153,92 @@ pub struct Input {
     /// Parameter values for the program - supports both integers and bytes
     pub program_parameters: Vec<ProgramParameter>,
 
-    /// Optional serial commitment data for nullifier-based spending
-    /// - None: Simple program execution (BLS tests, basic proving)
-    /// - Some(...): Full serial commitment protocol (blockchain simulator, real spending)
-    pub serial_commitment_data: Option<SerialCommitmentData>,
+    /// Coin execution mode (spend, mint, or pure execution)
+    pub coin_mode: CoinMode,
 
     /// Asset type identifier (TAIL hash)
     /// - None: XCH (native currency, equivalent to [0u8; 32])
     /// - Some(hash): CAT with this TAIL program hash
-    ///   Used in commitment v2: hash("clvm_zk_coin_v2.0" || tail_hash || amount || puzzle_hash || serial_commitment)
     #[serde(default)]
     pub tail_hash: Option<[u8; 32]>,
+
+    /// TAIL program source for CAT spend authorization.
+    ///
+    /// Required for any CAT spend (tail_hash != [0;32] in CoinMode::Spend).
+    /// The guest compiles tail_source, verifies its hash matches tail_hash
+    /// (which is committed in the coin commitment), then executes it with
+    /// tail_params. This proves the correct TAIL authorized the spend.
+    ///
+    /// - `None` + tail_hash == None/[0;32]: XCH spend, TAIL not invoked
+    /// - `Some(_)` + tail_hash != [0;32]: TAIL compiled, hash-verified, executed
+    /// - `None` + tail_hash != [0;32]: guest panics — CAT spend without TAIL source
+    pub tail_source: Option<String>,
+
+    /// Parameters passed to the TAIL program during execution.
+    /// Only used when tail_source is Some (CAT spends).
+    /// For simple TAILs like `(mod () 1)`, leave empty.
+    #[serde(default)]
+    pub tail_params: Vec<ProgramParameter>,
 
     /// additional coins for multi-coin ring spends
     /// - None: single coin spend
     /// - Some(vec): multi-coin ring spend (all coins share same tail_hash)
-    ///   guest enforces tail_hash matching across all ring coins
     #[serde(default)]
     pub additional_coins: Option<Vec<AdditionalCoinInput>>,
+}
+
+/// mint data for CAT issuance proofs
+/// when present, guest executes TAIL program and creates new coin if authorized
+#[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct MintData {
+    /// TAIL program source (controls who can mint)
+    /// e.g., "(mod () 1)" for unlimited, "(mod (pk sig) (bls_verify ...))" for signature-based
+    pub tail_source: String,
+    /// parameters to satisfy the TAIL program
+    /// NOTE: genesis_nullifier is prepended automatically if genesis_coin is present
+    pub tail_params: Vec<ProgramParameter>,
+    /// puzzle hash for the new coin (where it can be spent)
+    pub output_puzzle_hash: [u8; 32],
+    /// amount to mint
+    pub output_amount: u64,
+    /// serial number for the new coin (for nullifier generation when spent)
+    pub output_serial: [u8; 32],
+    /// serial randomness for commitment hiding
+    pub output_rand: [u8; 32],
+    /// optional genesis coin that authorizes this mint
+    /// when present, guest verifies genesis coin exists in merkle tree,
+    /// computes its nullifier, and passes it to TAIL as first param.
+    /// the genesis nullifier is included in proof output → validators add to nullifier set
+    /// → genesis can't be reused → prevents infinite minting
+    #[serde(default)]
+    pub genesis_coin: Option<GenesisSpend>,
+}
+
+/// genesis coin data for single-issuance CAT minting
+/// the genesis coin is spent during mint, producing a nullifier that prevents re-minting
+#[derive(Serialize, Deserialize, Debug, Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct GenesisSpend {
+    /// serial number of the genesis coin
+    pub serial_number: [u8; 32],
+    /// serial randomness for opening the commitment
+    pub serial_randomness: [u8; 32],
+    /// puzzle hash of the genesis coin
+    pub puzzle_hash: [u8; 32],
+    /// amount locked in the genesis coin
+    pub amount: u64,
+    /// tail_hash of the genesis coin (typically XCH = [0;32])
+    pub tail_hash: [u8; 32],
+    /// serial commitment (hash(serial_number || serial_randomness))
+    pub serial_commitment: [u8; 32],
+    /// coin commitment (leaf in merkle tree)
+    pub coin_commitment: [u8; 32],
+    /// merkle proof path from leaf to root
+    pub merkle_path: Vec<[u8; 32]>,
+    /// merkle root (current tree state)
+    pub merkle_root: [u8; 32],
+    /// leaf index in tree
+    /// u64 (not usize) for consistent Borsh encoding across 32-bit guest and 64-bit host
+    pub leaf_index: u64,
 }
 
 /// additional coin input for ring spends
@@ -168,6 +253,15 @@ pub struct AdditionalCoinInput {
     pub serial_commitment_data: SerialCommitmentData,
     /// Asset type (must match primary coin's tail_hash for valid ring)
     pub tail_hash: [u8; 32],
+    /// TAIL program source for this ring coin.
+    /// Required when tail_hash != [0;32] (i.e., this is a CAT ring coin).
+    /// Typically the same source as the primary coin's tail_source — all ring
+    /// coins share the same TAIL since they share the same asset type.
+    pub tail_source: Option<String>,
+    /// Parameters for this ring coin's TAIL program.
+    /// Only used when tail_source is Some (CAT ring coins).
+    #[serde(default)]
+    pub tail_params: Vec<ProgramParameter>,
 }
 
 /// Serial commitment protocol data for nullifier-based spending
@@ -200,7 +294,8 @@ pub struct SerialCommitmentData {
     pub merkle_root: [u8; 32],
 
     /// Leaf index in the merkle tree (for position-based hashing)
-    pub leaf_index: usize,
+    /// u64 (not usize) for consistent Borsh encoding across 32-bit guest and 64-bit host
+    pub leaf_index: u64,
 
     /// Puzzle hash that locks the coin (must match program_hash)
     pub program_hash: [u8; 32],

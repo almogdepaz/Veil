@@ -64,7 +64,7 @@ async fn test_ring_spend_rejects_inflation_attack() {
         },
     );
 
-    let merkle_root = sim.get_merkle_root().expect("no merkle root");
+    let merkle_root = sim.get_merkle_root();
     let (path1, idx1) = sim.get_merkle_path_and_index(&coin1).expect("no path");
     let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path");
     let (path3, idx3) = sim.get_merkle_path_and_index(&coin3).expect("no path");
@@ -75,7 +75,7 @@ async fn test_ring_spend_rejects_inflation_attack() {
         (&coin3, exploit_puzzle, &[][..], &secrets3, path3, idx3),
     ];
 
-    let result = Spender::create_ring_spend(coins, merkle_root);
+    let result = Spender::create_ring_spend(coins, merkle_root, None, vec![]);
 
     // this SHOULD fail with balance error
     // but will currently SUCCEED (the bug)
@@ -132,7 +132,7 @@ async fn test_ring_spend_rejects_no_outputs() {
         },
     );
 
-    let merkle_root = sim.get_merkle_root().expect("no merkle root");
+    let merkle_root = sim.get_merkle_root();
     let (path1, idx1) = sim.get_merkle_path_and_index(&coin1).expect("no path");
     let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path");
 
@@ -141,7 +141,7 @@ async fn test_ring_spend_rejects_no_outputs() {
         (&coin2, puzzle, &[][..], &secrets2, path2, idx2),
     ];
 
-    let result = Spender::create_ring_spend(coins, merkle_root);
+    let result = Spender::create_ring_spend(coins, merkle_root, None, vec![]);
 
     match result {
         Ok(_) => {
@@ -202,7 +202,7 @@ async fn test_ring_spend_accepts_balanced() {
         },
     );
 
-    let merkle_root = sim.get_merkle_root().expect("no merkle root");
+    let merkle_root = sim.get_merkle_root();
     let (path1, idx1) = sim.get_merkle_path_and_index(&coin1).expect("no path");
     let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path");
 
@@ -211,7 +211,7 @@ async fn test_ring_spend_accepts_balanced() {
         (&coin2, balanced_puzzle, &[][..], &secrets2, path2, idx2),
     ];
 
-    let result = Spender::create_ring_spend(coins, merkle_root);
+    let result = Spender::create_ring_spend(coins, merkle_root, None, vec![]);
 
     match result {
         Ok(bundle) => {
@@ -267,7 +267,7 @@ async fn test_ring_spend_rejects_deflation() {
         },
     );
 
-    let merkle_root = sim.get_merkle_root().expect("no merkle root");
+    let merkle_root = sim.get_merkle_root();
     let (path1, idx1) = sim.get_merkle_path_and_index(&coin1).expect("no path");
     let (path2, idx2) = sim.get_merkle_path_and_index(&coin2).expect("no path");
 
@@ -276,7 +276,7 @@ async fn test_ring_spend_rejects_deflation() {
         (&coin2, deflation_puzzle, &[][..], &secrets2, path2, idx2),
     ];
 
-    let result = Spender::create_ring_spend(coins, merkle_root);
+    let result = Spender::create_ring_spend(coins, merkle_root, None, vec![]);
 
     match result {
         Ok(_) => {

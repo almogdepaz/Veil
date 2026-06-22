@@ -2,7 +2,7 @@
 
 use clvm_zk_core::coin_commitment::{CoinCommitment, CoinSecrets, XCH_TAIL};
 use clvm_zk_core::merkle::SparseMerkleTree;
-use clvm_zk_core::{Input, ProgramParameter, SerialCommitmentData, ZKClvmResult};
+use clvm_zk_core::{CoinMode, Input, ProgramParameter, SerialCommitmentData, ZKClvmResult};
 use clvm_zk_risc0::{RecursiveAggregator, Risc0Backend};
 use sha2::{Digest, Sha256};
 
@@ -54,19 +54,21 @@ fn generate_test_proof(
     let input = Input {
         chialisp_source: program.to_string(),
         program_parameters: params.to_vec(),
-        serial_commitment_data: Some(SerialCommitmentData {
+        coin_mode: CoinMode::Spend(SerialCommitmentData {
             serial_number,
             serial_randomness,
             merkle_path: merkle_proof.path,
             coin_commitment: *coin_commitment.as_bytes(),
             serial_commitment: *serial_commitment.as_bytes(),
             merkle_root,
-            leaf_index,
+            leaf_index: leaf_index as u64,
             program_hash,
             amount,
         }),
         tail_hash: None, // XCH by default
         additional_coins: None,
+        tail_source: None,
+        tail_params: vec![],
     };
 
     backend

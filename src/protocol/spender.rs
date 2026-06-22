@@ -7,6 +7,7 @@ pub struct Spender;
 
 impl Spender {
     /// spend a coin by proving knowledge of secrets and merkle membership
+    #[allow(clippy::too_many_arguments)]
     pub fn create_spend_with_serial(
         coin: &PrivateCoin,
         puzzle_code: &str,
@@ -15,6 +16,8 @@ impl Spender {
         merkle_path: Vec<[u8; 32]>,
         merkle_root: [u8; 32],
         leaf_index: usize,
+        tail_source: Option<String>,
+        tail_params: Vec<ProgramParameter>,
     ) -> Result<PrivateSpendBundle, ProtocolError> {
         coin.validate()
             .map_err(|e| ProtocolError::ProofGenerationFailed(format!("invalid coin: {e}")))?;
@@ -46,6 +49,8 @@ impl Spender {
             coin.puzzle_hash,
             coin.amount,
             tail_hash,
+            tail_source,
+            tail_params,
         )
         .map_err(|e| ProtocolError::ProofGenerationFailed(format!("zk proof failed: {e}")))?;
 
@@ -84,6 +89,8 @@ impl Spender {
             usize,         // leaf_index
         )>,
         merkle_root: [u8; 32],
+        tail_source: Option<String>,
+        tail_params: Vec<ProgramParameter>,
     ) -> Result<PrivateSpendBundle, ProtocolError> {
         // debug logging only enabled via RUST_LOG or similar
         #[cfg(feature = "debug-logging")]
@@ -200,11 +207,16 @@ impl Spender {
                     coin_commitment: coin_commitment.0,
                     serial_commitment: coin.serial_commitment.0,
                     merkle_root,
-                    leaf_index: *leaf_index,
+                    leaf_index: *leaf_index as u64,
                     program_hash: coin.puzzle_hash,
                     amount: coin.amount,
                 },
                 tail_hash: coin.tail_hash,
+                // all ring coins share the same TAIL — the ring balance check
+                // (enforce_ring_balance) guarantees all coins have the same tail_hash,
+                // so they all authorize under the same TAIL program.
+                tail_source: tail_source.clone(),
+                tail_params: tail_params.clone(),
             });
         }
 
@@ -215,7 +227,7 @@ impl Spender {
             coin_commitment: primary_coin_commitment.0,
             serial_commitment: primary_coin.serial_commitment.0,
             merkle_root,
-            leaf_index: *primary_leaf_idx,
+            leaf_index: *primary_leaf_idx as u64,
             program_hash: primary_coin.puzzle_hash,
             amount: primary_coin.amount,
         };
@@ -226,6 +238,8 @@ impl Spender {
             primary_serial_data,
             tail_hash,
             additional_coins,
+            tail_source,
+            tail_params,
         )
         .map_err(|e| ProtocolError::ProofGenerationFailed(format!("zk ring proof failed: {e}")))?;
 
@@ -262,6 +276,7 @@ impl Spender {
     ///
     /// # v2.0 coin commitments
     /// uses v2.0 format with tail_hash for CAT support
+    #[allow(clippy::too_many_arguments)]
     pub fn create_conditional_spend(
         coin: &PrivateCoin,
         puzzle_code: &str,
@@ -270,6 +285,8 @@ impl Spender {
         merkle_path: Vec<[u8; 32]>,
         merkle_root: [u8; 32],
         leaf_index: usize,
+        tail_source: Option<String>,
+        tail_params: Vec<ProgramParameter>,
     ) -> Result<PrivateSpendBundle, ProtocolError> {
         coin.validate()
             .map_err(|e| ProtocolError::ProofGenerationFailed(format!("invalid coin: {e}")))?;
@@ -301,6 +318,8 @@ impl Spender {
             coin.puzzle_hash,
             coin.amount,
             tail_hash,
+            tail_source,
+            tail_params,
         )
         .map_err(|e| ProtocolError::ProofGenerationFailed(format!("zk proof failed: {e}")))?;
 

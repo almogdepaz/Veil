@@ -2,6 +2,10 @@ use crate::protocol::PrivateCoin;
 use crate::simulator::{CLVMZkSimulator, CoinMetadata, CoinType};
 use crate::wallet::{CLVMHDWallet, Network, WalletError};
 use crate::{ClvmZkError, ClvmZkProver, ProgramParameter};
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    ChaCha20Poly1305, Key, Nonce,
+};
 use clap::{Parser, Subcommand};
 use clvm_zk_core::compile_chialisp_template_hash_default;
 use clvm_zk_core::{atom_to_number, ClvmParser};
@@ -11,6 +15,47 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
+
+/// Decrypt a stealth nonce blob encrypted by `encrypt_stealth_nonce` in the simulator.
+///
+/// Accepts:
+/// - 92-byte encrypted blob (PR4+): ephemeral_pubkey(32) || chacha_nonce(12) || ciphertext+tag(48)
+/// - 32-byte plaintext (legacy, pre-PR4 state files)
+///
+/// Returns `None` on decryption failure (wrong key, corrupted blob, or not our coin).
+fn decrypt_stealth_nonce(encrypted: &[u8], private_key: &[u8; 32]) -> Option<[u8; 32]> {
+    match encrypted.len() {
+        92 => {
+            let ephemeral_pub = X25519PublicKey::from(<[u8; 32]>::try_from(&encrypted[..32]).ok()?);
+            let chacha_nonce = &encrypted[32..44];
+            let ciphertext = &encrypted[44..]; // 48 bytes: 32 plaintext + 16 AEAD tag
+
+            let static_secret = StaticSecret::from(*private_key);
+            let shared = static_secret.diffie_hellman(&ephemeral_pub);
+            let key_bytes = Sha256::digest(shared.as_bytes());
+            let cipher = ChaCha20Poly1305::new(Key::from_slice(key_bytes.as_slice()));
+
+            let plaintext = cipher
+                .decrypt(Nonce::from_slice(chacha_nonce), ciphertext)
+                .ok()?;
+            if plaintext.len() == 32 {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&plaintext);
+                Some(arr)
+            } else {
+                None
+            }
+        }
+        32 => {
+            // backwards compat: pre-PR4 plaintext nonce stored directly
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(encrypted);
+            Some(arr)
+        }
+        _ => None,
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "clvm-zk")]
@@ -205,6 +250,20 @@ pub enum SimAction {
     /// List pending offers
     #[command(name = "offer-list")]
     OfferList,
+    /// Mint new CAT tokens using a TAIL program
+    Mint {
+        /// Wallet name to receive the minted coins
+        wallet: String,
+        /// TAIL program source (Chialisp). e.g. "(mod () 1)" for unlimited mint.
+        #[arg(long)]
+        tail: String,
+        /// Amount to mint
+        #[arg(long)]
+        amount: u64,
+        /// Wallet coin index of the genesis coin (optional, for single-issuance TAILs)
+        #[arg(long)]
+        genesis_coin: Option<usize>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -758,6 +817,8 @@ struct SimulatorState {
     simulator: CLVMZkSimulator,
     #[serde(default)]
     pending_offers: Vec<StoredOffer>,
+    #[serde(default)]
+    next_offer_id: usize,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -779,6 +840,9 @@ struct StoredOffer {
     offered_tail_hash: [u8; 32], // asset type maker is offering
     #[serde(default)]
     requested_tail_hash: [u8; 32], // asset type maker is requesting
+    // maker's change puzzle program (stored at offer creation, used verbatim at settlement)
+    #[serde(default)]
+    change_program: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -800,6 +864,10 @@ struct WalletData {
     note_encryption_public: Option<[u8; 32]>,
     #[serde(default)]
     note_encryption_private: Option<[u8; 32]>,
+    /// FIX-04: per-recipient stealth nonce counter (keyed by recipient view pubkey hex)
+    /// prevents nonce reuse when sending multiple payments to the same recipient
+    #[serde(default)]
+    nonce_counter: HashMap<String, u32>,
 }
 
 /// wrapper around WalletPrivateCoin with additional CLI-specific state
@@ -811,6 +879,9 @@ struct WalletCoinWrapper {
     program: String,
     /// whether this coin has been spent
     spent: bool,
+    /// TAIL program source for CAT coins (None for XCH)
+    #[serde(default)]
+    tail_source: Option<String>,
 }
 
 impl WalletCoinWrapper {
@@ -893,6 +964,7 @@ impl WalletData {
             wallet_coin,
             program,
             spent: false,
+            tail_source: None,
         })
     }
 }
@@ -965,6 +1037,7 @@ impl SimulatorState {
             spend_bundles: Vec::new(),
             simulator: CLVMZkSimulator::new(),
             pending_offers: Vec::new(),
+            next_offer_id: 0,
         }
     }
 
@@ -1106,6 +1179,15 @@ fn run_simulator_command(data_dir: &Path, action: SimAction) -> Result<(), ClvmZ
         SimAction::OfferList => {
             offer_list_command(data_dir)?;
         }
+
+        SimAction::Mint {
+            wallet,
+            tail,
+            amount,
+            genesis_coin,
+        } => {
+            mint_command(data_dir, &wallet, &tail, amount, genesis_coin)?;
+        }
     }
 
     Ok(())
@@ -1204,6 +1286,143 @@ fn faucet_command(
     Ok(())
 }
 
+fn mint_command(
+    data_dir: &Path,
+    wallet_name: &str,
+    tail_source: &str,
+    amount: u64,
+    genesis_coin_index: Option<usize>,
+) -> Result<(), ClvmZkError> {
+    let mut state = SimulatorState::load(data_dir)?;
+
+    if !state.wallets.contains_key(wallet_name) {
+        return Err(ClvmZkError::InvalidProgram(format!(
+            "wallet '{}' not found. create it first with: sim wallet {} create",
+            wallet_name, wallet_name
+        )));
+    }
+
+    // generate random output secrets
+    let mut output_serial = [0u8; 32];
+    let mut output_rand = [0u8; 32];
+    thread_rng().fill_bytes(&mut output_serial);
+    thread_rng().fill_bytes(&mut output_rand);
+
+    // output coin gets a faucet puzzle
+    let (puzzle_source, output_puzzle_hash) = create_faucet_puzzle(amount);
+
+    // extract genesis_coin if requested
+    let genesis_spend: Option<clvm_zk_core::GenesisSpend> = if let Some(idx) = genesis_coin_index {
+        let wallet = state.wallets.get(wallet_name).unwrap();
+        let unspent: Vec<&WalletCoinWrapper> =
+            wallet.coins.iter().filter(|c| !c.spent).collect();
+
+        if idx >= unspent.len() {
+            return Err(ClvmZkError::InvalidProgram(format!(
+                "genesis coin index {} out of range (0-{})",
+                idx,
+                unspent.len().saturating_sub(1)
+            )));
+        }
+        let genesis_wrapper = unspent[idx];
+        let private_coin = genesis_wrapper.to_private_coin();
+        let secrets = genesis_wrapper.secrets();
+
+        let (merkle_path, leaf_index) = state
+            .simulator
+            .get_merkle_path_and_index(&private_coin)
+            .ok_or_else(|| {
+                ClvmZkError::InvalidProgram("genesis coin not found in merkle tree".to_string())
+            })?;
+
+        let merkle_root = state.simulator.get_merkle_root();
+
+        let serial_commitment_bytes = *private_coin.serial_commitment.as_bytes();
+        let coin_commitment = clvm_zk_core::coin_commitment::CoinCommitment::compute(
+            &private_coin.tail_hash,
+            private_coin.amount,
+            &private_coin.puzzle_hash,
+            &private_coin.serial_commitment,
+            crate::crypto_utils::hash_data_default,
+        );
+
+        Some(clvm_zk_core::GenesisSpend {
+            serial_number: secrets.serial_number,
+            serial_randomness: secrets.serial_randomness,
+            puzzle_hash: private_coin.puzzle_hash,
+            amount: private_coin.amount,
+            tail_hash: private_coin.tail_hash,
+            serial_commitment: serial_commitment_bytes,
+            coin_commitment: coin_commitment.0,
+            merkle_path,
+            merkle_root,
+            leaf_index: leaf_index as u64,
+        })
+    } else {
+        None
+    };
+
+    // call mint_cat on simulator
+    let (coin_commitment, confirmed_tail_hash) = state
+        .simulator
+        .mint_cat(
+            tail_source,
+            vec![],
+            output_puzzle_hash,
+            &puzzle_source,
+            amount,
+            output_serial,
+            output_rand,
+            genesis_spend,
+        )
+        .map_err(|e| ClvmZkError::InvalidProgram(format!("mint failed: {}", e)))?;
+
+    // construct WalletPrivateCoin with the known secrets
+    let serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
+        &output_serial,
+        &output_rand,
+        crate::crypto_utils::hash_data_default,
+    );
+    let private_coin = crate::protocol::PrivateCoin::new_with_tail(
+        output_puzzle_hash,
+        amount,
+        serial_commitment,
+        confirmed_tail_hash,
+    );
+    let secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(output_serial, output_rand);
+    let wallet_private_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
+        coin: private_coin,
+        secrets,
+        account_index: state.wallets[wallet_name].account_index,
+        coin_index: 0,
+    };
+
+    let minted_wrapper = WalletCoinWrapper {
+        wallet_coin: wallet_private_coin,
+        program: puzzle_source,
+        spent: false,
+        tail_source: Some(tail_source.to_string()),
+    };
+
+    state
+        .wallets
+        .get_mut(wallet_name)
+        .unwrap()
+        .coins
+        .push(minted_wrapper);
+
+    state.save(data_dir)?;
+
+    println!(
+        "minted {} CAT (tail: {}) → commitment {}",
+        amount,
+        hex::encode(confirmed_tail_hash),
+        hex::encode(coin_commitment)
+    );
+
+    Ok(())
+}
+
 fn wallet_command(data_dir: &Path, name: &str, action: WalletAction) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
@@ -1256,6 +1475,7 @@ fn wallet_command(data_dir: &Path, name: &str, action: WalletAction) -> Result<(
                 stealth_spend_pubkey: Some(stealth_address.spend_pubkey.to_vec()),
                 note_encryption_public: Some(note_encryption_public),
                 note_encryption_private: Some(note_encryption_private),
+                nonce_counter: HashMap::new(),
             };
 
             state.wallets.insert(name.to_string(), wallet);
@@ -1623,8 +1843,8 @@ fn send_command(
             if amount > 0 {
                 let to_wallet = state.wallets.get_mut(to).unwrap();
 
-                // Get recipient's stealth address
-                let recipient_stealth = {
+                // Get recipient's stealth address and note encryption pubkey
+                let (recipient_stealth, recipient_enc_pubkey) = {
                     let view_pub = to_wallet.stealth_view_pubkey.as_ref().ok_or_else(|| {
                         ClvmZkError::InvalidProgram(format!(
                             "recipient wallet '{}' has no stealth address (old wallet, recreate it)",
@@ -1634,6 +1854,12 @@ fn send_command(
                     let spend_pub = to_wallet.stealth_spend_pubkey.as_ref().ok_or_else(|| {
                         ClvmZkError::InvalidProgram(format!(
                             "recipient wallet '{}' has no stealth address",
+                            to
+                        ))
+                    })?;
+                    let enc_pub = to_wallet.note_encryption_public.ok_or_else(|| {
+                        ClvmZkError::InvalidProgram(format!(
+                            "recipient wallet '{}' has no note encryption key (old wallet, recreate it)",
                             to
                         ))
                     })?;
@@ -1651,10 +1877,13 @@ fn send_command(
                     } else {
                         spend_arr.copy_from_slice(&spend_pub[..32]);
                     }
-                    crate::wallet::StealthAddress {
-                        view_pubkey: view_arr,
-                        spend_pubkey: spend_arr,
-                    }
+                    (
+                        crate::wallet::StealthAddress {
+                            view_pubkey: view_arr,
+                            spend_pubkey: spend_arr,
+                        },
+                        enc_pub,
+                    )
                 };
 
                 // create stealth payment (nullifier mode) - derives shared_secret via hash
@@ -1667,9 +1896,20 @@ fn send_command(
                 let sender_account = sender_hd.derive_account(0).map_err(|e| {
                     ClvmZkError::InvalidProgram(format!("account derivation error: {}", e))
                 })?;
+
+                // FIX-04: per-recipient nonce counter — prevents nonce reuse on repeated sends
+                let nonce_index: u32 = {
+                    let recipient_key = hex::encode(recipient_stealth.view_pubkey);
+                    let from_w = state.wallets.get_mut(from).unwrap();
+                    let counter = from_w.nonce_counter.entry(recipient_key).or_insert(0u32);
+                    let idx = *counter;
+                    *counter += 1;
+                    idx
+                };
+
                 let stealth_payment = crate::wallet::create_stealth_payment_hd(
                     &sender_account.stealth_keys,
-                    0, // nonce_index
+                    nonce_index,
                     &recipient_stealth,
                 );
 
@@ -1685,7 +1925,7 @@ fn send_command(
                 let coin =
                     crate::protocol::PrivateCoin::new(puzzle_hash, amount, serial_commitment);
 
-                // add coin to global simulator state with stealth nonce and puzzle_source
+                // add coin to global simulator state with encrypted stealth nonce
                 state.simulator.add_coin_with_stealth_nonce(
                     coin,
                     &secrets,
@@ -1696,6 +1936,7 @@ fn send_command(
                         coin_type: CoinType::Regular,
                         notes: format!("stealth payment from {} (nullifier mode)", from),
                     },
+                    recipient_enc_pubkey,
                 );
 
                 // NOTE: coin is NOT added to recipient's wallet directly
@@ -1757,8 +1998,8 @@ fn send_command(
 fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
-    // Get wallet and derive stealth view key
-    let (view_key, existing_puzzle_hashes) = {
+    // Get wallet and derive stealth view key + note decryption key
+    let (view_key, note_enc_private, existing_serial_commitments) = {
         let wallet = state.wallets.get(wallet_name).ok_or_else(|| {
             ClvmZkError::InvalidProgram(format!("wallet '{}' not found", wallet_name))
         })?;
@@ -1772,11 +2013,22 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
 
         let view_key = account_keys.stealth_keys.view_only();
 
-        // Get existing puzzle hashes to avoid duplicates
-        let existing: std::collections::HashSet<[u8; 32]> =
-            wallet.coins.iter().map(|c| c.puzzle_hash()).collect();
+        let note_enc_private = wallet.note_encryption_private.ok_or_else(|| {
+            ClvmZkError::InvalidProgram(format!(
+                "wallet '{}' has no note encryption key (old wallet, recreate it)",
+                wallet_name
+            ))
+        })?;
 
-        (view_key, existing)
+        // FIX-05: dedup by serial_commitment (unique per coin), not puzzle_hash
+        // (multiple coins can share the same puzzle hash, e.g. faucet puzzle)
+        let existing: std::collections::HashSet<[u8; 32]> = wallet
+            .coins
+            .iter()
+            .map(|c| *c.wallet_coin.coin.serial_commitment.as_bytes())
+            .collect();
+
+        (view_key, note_enc_private, existing)
     };
 
     // Get stealth-scannable coins from simulator (now returns nonces instead of ephemeral pubkeys)
@@ -1791,21 +2043,27 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
     let mut found_count = 0;
     let mut total_amount = 0u64;
 
-    for (puzzle_hash, nonce, info) in &scannable_coins {
-        // Skip if already in wallet
-        if existing_puzzle_hashes.contains(*puzzle_hash) {
+    for (puzzle_hash, nonce_blob, info) in &scannable_coins {
+        // decrypt the stealth nonce — failure means coin is not addressed to us
+        let nonce = match decrypt_stealth_nonce(nonce_blob, &note_enc_private) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        // confirm ownership via stealth key derivation
+        let scanned = match view_key.try_scan_with_nonce(puzzle_hash, &nonce) {
+            Some(s) => s,
+            None => continue, // not our coin
+        };
+
+        // F-05: dedup check AFTER ownership confirmed — avoids false-positive skips
+        if existing_serial_commitments.contains(info.coin.serial_commitment.as_bytes()) {
             println!(
                 "  found coin {} (already in wallet, skipping)",
                 hex::encode(&puzzle_hash[..4])
             );
             continue;
         }
-
-        // try to scan this coin with the nonce
-        let scanned = match view_key.try_scan_with_nonce(puzzle_hash, nonce) {
-            Some(s) => s,
-            None => continue, // not our coin
-        };
 
         // found a coin!
         let coin_info = Some(*info);
@@ -1837,6 +2095,7 @@ fn scan_command(data_dir: &Path, wallet_name: &str) -> Result<(), ClvmZkError> {
                 wallet_coin,
                 program,
                 spent: false,
+                tail_source: None,
             };
 
             // Add to wallet
@@ -2340,8 +2599,9 @@ fn offer_create_command(
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut change_serial);
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut change_rand);
 
-    // use delegated puzzle for maker's change
-    let (_, change_puzzle) = crate::protocol::create_delegated_puzzle()?;
+    // use delegated puzzle for maker's change — capture code once for proof + storage
+    let (delegated_code, change_puzzle) = crate::protocol::create_delegated_puzzle()?;
+    let delegated_hash = change_puzzle;
 
     // get settlement assertion puzzle
     let (_assertion_program, _assertion_hash) =
@@ -2359,9 +2619,6 @@ fn offer_create_command(
         &change_serial,
         &change_rand,
     );
-
-    // get delegated puzzle (settlement-specific - directly embeds assertion logic)
-    let (delegated_code, delegated_hash) = crate::protocol::create_delegated_puzzle()?;
 
     // verify coin uses delegated puzzle
     if spend_coin.puzzle_hash() != delegated_hash {
@@ -2381,10 +2638,7 @@ fn offer_create_command(
         .get_merkle_path_and_index(&spend_coin.to_private_coin())
         .ok_or_else(|| ClvmZkError::InvalidProgram("coin not in merkle tree".to_string()))?;
 
-    let merkle_root = state
-        .simulator
-        .get_merkle_root()
-        .ok_or_else(|| ClvmZkError::InvalidProgram("merkle tree has no root".to_string()))?;
+    let merkle_root = state.simulator.get_merkle_root();
 
     // create conditional spend proof using delegated puzzle
     let conditional_proof = crate::protocol::Spender::create_conditional_spend(
@@ -2395,6 +2649,8 @@ fn offer_create_command(
         merkle_path,
         merkle_root,
         leaf_index,
+        None, // XCH spend: no TAIL required
+        vec![],
     )
     .map_err(|e| ClvmZkError::InvalidProgram(format!("conditional proof failed: {:?}", e)))?;
 
@@ -2410,8 +2666,9 @@ fn offer_create_command(
 
     // change secrets are stored in StoredOffer and added to maker's wallet during offer-take
 
-    // store the offer
-    let offer_id = state.pending_offers.len();
+    // store the offer — F-02: monotonic ID, never reused after removal
+    let offer_id = state.next_offer_id;
+    state.next_offer_id += 1;
     state.pending_offers.push(StoredOffer {
         id: offer_id,
         maker: maker_name.to_string(),
@@ -2426,6 +2683,7 @@ fn offer_create_command(
         change_rand,
         offered_tail_hash: spend_coin.to_private_coin().tail_hash,
         requested_tail_hash,
+        change_program: delegated_code, // F-01: store at creation, use verbatim at settlement
     });
 
     state.save(data_dir)?;
@@ -2459,12 +2717,13 @@ fn offer_take_command(
 ) -> Result<(), ClvmZkError> {
     let mut state = SimulatorState::load(data_dir)?;
 
-    // get offer
-    if offer_id >= state.pending_offers.len() {
-        return Err(ClvmZkError::InvalidProgram("offer not found".to_string()));
-    }
-
-    let offer = state.pending_offers[offer_id].clone();
+    // FIX-02: find offer by stored ID (not vec index) — stable against concurrent removal
+    let offer_pos = state
+        .pending_offers
+        .iter()
+        .position(|o| o.id == offer_id)
+        .ok_or_else(|| ClvmZkError::InvalidProgram(format!("offer {} not found", offer_id)))?;
+    let offer = state.pending_offers[offer_pos].clone();
 
     // get taker wallet
     let wallet = state
@@ -2519,9 +2778,12 @@ fn offer_take_command(
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut change_serial);
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut change_rand);
 
-    // use faucet puzzle for taker's goods and change
-    let (_, taker_goods_puzzle) = create_faucet_puzzle(offer.offered);
-    let (_, taker_change_puzzle) = create_faucet_puzzle(offer.offered);
+    // faucet puzzle for taker's received coins — capture program source for spendability
+    let (taker_goods_program, taker_goods_puzzle) = create_faucet_puzzle(offer.offered);
+    let (taker_change_program, taker_change_puzzle) = create_faucet_puzzle(offer.offered);
+
+    // F-01: use program captured at offer creation — no re-derivation, immune to puzzle changes
+    let maker_change_program = offer.change_program.clone();
 
     // get merkle path for taker's coin
     let (merkle_path, leaf_index) = state
@@ -2529,10 +2791,7 @@ fn offer_take_command(
         .get_merkle_path_and_index(&taker_coin.to_private_coin())
         .ok_or_else(|| ClvmZkError::InvalidProgram("coin not in merkle tree".to_string()))?;
 
-    let merkle_root = state
-        .simulator
-        .get_merkle_root()
-        .ok_or_else(|| ClvmZkError::InvalidProgram("merkle tree has no root".to_string()))?;
+    let merkle_root = state.simulator.get_merkle_root();
 
     // create settlement proof parameters
     let settlement_params = crate::protocol::SettlementParams {
@@ -2556,6 +2815,9 @@ fn offer_take_command(
         taker_tail_hash: taker_coin.to_private_coin().tail_hash,
         // goods (what taker receives) match maker's offered asset type
         goods_tail_hash: offer.offered_tail_hash,
+        // F-07: use tail_source from taker's coin; XCH coins have None
+        taker_tail_source: taker_coin.tail_source.clone(),
+        taker_tail_params: vec![],
     };
 
     // generate settlement proof
@@ -2671,8 +2933,19 @@ fn offer_take_command(
         println!("✅ both proofs verified concurrently");
     }
 
+    // NM-002: assert maker pubkey from proof matches stored offer (prevents tampered offer metadata)
+    if settlement_proof.output.maker_pubkey != offer.maker_pubkey {
+        return Err(ClvmZkError::InvalidProgram(
+            "maker_pubkey mismatch: settlement proof output does not match stored offer"
+                .to_string(),
+        ));
+    }
+
     // process settlement output: add nullifiers and commitments to simulator state
-    state.simulator.process_settlement(&settlement_proof.output);
+    state
+        .simulator
+        .process_settlement(&settlement_proof.output)
+        .map_err(|e| ClvmZkError::InvalidProgram(format!("settlement double-spend: {e}")))?;
 
     println!("   added 2 nullifiers and 4 commitments to state");
 
@@ -2691,44 +2964,30 @@ fn offer_take_command(
     let goods_amount = offer.offered;
     let change_amount = taker_coin.amount() - offer.requested;
 
-    // create 3 coins for taker's wallet
+    // NM-001: taker receives 2 coins (goods + change); payment goes to maker — do NOT add here.
     let taker_wallet = state.wallets.get_mut(taker_name).unwrap();
 
-    // 1. payment coin (taker → maker, asset B)
-    let payment_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
-        &payment_serial,
-        &payment_rand,
-        crate::crypto_utils::hash_data_default,
-    );
-    let payment_coin = crate::protocol::PrivateCoin::new(
-        payment_puzzle,
-        payment_amount,
-        payment_serial_commitment,
-    );
-    let payment_secrets =
-        clvm_zk_core::coin_commitment::CoinSecrets::new(payment_serial, payment_rand);
-    let payment_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
-        coin: payment_coin,
-        secrets: payment_secrets,
-        account_index: 0, // non-HD coin
-        coin_index: 0,
-    };
-    taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
-        wallet_coin: payment_wallet_coin,
-        program: "(mod () (q . ()))".to_string(), // placeholder program
-        spent: false,
-    });
+    // FIX-06: mark taker's spent coin as spent
+    let spent_serial = taker_coin.wallet_coin.coin.serial_commitment;
+    for w in &mut taker_wallet.coins {
+        if w.wallet_coin.coin.serial_commitment == spent_serial {
+            w.spent = true;
+            break;
+        }
+    }
 
-    // 2. goods coin (maker → taker, asset A)
+    // 1. goods coin (maker → taker, asset A — taker receives offered goods)
     let goods_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
         &goods_serial,
         &goods_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let goods_coin = crate::protocol::PrivateCoin::new(
+    // NM-001: correct tail_hash = offered asset type (maker's asset)
+    let goods_coin = crate::protocol::PrivateCoin::new_with_tail(
         taker_goods_puzzle,
         goods_amount,
         goods_serial_commitment,
+        offer.offered_tail_hash,
     );
     let goods_secrets = clvm_zk_core::coin_commitment::CoinSecrets::new(goods_serial, goods_rand);
     let goods_wallet_coin = crate::wallet::hd_wallet::WalletPrivateCoin {
@@ -2737,22 +2996,26 @@ fn offer_take_command(
         account_index: 0,
         coin_index: 0,
     };
+    // NM-001: use actual program source so this coin is spendable
     taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: goods_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),
+        program: taker_goods_program,
         spent: false,
+        tail_source: None,
     });
 
-    // 3. change coin (taker's leftover, asset B)
+    // 2. change coin (taker's leftover, asset B = taker's own asset type)
     let change_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
         &change_serial,
         &change_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let change_coin = crate::protocol::PrivateCoin::new(
+    // NM-001: correct tail_hash = taker's asset type
+    let change_coin = crate::protocol::PrivateCoin::new_with_tail(
         taker_change_puzzle,
         change_amount,
         change_serial_commitment,
+        taker_coin.to_private_coin().tail_hash,
     );
     let change_secrets =
         clvm_zk_core::coin_commitment::CoinSecrets::new(change_serial, change_rand);
@@ -2762,29 +3025,33 @@ fn offer_take_command(
         account_index: 0,
         coin_index: 0,
     };
+    // NM-001: use actual program source so this coin is spendable
     taker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: change_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),
+        program: taker_change_program,
         spent: false,
+        tail_source: None,
     });
 
-    println!("   added 3 coins to taker's wallet (payment, goods, change)");
+    println!("   added 2 coins to taker's wallet (goods, change)");
 
     // 4. add maker's coins to maker's wallet
     let maker_wallet = state.wallets.get_mut(&offer.maker).ok_or_else(|| {
         ClvmZkError::InvalidProgram(format!("maker wallet '{}' not found", offer.maker))
     })?;
 
-    // 4a. maker's change coin (returned to maker, asset A)
+    // 4a. maker's change coin (returned to maker, asset A = offered asset type)
     let maker_change_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
         &offer.change_serial,
         &offer.change_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let maker_change_coin = crate::protocol::PrivateCoin::new(
+    // NM-001: correct tail_hash = maker's offered asset type
+    let maker_change_coin = crate::protocol::PrivateCoin::new_with_tail(
         offer.change_puzzle,
         offer.change_amount,
         maker_change_serial_commitment,
+        offer.offered_tail_hash,
     );
     let maker_change_secrets =
         clvm_zk_core::coin_commitment::CoinSecrets::new(offer.change_serial, offer.change_rand);
@@ -2794,23 +3061,29 @@ fn offer_take_command(
         account_index: 0,
         coin_index: 0,
     };
+    // NM-001: use actual delegated puzzle program so this coin is spendable
     maker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: maker_change_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),
+        program: maker_change_program,
         spent: false,
+        tail_source: None,
     });
 
-    // 4b. maker's payment coin (taker → maker, asset B)
-    // the payment_puzzle was derived via hash-based stealth above, amount is offer.requested
+    // 4b. maker's payment coin (taker → maker, asset B = taker's asset type)
+    // puzzle_hash = sha256("stealth_v1" || maker_pubkey || nonce) — stealth address.
+    // This is NOT a standard Chialisp program hash; spending requires the maker to
+    // decrypt payment_nonce from the transaction and use a stealth-claim mechanism (PR4+).
     let maker_payment_serial_commitment = clvm_zk_core::coin_commitment::SerialCommitment::compute(
         &payment_serial,
         &payment_rand,
         crate::crypto_utils::hash_data_default,
     );
-    let maker_payment_coin = crate::protocol::PrivateCoin::new(
+    // NM-001: correct tail_hash = taker's asset type (what taker paid with)
+    let maker_payment_coin = crate::protocol::PrivateCoin::new_with_tail(
         payment_puzzle,
         payment_amount,
         maker_payment_serial_commitment,
+        taker_coin.to_private_coin().tail_hash,
     );
     let maker_payment_secrets =
         clvm_zk_core::coin_commitment::CoinSecrets::new(payment_serial, payment_rand);
@@ -2820,16 +3093,19 @@ fn offer_take_command(
         account_index: 0,
         coin_index: 0,
     };
+    // NM-001: stealth payment — no standard Chialisp program corresponds to this puzzle hash.
+    // Marked "(stealth)" so wallet display shows it as a received but not-yet-claimable coin.
     maker_wallet.coins.push(crate::cli::WalletCoinWrapper {
         wallet_coin: maker_payment_wallet_coin,
-        program: "(mod () (q . ()))".to_string(),
+        program: "(stealth)".to_string(),
         spent: false,
+        tail_source: None,
     });
 
     println!("   added 2 coins to maker's wallet (change, payment)");
 
-    // 5. remove offer from pending
-    state.pending_offers.remove(offer_id);
+    // 5. remove offer from pending (by position, not by offer_id)
+    state.pending_offers.remove(offer_pos);
 
     state.save(data_dir)?;
 

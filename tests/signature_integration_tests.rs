@@ -1,7 +1,11 @@
-/// Integration tests for signature verification in the simulator
-///
-/// These tests demonstrate that signature verification is properly integrated
-/// into the spend authorization process.
+#![cfg(feature = "testing")]
+
+//! Integration tests for signature verification in the simulator
+//!
+//! These tests demonstrate that signature verification is properly integrated
+//! into the spend authorization process.
+//!
+//! Requires `testing` feature (enabled by default).
 use clvm_zk::simulator::{CLVMZkSimulator, CoinMetadata, CoinType, SimulatedTransaction};
 use clvm_zk::testing_helpers::CoinFactory;
 

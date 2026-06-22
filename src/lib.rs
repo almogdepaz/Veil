@@ -24,7 +24,7 @@ pub mod simulator;
 pub mod testing_helpers;
 pub mod wallet;
 pub use clvm_zk_core::{
-    ClvmResult, ClvmZkError, Input, ProgramParameter, SerialCommitmentData, ZKClvmResult,
+    ClvmResult, ClvmZkError, CoinMode, Input, ProgramParameter, SerialCommitmentData, ZKClvmResult,
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -159,6 +159,8 @@ impl ClvmZkProver {
         program_hash: [u8; 32],
         amount: u64,
         tail_hash: Option<[u8; 32]>,
+        tail_source: Option<String>,
+        tail_params: Vec<ProgramParameter>,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         if parameters.len() > 10 {
             return Err(ClvmZkError::InvalidProgram(
@@ -171,19 +173,21 @@ impl ClvmZkProver {
         let input = Input {
             chialisp_source: expression.to_string(),
             program_parameters: parameters.to_vec(),
-            serial_commitment_data: Some(SerialCommitmentData {
+            coin_mode: CoinMode::Spend(SerialCommitmentData {
                 serial_number: coin_secrets.serial_number,
                 serial_randomness: coin_secrets.serial_randomness,
                 merkle_path,
                 coin_commitment,
                 serial_commitment,
                 merkle_root,
-                leaf_index,
+                leaf_index: leaf_index as u64,
                 program_hash,
                 amount,
             }),
             tail_hash,
             additional_coins: None, // single-coin API
+            tail_source,
+            tail_params,
         };
 
         #[cfg(feature = "risc0")]
@@ -216,6 +220,8 @@ impl ClvmZkProver {
         serial_data: SerialCommitmentData,
         tail_hash: Option<[u8; 32]>,
         additional_coins: Vec<clvm_zk_core::AdditionalCoinInput>,
+        tail_source: Option<String>,
+        tail_params: Vec<ProgramParameter>,
     ) -> Result<ZKClvmResult, ClvmZkError> {
         if parameters.len() > 10 {
             return Err(ClvmZkError::InvalidProgram(
@@ -228,11 +234,35 @@ impl ClvmZkProver {
         let input = Input {
             chialisp_source: expression.to_string(),
             program_parameters: parameters.to_vec(),
-            serial_commitment_data: Some(serial_data),
+            coin_mode: CoinMode::Spend(serial_data),
             tail_hash,
             additional_coins: Some(additional_coins),
+            tail_source,
+            tail_params,
         };
 
+        #[cfg(feature = "risc0")]
+        {
+            let backend = clvm_zk_risc0::Risc0Backend::new()?;
+            return backend.prove_with_input(input);
+        }
+
+        #[cfg(feature = "sp1")]
+        {
+            let backend = clvm_zk_sp1::Sp1Backend::new()?;
+            return backend.prove_with_input(input);
+        }
+
+        #[cfg(feature = "mock")]
+        {
+            let backend = clvm_zk_mock::MockBackend::new()?;
+            backend.prove_with_input(input)
+        }
+    }
+
+    /// prove with a pre-built Input struct (used by mint and other direct-construction paths)
+    #[allow(clippy::needless_return)]
+    pub fn prove_with_input(input: Input) -> Result<ZKClvmResult, ClvmZkError> {
         #[cfg(feature = "risc0")]
         {
             let backend = clvm_zk_risc0::Risc0Backend::new()?;
