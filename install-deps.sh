@@ -5,6 +5,12 @@
 
 set -e  # Exit on any error
 
+RUST_VERSION="1.89.0"
+RISC0_VERSION="3.0.4"
+RISC0_RUST_VERSION="1.88.0"
+SP1_VERSION="v5.2.4"
+SP1_COMMIT="2a51f3d"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -56,139 +62,100 @@ check_system() {
     log_info "Detected architecture: $ARCH"
 }
 
-# Install Rust if not present
+# Install the repository-pinned Rust toolchain without changing the global default.
 install_rust() {
-    if command_exists rustc; then
-        local rust_version=$(rustc --version | cut -d' ' -f2)
-        local major_version=$(echo "$rust_version" | cut -d'.' -f1)
-        local minor_version=$(echo "$rust_version" | cut -d'.' -f2)
-        
-        # Check if Rust version is >= 1.70 (reasonable minimum for modern projects)
-        if [ "$major_version" -gt 1 ] || ([ "$major_version" -eq 1 ] && [ "$minor_version" -ge 70 ]); then
-            log_success "Rust is already installed with adequate version: $(rustc --version)"
-            return 0
-        else
-            log_warning "Rust version $rust_version is outdated, updating..."
-            rustup update stable
-            log_success "Rust updated to: $(rustc --version)"
-            return 0
-        fi
-    fi
-    
-    log_info "Installing Rust..."
-    
-    if [ "$PLATFORM" = "windows" ]; then
-        log_info "Please download and install Rust from: https://rustup.rs/"
-        log_warning "After installing Rust, please restart your terminal and run this script again."
-        exit 1
-    else
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        source "$HOME/.cargo/env"
-        log_success "Rust installed successfully"
-    fi
-}
-
-# Install RISC-V target (force stable)
-install_riscv_target() {
-    log_info "Installing RISC-V target for Rust (stable toolchain)..."
-    
-    if rustup target list --installed --toolchain stable | grep -q "riscv32im-unknown-none-elf"; then
-        log_success "RISC-V target already installed (stable)"
-    else
-        rustup target add riscv32im-unknown-none-elf --toolchain stable
-        log_success "RISC-V target installed successfully (stable)"
-    fi
-}
-
-# Install risc0 toolchain
-install_risc0() {
-    log_info "Checking RISC Zero toolchain..."
-    
-    # Check if risc0 is already properly installed
-    if command_exists rzup && command_exists cargo; then
-        # Try to check if risc0 tools are working
-        if cargo --version >/dev/null 2>&1 && [ -d "$HOME/.risc0" ]; then
-            # Check if risc0 crates can be found
-            if cargo search risc0-zkvm --limit 1 >/dev/null 2>&1 || [ -f "$HOME/.risc0/bin/rzup" ]; then
-                local rzup_version=$(rzup --version 2>/dev/null || echo "unknown")
-                log_success "RISC Zero toolchain already installed: $rzup_version"
-                return 0
-            fi
-        fi
-        
-        log_info "rzup found but incomplete installation, updating..."
-        rzup install
-        log_success "RISC Zero toolchain updated successfully"
-        return 0
-    fi
-    
-    log_info "Installing RISC Zero toolchain..."
-    curl -L https://risczero.com/install | bash
-    export PATH="$HOME/.risc0/bin:$PATH"
-    
-    if command_exists rzup; then
-        rzup install
-        log_success "RISC Zero toolchain installed successfully"
-    else
-        log_error "Failed to install rzup. Please check your internet connection and try again."
-        log_info "You can manually install from: https://dev.risczero.com/api/zkvm/install"
-        exit 1
-    fi
-}
-
-# Install SP1 toolchain (with stable reset)
-install_sp1() {
-    log_info "Checking SP1 toolchain..."
-    
-    # Check if SP1 is already properly installed
-    if command_exists sp1up && command_exists cargo; then
-        if cargo prove --version >/dev/null 2>&1; then
-            local sp1_version=$(sp1up --version 2>/dev/null || echo "unknown")
-            log_success "SP1 toolchain already installed and verified: $sp1_version"
-            return 0
-        fi
-        log_info "sp1up found but incomplete installation, updating..."
-        sp1up
-    else
-        log_info "Installing SP1 toolchain..."
-        curl -L https://sp1.succinct.xyz | bash
-        
-        if [ -f "$HOME/.bashrc" ]; then
-            source "$HOME/.bashrc"
-        elif [ -f "$HOME/.zshrc" ]; then
-            source "$HOME/.zshrc"
-        fi
-        
-        export PATH="$HOME/.sp1/bin:$PATH"
-        
-        if command_exists sp1up; then
-            sp1up
-        else
-            log_error "Failed to install sp1up..."
+    if ! command_exists rustup; then
+        if [ "$PLATFORM" = "windows" ]; then
+            log_error "Install rustup from https://rustup.rs/ and rerun this script."
             exit 1
         fi
+
+        log_info "Installing rustup..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        # shellcheck source=/dev/null
+        source "$HOME/.cargo/env"
     fi
-    
-    # sleep 2
-    
-    # if command_exists rustup; then
-    #     log_info "Resetting Rust toolchain to stable..."
-    #     rustup toolchain install stable || true
-    #     rustup override unset || true
-    #     rustup default stable || {
-    #         log_warning "Could not set stable as default toolchain, but SP1 should still work"
-    #     }
-    #     local current_toolchain=$(rustup show active-toolchain 2>/dev/null | cut -d' ' -f1 || echo "unknown")
-    #     log_info "Active Rust toolchain: $current_toolchain"
-    # fi
-    
-    # if command_exists cargo && cargo prove --version >/dev/null 2>&1; then
-    #     log_success "SP1 toolchain installed and verified successfully"
-    # elif [ -f "$HOME/.sp1/bin/cargo-prove" ]; then
-    #     log_success "SP1 toolchain installed successfully (cargo-prove available in ~/.sp1/bin/)"
-    # else
-    #     log_warning "SP1 installed but cargo-prove not found in PATH. You may need to restart your shell."
-    # fi
+
+    log_info "Installing Rust $RUST_VERSION with rustfmt and clippy..."
+    rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt --component clippy
+    log_success "Rust toolchain ready: $(rustc +"$RUST_VERSION" --version)"
+}
+
+# Install the host-side RISC-V target on the pinned repository toolchain.
+install_riscv_target() {
+    log_info "Installing RISC-V target for Rust $RUST_VERSION..."
+
+    if rustup target list --installed --toolchain "$RUST_VERSION" | grep -q "riscv32im-unknown-none-elf"; then
+        log_success "RISC-V target already installed ($RUST_VERSION)"
+    else
+        rustup target add riscv32im-unknown-none-elf --toolchain "$RUST_VERSION"
+        log_success "RISC-V target installed successfully ($RUST_VERSION)"
+    fi
+}
+
+# Install the exact RISC Zero host, VM, and guest Rust components.
+install_risc0() {
+    log_info "Installing RISC Zero $RISC0_VERSION..."
+
+    if ! command_exists rzup; then
+        curl --proto '=https' --tlsv1.2 -sSfL https://risczero.com/install | bash
+        export PATH="$HOME/.risc0/bin:$PATH"
+    fi
+
+    if ! command_exists rzup; then
+        log_error "Failed to install rzup."
+        exit 1
+    fi
+
+    # rzup uses this token only for GitHub API rate limits in this process.
+    if [ -z "${GITHUB_TOKEN:-}" ] && command_exists gh; then
+        GITHUB_TOKEN=$(gh auth token 2>/dev/null || true)
+        export GITHUB_TOKEN
+    fi
+
+    if ! rzup default cargo-risczero "$RISC0_VERSION"; then
+        rzup install cargo-risczero "$RISC0_VERSION"
+    fi
+    if ! rzup default r0vm "$RISC0_VERSION"; then
+        rzup install r0vm "$RISC0_VERSION"
+    fi
+    if ! rzup default rust "$RISC0_RUST_VERSION"; then
+        rzup install rust "$RISC0_RUST_VERSION"
+    fi
+
+    rzup default cargo-risczero "$RISC0_VERSION"
+    rzup default r0vm "$RISC0_VERSION"
+    rzup default rust "$RISC0_RUST_VERSION"
+
+    log_success "RISC Zero ready: $(cargo risczero --version)"
+}
+
+# Install the exact SP1 release used by the workspace crates.
+install_sp1() {
+    log_info "Installing SP1 $SP1_VERSION..."
+
+    if ! command_exists sp1up; then
+        curl --proto '=https' --tlsv1.2 -sSfL https://sp1.succinct.xyz | bash
+        export PATH="$HOME/.sp1/bin:$PATH"
+    fi
+
+    if ! command_exists sp1up; then
+        log_error "Failed to install sp1up."
+        exit 1
+    fi
+
+    local installed
+    installed=$(cargo prove --version 2>/dev/null || true)
+    if [[ "$installed" != *"$SP1_COMMIT"* ]]; then
+        sp1up --version "$SP1_VERSION"
+        installed=$(cargo prove --version)
+    fi
+    if [[ "$installed" != *"$SP1_COMMIT"* ]]; then
+        log_error "Expected SP1 $SP1_VERSION ($SP1_COMMIT), found: $installed"
+        exit 1
+    fi
+
+    log_success "SP1 ready: $installed"
 }
 
 # Check if package is installed (Linux)
@@ -315,31 +282,32 @@ install_system_deps() {
 verify_installation() {
     log_info "Verifying installation..."
     
-    if command_exists rustc && command_exists cargo; then
+    if command_exists rustc && command_exists cargo && [[ "$(rustc --version)" == "rustc $RUST_VERSION "* ]]; then
         log_success "✓ Rust: $(rustc --version)"
     else
-        log_error "✗ Rust installation failed"
+        log_error "✗ Expected Rust $RUST_VERSION, found: $(rustc --version 2>/dev/null || echo missing)"
         return 1
     fi
-    
-    if rustup target list --installed --toolchain stable | grep -q "riscv32im-unknown-none-elf"; then
-        log_success "✓ RISC-V target (stable): riscv32im-unknown-none-elf"
+
+    if rustup target list --installed --toolchain "$RUST_VERSION" | grep -q "riscv32im-unknown-none-elf"; then
+        log_success "✓ RISC-V target ($RUST_VERSION): riscv32im-unknown-none-elf"
     else
-        log_error "✗ RISC-V target not installed"
+        log_error "✗ RISC-V target not installed for Rust $RUST_VERSION"
         return 1
     fi
-    
-    if command_exists rzup; then
-        log_success "✓ RISC Zero toolchain: $(rzup --version 2>/dev/null || echo 'installed')"
+
+    if command_exists rzup && [[ "$(cargo risczero --version)" == "cargo-risczero $RISC0_VERSION" ]]; then
+        log_success "✓ RISC Zero toolchain: $(cargo risczero --version)"
     else
-        log_error "✗ RISC Zero toolchain not found"
+        log_error "✗ Expected cargo-risczero $RISC0_VERSION"
         return 1
     fi
-    
-    if command_exists sp1up; then
-        log_success "✓ SP1 toolchain: $(sp1up --version 2>/dev/null || echo 'installed')"
+
+    if command_exists sp1up && [[ "$(cargo prove --version)" == *"$SP1_COMMIT"* ]]; then
+        log_success "✓ SP1 toolchain: $(cargo prove --version)"
     else
-        log_warning "SP1 toolchain not found (optional)"
+        log_error "✗ Expected SP1 $SP1_VERSION ($SP1_COMMIT)"
+        return 1
     fi
     
     log_info "Testing CLVM ZK compilation..."

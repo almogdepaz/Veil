@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-risc0-zkvm = "3.0.3"
+risc0-zkvm = "=3.0.4"
 clvm-zk-core = { path = "../../../clvm_zk_core" }
 serde = { version = "1.0", features = ["derive"] }
 borsh = { version = "1.5.7", features = ["derive"] }

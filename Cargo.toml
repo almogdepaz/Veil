@@ -16,7 +16,7 @@ members = [
 
 # Workspace-level dependencies to ensure canonical paths
 [workspace.dependencies]
-clvm_tools_rs = { git = "https://github.com/Chia-Network/clvm_tools_rs.git", branch = "no_std", default-features = false }
+clvm_tools_rs = { git = "https://github.com/Chia-Network/clvm_tools_rs.git", rev = "e1c7d9fbe962d96d10cbefe09076132f3c3c29c1", default-features = false }
 
 [package]
 name = "clvm-zk"
@@ -67,7 +67,7 @@ once_cell = "1.18"  # For lazy static initialization
 
 # Backend implementations
 clvm-zk-risc0 = { path = "backends/risc0", optional = true }
-risc0-zkvm = { version = "3.0.3", optional = true }
+risc0-zkvm = { version = "=3.0.4", optional = true }
 clvm-zk-sp1 = { path = "backends/sp1", optional = true }
 clvm-zk-mock = { path = "backends/mock", optional = true }
 
