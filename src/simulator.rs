@@ -533,6 +533,11 @@ impl CLVMZkSimulator {
     /// coin in the simulator state (merkle tree + utxo_set).
     ///
     /// returns (coin_commitment, tail_hash)
+    // TODO(network): replace this legacy simulator API with `MintData` plus output puzzle source.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "legacy simulator API predates the typed network mint request"
+    )]
     pub fn mint_cat(
         &mut self,
         tail_source: &str,
