@@ -41,8 +41,8 @@ mod cat_minting {
         output_rand: [u8; 32],
         genesis_coin: Option<GenesisSpend>,
     ) -> Input {
-        let (_, tail_hash) = compile_chialisp_to_bytecode(hash_data, tail_source)
-            .expect("tail compilation failed");
+        let (_, tail_hash) =
+            compile_chialisp_to_bytecode(hash_data, tail_source).expect("tail compilation failed");
 
         let output_puzzle_hash = hash_data(b"test_output_puzzle");
 
@@ -75,7 +75,9 @@ mod cat_minting {
         let output_rand = rand_bytes();
         let input = build_mint_input("(mod () 1)", output_serial, output_rand, None);
 
-        let result = backend.prove_with_input(input).expect("mint should succeed");
+        let result = backend
+            .prove_with_input(input)
+            .expect("mint should succeed");
 
         // coin_commitment must be in public_values[0]
         assert_eq!(
@@ -96,11 +98,9 @@ mod cat_minting {
         );
 
         // verify the commitment matches what we'd compute locally
-        let (_, tail_hash) =
-            compile_chialisp_to_bytecode(hash_data, "(mod () 1)").unwrap();
+        let (_, tail_hash) = compile_chialisp_to_bytecode(hash_data, "(mod () 1)").unwrap();
         let output_puzzle_hash = hash_data(b"test_output_puzzle");
-        let serial_commitment =
-            compute_serial_commitment(hash_data, &output_serial, &output_rand);
+        let serial_commitment = compute_serial_commitment(hash_data, &output_serial, &output_rand);
         let expected_commitment = compute_coin_commitment(
             hash_data,
             tail_hash,
@@ -159,7 +159,9 @@ mod cat_minting {
         let output_rand = rand_bytes();
         let input = build_mint_input("(mod () 1)", output_serial, output_rand, Some(genesis));
 
-        let result = backend.prove_with_input(input).expect("genesis mint should succeed");
+        let result = backend
+            .prove_with_input(input)
+            .expect("genesis mint should succeed");
 
         // genesis nullifier must be in nullifiers[0]
         assert_eq!(result.proof_output.nullifiers.len(), 1);
@@ -251,7 +253,10 @@ mod cat_minting {
             output_rand2,
             Some(genesis),
         );
-        assert!(result2.is_err(), "second mint with same genesis should fail");
+        assert!(
+            result2.is_err(),
+            "second mint with same genesis should fail"
+        );
         // The error is that the genesis merkle proof is stale (root changed after first mint),
         // OR the genesis nullifier was not checked at backend level (the simulator doesn't
         // re-check nullifier against the genesis when calling the prover again — it would
@@ -290,8 +295,7 @@ mod cat_minting {
         let output_rand = rand_bytes();
 
         // compile the REAL tail to get its hash
-        let (_, real_tail_hash) =
-            compile_chialisp_to_bytecode(hash_data, "(mod () 1)").unwrap();
+        let (_, real_tail_hash) = compile_chialisp_to_bytecode(hash_data, "(mod () 1)").unwrap();
 
         // build input with wrong tail_source but correct hash
         let input = Input {
@@ -329,12 +333,10 @@ mod cat_minting {
     fn test_mint_then_spend() {
         let mut sim = CLVMZkSimulator::default();
         let puzzle_source = "(mod () 1)";
-        let puzzle_hash = compile_chialisp_to_bytecode(
-            clvm_zk::crypto_utils::hash_data_default,
-            puzzle_source,
-        )
-        .unwrap()
-        .1;
+        let puzzle_hash =
+            compile_chialisp_to_bytecode(clvm_zk::crypto_utils::hash_data_default, puzzle_source)
+                .unwrap()
+                .1;
 
         let output_serial = rand_bytes();
         let output_rand = rand_bytes();
@@ -353,11 +355,17 @@ mod cat_minting {
             )
             .expect("mint should succeed");
 
-        assert_ne!(coin_commitment, [0u8; 32], "coin_commitment should be non-zero");
+        assert_ne!(
+            coin_commitment, [0u8; 32],
+            "coin_commitment should be non-zero"
+        );
 
         // build the PrivateCoin for spending
-        let serial_commitment_bytes =
-            compute_serial_commitment(clvm_zk::crypto_utils::hash_data_default, &output_serial, &output_rand);
+        let serial_commitment_bytes = compute_serial_commitment(
+            clvm_zk::crypto_utils::hash_data_default,
+            &output_serial,
+            &output_rand,
+        );
         let private_coin = clvm_zk::protocol::PrivateCoin::new_with_tail(
             puzzle_hash,
             1000,
@@ -368,7 +376,11 @@ mod cat_minting {
 
         // spend it
         let result = sim.spend_coins(vec![(private_coin, puzzle_source.to_string(), secrets)]);
-        assert!(result.is_ok(), "spending minted coin should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "spending minted coin should succeed: {:?}",
+            result.err()
+        );
         assert_eq!(result.unwrap().nullifiers.len(), 1, "expected 1 nullifier");
     }
 }

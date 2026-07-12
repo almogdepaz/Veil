@@ -545,11 +545,13 @@ impl CLVMZkSimulator {
         genesis_coin: Option<clvm_zk_core::GenesisSpend>,
     ) -> Result<([u8; 32], [u8; 32]), SimulatorError> {
         // Step 1: compile tail_source to get tail_hash
-        let (_, tail_hash) =
-            clvm_zk_core::compile_chialisp_to_bytecode(crate::crypto_utils::hash_data_default, tail_source)
-                .map_err(|e| {
-                    SimulatorError::ProofGeneration(format!("TAIL compilation failed: {:?}", e))
-                })?;
+        let (_, tail_hash) = clvm_zk_core::compile_chialisp_to_bytecode(
+            crate::crypto_utils::hash_data_default,
+            tail_source,
+        )
+        .map_err(|e| {
+            SimulatorError::ProofGeneration(format!("TAIL compilation failed: {:?}", e))
+        })?;
 
         // Step 1b: pre-check genesis nullifier to prevent double-mint
         if let Some(ref gen) = genesis_coin {

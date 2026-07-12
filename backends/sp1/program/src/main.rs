@@ -330,8 +330,7 @@ fn main() {
                     sp1_hasher,
                     computed_coin,
                     &genesis.merkle_path,
-                    usize::try_from(genesis.leaf_index)
-                        .expect("genesis leaf_index exceeds usize"),
+                    usize::try_from(genesis.leaf_index).expect("genesis leaf_index exceeds usize"),
                     genesis.merkle_root,
                 )
                 .expect("genesis coin merkle verification failed");

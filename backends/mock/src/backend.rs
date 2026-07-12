@@ -357,15 +357,13 @@ impl MockBackend {
             CoinMode::Execute => None,
             CoinMode::Mint(mint_data) => {
                 // Step 1: compile tail_source and verify hash matches inputs.tail_hash
-                let (tail_bytecode, tail_program_hash) =
-                    compile_chialisp_to_bytecode(hash_data, &mint_data.tail_source).map_err(
-                        |e| {
-                            ClvmZkError::ProofGenerationFailed(format!(
-                                "TAIL compilation failed: {:?}",
-                                e
-                            ))
-                        },
-                    )?;
+                let (tail_bytecode, tail_program_hash) = compile_chialisp_to_bytecode(
+                    hash_data,
+                    &mint_data.tail_source,
+                )
+                .map_err(|e| {
+                    ClvmZkError::ProofGenerationFailed(format!("TAIL compilation failed: {:?}", e))
+                })?;
 
                 if let Some(expected_tail_hash) = inputs.tail_hash {
                     if tail_program_hash != expected_tail_hash {
@@ -393,8 +391,11 @@ impl MockBackend {
 
                 // Step 3: handle genesis coin (single-issuance enforcement)
                 let genesis_nullifier = if let Some(genesis) = &mint_data.genesis_coin {
-                    let computed_serial =
-                        compute_serial_commitment(hash_data, &genesis.serial_number, &genesis.serial_randomness);
+                    let computed_serial = compute_serial_commitment(
+                        hash_data,
+                        &genesis.serial_number,
+                        &genesis.serial_randomness,
+                    );
                     if computed_serial != genesis.serial_commitment {
                         return Err(ClvmZkError::ProofGenerationFailed(
                             "genesis coin: serial commitment verification failed".to_string(),
@@ -467,9 +468,7 @@ impl MockBackend {
                 };
 
                 let proof_bytes = borsh::to_vec(&proof_output).map_err(|e| {
-                    ClvmZkError::SerializationError(format!(
-                        "failed to serialize mint proof: {e}"
-                    ))
+                    ClvmZkError::SerializationError(format!("failed to serialize mint proof: {e}"))
                 })?;
 
                 return Ok(ZKClvmResult {

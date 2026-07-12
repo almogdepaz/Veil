@@ -1314,8 +1314,7 @@ fn mint_command(
     // extract genesis_coin if requested
     let genesis_spend: Option<clvm_zk_core::GenesisSpend> = if let Some(idx) = genesis_coin_index {
         let wallet = state.wallets.get(wallet_name).unwrap();
-        let unspent: Vec<&WalletCoinWrapper> =
-            wallet.coins.iter().filter(|c| !c.spent).collect();
+        let unspent: Vec<&WalletCoinWrapper> = wallet.coins.iter().filter(|c| !c.spent).collect();
 
         if idx >= unspent.len() {
             return Err(ClvmZkError::InvalidProgram(format!(
