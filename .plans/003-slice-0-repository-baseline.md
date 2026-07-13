@@ -1,6 +1,6 @@
 # slice 0 — repository baseline execution plan
 
-status: in progress — slices 0.1–0.7 complete; slice 0.8 active
+status: in progress — slices 0.1–0.8 complete; slice 0.9 active after CI evidence
 
 parent plans:
 
@@ -349,7 +349,7 @@ acceptance:
 
 ### 0.8 — push branch and open PR
 
-status: pending
+status: complete — branch pushed and PR #25 opened; merge explicitly deferred
 
 pre-push agent checks:
 
@@ -479,3 +479,4 @@ stop before proceeding if:
 - 2026-07-13: closed stacked PRs #21/#22 as already integrated, citing exact ancestor commits.
 - 2026-07-13: classified PR #17's final-tree differences; closed it as superseded after preserving signature-mode/RISC Zero E2E candidates in issue #24. demo/performance experiments intentionally remain git history only.
 - 2026-07-13: created network-alpha delivery tracker issue #23, including the approved `mint_cat` TODO.
+- 2026-07-13: pushed `network/00-baseline` and opened PR #25: https://github.com/almogdepaz/Veil/pull/25. no merge performed.
