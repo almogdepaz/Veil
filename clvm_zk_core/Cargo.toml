@@ -15,8 +15,8 @@ sp1 = ["sha2-hasher"]
 serde = { version = "1.0.219", features = ["derive", "alloc"], default-features = false }
 borsh = { version = "1.5.7", default-features = false, features = ["derive"] }
 sha2 = { version = "0.10", default-features = false, optional = true }
-risc0-zkvm = { version = "3.0.3", default-features = false, optional = true }
-bls12_381 = { git = "https://github.com/risc0/zkcrypto-bls12_381.git", default-features = false, optional = true }
+risc0-zkvm = { version = "=3.0.4", default-features = false, optional = true }
+bls12_381 = { git = "https://github.com/risc0/zkcrypto-bls12_381.git", rev = "9ea427c0eb1a7e2ac16902a322aea156c496ddb0", default-features = false, optional = true }
 k256 = { version = "0.13", features = ["ecdsa", "sha256"], default-features = false }
 thiserror = { version = "2.0.12", default-features = false }
 

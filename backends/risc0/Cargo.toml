@@ -7,13 +7,13 @@ build = "build.rs"
 
 [dependencies]
 borsh = { version = "1.5.7", features = ["derive"] }
-risc0-zkvm = { version = "3.0.3", default-features = false, features = ["std", "unstable", "client"] }
+risc0-zkvm = { version = "=3.0.4", default-features = false, features = ["std", "unstable", "client"] }
 clvm-zk-core = { path = "../../clvm_zk_core" }
 serde = { version = "1.0", features = ["derive"] }
 hex = "0.4"
 
 [build-dependencies]
-risc0-build = "3.0.3"
+risc0-build = "=3.0.4"
 
 [dev-dependencies]
 sha2 = "0.10"

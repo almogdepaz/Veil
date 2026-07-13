@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-sp1-sdk = "5.2.2"
+sp1-sdk = "=5.2.4"
 clvm-zk-core = { path = "../../clvm_zk_core" }
 borsh = { version = "1.5.7", features = ["derive"] }
 bincode = "1.3"
 serde = { version = "1.0", features = ["derive"] }
 
 [build-dependencies]
-sp1-build = "5.2.2"
+sp1-build = "=5.2.4"

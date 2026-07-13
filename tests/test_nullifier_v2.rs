@@ -38,8 +38,10 @@ mod nullifier_v2 {
         let xch_tail = XCH_TAIL; // [0u8; 32]
         let cat_tail = hash_data(b"my_cat_tail");
 
-        let nullifier_xch = compute_nullifier_v2(hash_data, &xch_tail, &serial, &program_hash, amount);
-        let nullifier_cat = compute_nullifier_v2(hash_data, &cat_tail, &serial, &program_hash, amount);
+        let nullifier_xch =
+            compute_nullifier_v2(hash_data, &xch_tail, &serial, &program_hash, amount);
+        let nullifier_cat =
+            compute_nullifier_v2(hash_data, &cat_tail, &serial, &program_hash, amount);
 
         assert_ne!(
             nullifier_xch, nullifier_cat,
@@ -63,7 +65,10 @@ mod nullifier_v2 {
         let v1 = compute_nullifier(hash_data, &serial, &program_hash, amount);
         let v2 = compute_nullifier_v2(hash_data, &xch_tail, &serial, &program_hash, amount);
 
-        assert_ne!(v1, v2, "v1 and v2 nullifiers must differ even for same inputs");
+        assert_ne!(
+            v1, v2,
+            "v1 and v2 nullifiers must differ even for same inputs"
+        );
     }
 
     // ────────────────────────────────────────────────────────────

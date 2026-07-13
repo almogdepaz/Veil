@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-sp1-zkvm = "5.2.2"
+sp1-zkvm = "=5.2.4"
 clvm-zk-core = { path = "../../../clvm_zk_core" }
 serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"

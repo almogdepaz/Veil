@@ -957,7 +957,9 @@ where
 }
 
 /// compute nullifier: hash(serial_number || program_hash || amount)
-#[deprecated(note = "use compute_nullifier_v2 — v1 lacks tail_hash binding, enabling cross-asset collision attacks")]
+#[deprecated(
+    note = "use compute_nullifier_v2 — v1 lacks tail_hash binding, enabling cross-asset collision attacks"
+)]
 pub fn compute_nullifier<H>(
     hasher: H,
     serial_number: &[u8; 32],

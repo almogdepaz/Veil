@@ -61,7 +61,11 @@ mod e2e_xch_lifecycle {
             .expect("alice spend should succeed");
 
         // Verify: 1 nullifier emitted
-        assert_eq!(tx.nullifiers.len(), 1, "expected 1 nullifier from XCH spend");
+        assert_eq!(
+            tx.nullifiers.len(),
+            1,
+            "expected 1 nullifier from XCH spend"
+        );
 
         // Verify: nullifier is in the simulator's set
         assert!(
@@ -70,14 +74,8 @@ mod e2e_xch_lifecycle {
         );
 
         // Step 3: double-spend must fail
-        let double_spend = sim.spend_coins(vec![(
-            alice_coin,
-            puzzle_source.to_string(),
-            alice_secrets,
-        )]);
-        assert!(
-            double_spend.is_err(),
-            "double-spend of same coin must fail"
-        );
+        let double_spend =
+            sim.spend_coins(vec![(alice_coin, puzzle_source.to_string(), alice_secrets)]);
+        assert!(double_spend.is_err(), "double-spend of same coin must fail");
     }
 }

@@ -72,7 +72,10 @@ mod simulator_serde {
 
         // Stats should match
         let stats_after = sim2.stats();
-        assert_eq!(stats_before.current_utxo_count, stats_after.current_utxo_count);
+        assert_eq!(
+            stats_before.current_utxo_count,
+            stats_after.current_utxo_count
+        );
         assert_eq!(stats_before.total_nullifiers, stats_after.total_nullifiers);
 
         // Coin lookup should work

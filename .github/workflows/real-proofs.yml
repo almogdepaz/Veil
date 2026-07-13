@@ -1,0 +1,142 @@
+name: Scheduled backend evidence
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 0"
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-evidence-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.89.0"
+
+jobs:
+  sp1-proof:
+    if: github.event_name != 'pull_request' || github.event.label.name == 'backend-evidence'
+    name: evidence / sp1 proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install pinned Rust
+        run: rustup toolchain install "$RUST_VERSION" --profile minimal
+
+      - name: Cache Cargo and SP1 data
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.sp1
+            target/sp1
+            target/elf-compilation
+          key: ${{ runner.os }}-rust-${{ env.RUST_VERSION }}-sp1-proof-v5.2.4-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-${{ env.RUST_VERSION }}-sp1-proof-v5.2.4-
+
+      - name: Install SP1 v5.2.4
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL https://sp1.succinct.xyz -o /tmp/sp1up.sh
+          echo "5f2b976287501d3f5feb62a2a96bbdfd1f5232c9badaf7547ed837c0366f3a7b  /tmp/sp1up.sh" | sha256sum -c -
+          bash /tmp/sp1up.sh
+          echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
+          "$HOME/.sp1/bin/sp1up" --version v5.2.4
+          "$HOME/.sp1/bin/cargo-prove" prove --version | grep '2a51f3d'
+
+      - name: Generate and verify one SP1 proof
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test-sp1 --locked --test proof_validation_tests test_verification_rejects_wrong_program -- --exact --nocapture \
+            2>&1 | tee sp1-proof.log
+
+      - name: Upload SP1 evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sp1-proof-evidence
+          path: sp1-proof.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  risc0-proof:
+    if: github.event_name != 'pull_request' || github.event.label.name == 'backend-evidence'
+    name: evidence / risc0 proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install pinned Rust
+        run: rustup toolchain install "$RUST_VERSION" --profile minimal
+
+      - name: Cache Cargo and RISC Zero data
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.risc0
+            target/risc0
+          key: ${{ runner.os }}-rust-${{ env.RUST_VERSION }}-risc0-proof-v3.0.4-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-${{ env.RUST_VERSION }}-risc0-proof-v3.0.4-
+
+      - name: Install RISC Zero 3.0.4
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL https://risczero.com/install -o /tmp/rzup.sh
+          echo "5699878af779351ec0f931fa84c3d5e35263279f66bd915af225f530a77341bf  /tmp/rzup.sh" | sha256sum -c -
+          bash /tmp/rzup.sh
+          echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
+          "$HOME/.risc0/bin/rzup" install cargo-risczero 3.0.4
+          "$HOME/.risc0/bin/rzup" install r0vm 3.0.4
+          "$HOME/.risc0/bin/rzup" install rust 1.88.0
+          "$HOME/.cargo/bin/cargo-risczero" risczero --version | grep '3.0.4'
+
+      - name: Generate and verify one RISC Zero proof
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test-risc0 --locked --test proof_validation_tests test_verification_rejects_wrong_program -- --exact --nocapture \
+            2>&1 | tee risc0-proof.log
+
+      - name: Upload RISC Zero evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: risc0-proof-evidence
+          path: risc0-proof.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  macos-smoke:
+    if: github.event_name != 'pull_request' || github.event.label.name == 'backend-evidence'
+    name: evidence / macos smoke
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install pinned Rust
+        run: rustup toolchain install "$RUST_VERSION" --profile minimal
+
+      - name: Check mock backend
+        run: cargo check-mock --locked

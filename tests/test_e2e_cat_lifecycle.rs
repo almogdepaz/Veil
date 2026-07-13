@@ -6,7 +6,9 @@
 mod e2e_cat_lifecycle {
     use clvm_zk::simulator::{CLVMZkSimulator, CoinMetadata, CoinType};
     use clvm_zk_core::coin_commitment::{CoinSecrets, SerialCommitment, XCH_TAIL};
-    use clvm_zk_core::{compile_chialisp_to_bytecode, compute_nullifier_v2, compute_serial_commitment};
+    use clvm_zk_core::{
+        compile_chialisp_to_bytecode, compute_nullifier_v2, compute_serial_commitment,
+    };
 
     fn rand_bytes() -> [u8; 32] {
         use rand::RngCore;
@@ -19,19 +21,15 @@ mod e2e_cat_lifecycle {
     fn test_cat_full_lifecycle() {
         let mut sim = CLVMZkSimulator::default();
         let puzzle_source = "(mod () 1)";
-        let puzzle_hash = compile_chialisp_to_bytecode(
-            clvm_zk::crypto_utils::hash_data_default,
-            puzzle_source,
-        )
-        .unwrap()
-        .1;
+        let puzzle_hash =
+            compile_chialisp_to_bytecode(clvm_zk::crypto_utils::hash_data_default, puzzle_source)
+                .unwrap()
+                .1;
 
         let tail_source = "(mod () 1)";
-        let (_, tail_hash) = compile_chialisp_to_bytecode(
-            clvm_zk::crypto_utils::hash_data_default,
-            tail_source,
-        )
-        .unwrap();
+        let (_, tail_hash) =
+            compile_chialisp_to_bytecode(clvm_zk::crypto_utils::hash_data_default, tail_source)
+                .unwrap();
 
         // Step 1: Mint a CAT coin
         let mint_serial = rand_bytes();
@@ -49,8 +47,14 @@ mod e2e_cat_lifecycle {
             )
             .expect("mint should succeed");
 
-        assert_eq!(confirmed_tail, tail_hash, "tail_hash from mint should match");
-        assert_ne!(coin_commitment, [0u8; 32], "coin_commitment should be non-zero");
+        assert_eq!(
+            confirmed_tail, tail_hash,
+            "tail_hash from mint should match"
+        );
+        assert_ne!(
+            coin_commitment, [0u8; 32],
+            "coin_commitment should be non-zero"
+        );
 
         // Step 2: Spend the minted CAT coin
         let serial_commitment = SerialCommitment::compute(
@@ -70,7 +74,11 @@ mod e2e_cat_lifecycle {
             .spend_coins(vec![(cat_coin, puzzle_source.to_string(), secrets)])
             .expect("CAT spend should succeed");
 
-        assert_eq!(tx.nullifiers.len(), 1, "expected 1 nullifier from CAT spend");
+        assert_eq!(
+            tx.nullifiers.len(),
+            1,
+            "expected 1 nullifier from CAT spend"
+        );
         assert!(
             sim.has_nullifier(&tx.nullifiers[0]),
             "CAT nullifier should be in set"

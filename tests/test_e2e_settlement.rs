@@ -11,7 +11,9 @@ mod e2e_settlement {
     use clvm_zk::protocol::settlement::SettlementOutput;
     use clvm_zk::simulator::{CLVMZkSimulator, CoinMetadata, CoinType};
     use clvm_zk_core::coin_commitment::{CoinSecrets, SerialCommitment, XCH_TAIL};
-    use clvm_zk_core::{compile_chialisp_to_bytecode, compute_coin_commitment, compute_serial_commitment};
+    use clvm_zk_core::{
+        compile_chialisp_to_bytecode, compute_coin_commitment, compute_serial_commitment,
+    };
     use sha2::{Digest, Sha256};
 
     fn hash_data(data: &[u8]) -> [u8; 32] {
@@ -31,53 +33,45 @@ mod e2e_settlement {
     fn test_settlement_process_and_post_spend() {
         let mut sim = CLVMZkSimulator::default();
         let puzzle_source = "(mod () 1)";
-        let puzzle_hash = compile_chialisp_to_bytecode(
-            clvm_zk::crypto_utils::hash_data_default,
-            puzzle_source,
-        )
-        .unwrap()
-        .1;
+        let puzzle_hash =
+            compile_chialisp_to_bytecode(clvm_zk::crypto_utils::hash_data_default, puzzle_source)
+                .unwrap()
+                .1;
 
         // Fabricate settlement output:
         // maker (XCH) sends 500 to taker, gets CAT goods
         // taker (CAT) sends 300 to maker, gets XCH payment
-        let (_, cat_tail) = compile_chialisp_to_bytecode(
-            clvm_zk::crypto_utils::hash_data_default,
-            "(mod () 1)",
-        )
-        .unwrap();
+        let (_, cat_tail) =
+            compile_chialisp_to_bytecode(clvm_zk::crypto_utils::hash_data_default, "(mod () 1)")
+                .unwrap();
 
         // maker_change: maker gets back remaining XCH
         let mc_serial = rand_bytes();
         let mc_rand = rand_bytes();
         let mc_sc = compute_serial_commitment(hash_data, &mc_serial, &mc_rand);
-        let maker_change_commitment = compute_coin_commitment(
-            hash_data, XCH_TAIL, 200, &puzzle_hash, &mc_sc,
-        );
+        let maker_change_commitment =
+            compute_coin_commitment(hash_data, XCH_TAIL, 200, &puzzle_hash, &mc_sc);
 
         // payment: taker → maker (CAT)
         let pay_serial = rand_bytes();
         let pay_rand = rand_bytes();
         let pay_sc = compute_serial_commitment(hash_data, &pay_serial, &pay_rand);
-        let payment_commitment = compute_coin_commitment(
-            hash_data, cat_tail, 300, &puzzle_hash, &pay_sc,
-        );
+        let payment_commitment =
+            compute_coin_commitment(hash_data, cat_tail, 300, &puzzle_hash, &pay_sc);
 
         // taker_goods: maker → taker (XCH)
         let goods_serial = rand_bytes();
         let goods_rand = rand_bytes();
         let goods_sc = compute_serial_commitment(hash_data, &goods_serial, &goods_rand);
-        let taker_goods_commitment = compute_coin_commitment(
-            hash_data, XCH_TAIL, 500, &puzzle_hash, &goods_sc,
-        );
+        let taker_goods_commitment =
+            compute_coin_commitment(hash_data, XCH_TAIL, 500, &puzzle_hash, &goods_sc);
 
         // taker_change: taker's remaining CAT
         let tc_serial = rand_bytes();
         let tc_rand = rand_bytes();
         let tc_sc = compute_serial_commitment(hash_data, &tc_serial, &tc_rand);
-        let taker_change_commitment = compute_coin_commitment(
-            hash_data, cat_tail, 100, &puzzle_hash, &tc_sc,
-        );
+        let taker_change_commitment =
+            compute_coin_commitment(hash_data, cat_tail, 100, &puzzle_hash, &tc_sc);
 
         // fabricated nullifiers
         let maker_nullifier = hash_data(b"maker_nullifier_test");
@@ -96,11 +90,18 @@ mod e2e_settlement {
         let root_before = sim.get_merkle_root();
 
         // Process settlement
-        sim.process_settlement(&output).expect("settlement should succeed");
+        sim.process_settlement(&output)
+            .expect("settlement should succeed");
 
         // Verify: both nullifiers recorded
-        assert!(sim.has_nullifier(&maker_nullifier), "maker nullifier missing");
-        assert!(sim.has_nullifier(&taker_nullifier), "taker nullifier missing");
+        assert!(
+            sim.has_nullifier(&maker_nullifier),
+            "maker nullifier missing"
+        );
+        assert!(
+            sim.has_nullifier(&taker_nullifier),
+            "taker nullifier missing"
+        );
 
         // Verify: tree grew (4 new commitments)
         let root_after = sim.get_merkle_root();
@@ -117,7 +118,9 @@ mod e2e_settlement {
             puzzle_hash,
             200,
             SerialCommitment::compute(
-                &mc_serial, &mc_rand, clvm_zk::crypto_utils::hash_data_default,
+                &mc_serial,
+                &mc_rand,
+                clvm_zk::crypto_utils::hash_data_default,
             ),
         );
         sim.add_coin(
@@ -143,7 +146,9 @@ mod e2e_settlement {
             puzzle_hash,
             100,
             SerialCommitment::compute(
-                &tc_serial, &tc_rand, clvm_zk::crypto_utils::hash_data_default,
+                &tc_serial,
+                &tc_rand,
+                clvm_zk::crypto_utils::hash_data_default,
             ),
             cat_tail,
         );

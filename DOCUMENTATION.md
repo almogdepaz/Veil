@@ -1,6 +1,8 @@
 # veil documentation
 
-comprehensive technical documentation for veil's privacy-preserving chialisp zkvm.
+comprehensive technical documentation for veil's implemented privacy-preserving chialisp zkvm and local simulator.
+
+> **status:** veil does not currently have a public network, canonical validator, persistent node, mempool, or chia bridge. references below to “blockchain validation” describe the intended validator contract. current end-to-end state mutation happens only in the local simulator. the proposed network design is documented in [`docs/network-protocol-v1.md`](docs/network-protocol-v1.md).
 
 **quick links:**
 - [nullifier protocol](#nullifier-protocol) - double-spend prevention
@@ -17,7 +19,7 @@ the nullifier protocol prevents double-spending in veil's privacy-preserving tra
 
 ### overview
 
-each coin has a unique serial number that generates a deterministic nullifier when spent. the nullifier is public and stored on-chain - if someone tries to spend the same coin twice, the same nullifier would be revealed, and the blockchain rejects the second spend.
+each coin has a unique serial number that generates a deterministic nullifier when spent. the proof exposes the nullifier. the local simulator rejects a repeated nullifier; a future validator must provide the same check against canonical persistent state.
 
 ### key concepts
 
@@ -26,8 +28,8 @@ each coin has a unique serial number that generates a deterministic nullifier wh
 | **serial_number** | 32-byte secret tied to a specific coin |
 | **serial_randomness** | 32-byte random value for hiding serial in commitment |
 | **serial_commitment** | `hash("clvm_zk_serial_v1.0" \|\| serial_number \|\| serial_randomness)` |
-| **coin_commitment** | `hash("clvm_zk_coin_v2.0" \|\| tail_hash \|\| amount \|\| puzzle_hash \|\| serial_commitment)` |
-| **nullifier** | `hash(serial_number \|\| program_hash \|\| amount)` - revealed when spending |
+| **coin_commitment** | `hash("clvm_zk_coin_v2.0" \|\| tail_hash \|\| amount_be \|\| puzzle_hash \|\| serial_commitment)` |
+| **nullifier** | `hash("clvm_zk_nullifier_v2.0" \|\| tail_hash \|\| serial_number \|\| program_hash \|\| amount_be)` — revealed when spending |
 
 ### protocol flow
 
@@ -36,7 +38,7 @@ each coin has a unique serial number that generates a deterministic nullifier wh
 1. generate random serial_number (32 bytes)
 2. generate random serial_randomness (32 bytes)
 3. compute serial_commitment = hash("clvm_zk_serial_v1.0" || serial_number || serial_randomness)
-4. compute coin_commitment = hash("clvm_zk_coin_v2.0" || tail_hash || amount || puzzle_hash || serial_commitment)
+4. compute coin_commitment = hash("clvm_zk_coin_v2.0" || tail_hash || amount_be || puzzle_hash || serial_commitment)
 5. add coin_commitment to merkle tree (public)
 6. store serial_number, serial_randomness privately (CRITICAL: losing these = losing funds)
 ```
@@ -46,16 +48,19 @@ each coin has a unique serial number that generates a deterministic nullifier wh
 1. prove knowledge of (serial_number, serial_randomness) that matches serial_commitment
 2. prove coin_commitment is in merkle tree (membership proof)
 3. prove program_hash matches the coin's puzzle_hash
-4. compute nullifier = hash(serial_number || program_hash || amount)
-5. reveal nullifier publicly (checked by blockchain)
-6. execute puzzle program and reveal conditions
+4. compute nullifier = hash("clvm_zk_nullifier_v2.0" || tail_hash || serial_number || program_hash || amount_be)
+5. commit nullifier publicly in the proof output
+6. execute puzzle program and commit selected conditions
 ```
 
-**3. blockchain validation:**
-- checks nullifier hasn't been used before
-- verifies zk proof is valid
-- adds nullifier to spent set
-- applies output conditions (CREATE_COIN, etc.)
+**3. intended validator flow (not implemented):**
+- verifies the zk proof and decodes its committed journal
+- checks the proof's ledger root against an accepted canonical root
+- checks each nullifier has not been used before
+- validates output commitments and conditions
+- atomically appends nullifiers and output commitments
+
+current spend guests verify membership against a root supplied as private input, but the spend journal does not yet expose that root. the local simulator supplies an honest current root; completing the public root/journal check is the first network protocol milestone.
 
 ### security guarantees
 
@@ -63,7 +68,8 @@ each coin has a unique serial number that generates a deterministic nullifier wh
 |-----------|-----------|
 | **double-spend prevention** | each coin has exactly one valid nullifier |
 | **program binding** | program_hash in nullifier prevents puzzle swaps |
-| **amount binding** | amount in nullifier prevents amount-hiding attacks |
+| **asset binding** | tail_hash prevents cross-asset nullifier collisions |
+| **amount binding** | big-endian amount in nullifier prevents amount substitution |
 | **unlinkability** | serial_randomness excluded from nullifier |
 | **hiding** | serial_number hidden inside ZK proof |
 
@@ -73,7 +79,7 @@ each coin has a unique serial number that generates a deterministic nullifier wh
 |-----------|---------------|
 | serial_commitment | `"clvm_zk_serial_v1.0"` |
 | coin_commitment | `"clvm_zk_coin_v2.0"` |
-| nullifier | (no prefix, direct concatenation) |
+| nullifier v2 | `"clvm_zk_nullifier_v2.0"` |
 
 ### code references
 
@@ -81,7 +87,8 @@ each coin has a unique serial number that generates a deterministic nullifier wh
 clvm_zk_core/src/lib.rs:
   - compute_serial_commitment()
   - compute_coin_commitment()
-  - compute_nullifier()
+  - compute_nullifier_v2()
+  - compute_nullifier() (deprecated v1)
 
 clvm_zk_core/src/coin_commitment.rs:
   - SerialCommitment
@@ -161,15 +168,16 @@ DERIVE:
 
 OUTPUT:
   - coin with puzzle_hash = STEALTH_NULLIFIER_PUZZLE_HASH
-  - nonce (32 bytes, stored on-chain or transmitted to receiver)
+  - nonce encrypted for the recipient in the simulator's 92-byte note blob (32-byte plaintext legacy records are still readable)
 ```
 
 **receiver scans for payments:**
 ```
-FOR EACH (coin, nonce):
-  1. shared_secret = sha256("stealth_v1" || V || nonce)
-  2. check if coin.puzzle_hash == STEALTH_NULLIFIER_PUZZLE_HASH
-  3. IF match: save (coin, shared_secret, nonce) to wallet
+FOR EACH (coin, encrypted_nonce_blob):
+  1. decrypt the nonce blob with the wallet's note-encryption key
+  2. shared_secret = sha256("stealth_v1" || V || nonce)
+  3. check if coin.puzzle_hash == STEALTH_NULLIFIER_PUZZLE_HASH
+  4. IF match: save (coin, shared_secret, nonce) to wallet
 ```
 
 **receiver spends coin:**
@@ -177,7 +185,7 @@ FOR EACH (coin, nonce):
 1. shared_secret = sha256("stealth_v1" || V || nonce)
 2. derive serial_number, serial_randomness from shared_secret
 3. create ZK proof with nullifier protocol
-4. reveal nullifier = hash(serial_number || program_hash || amount)
+4. commit nullifier = hash("clvm_zk_nullifier_v2.0" || tail_hash || serial_number || program_hash || amount_be)
 ```
 
 ### hash-based vs ECDH
@@ -185,7 +193,7 @@ FOR EACH (coin, nonce):
 | aspect | ECDH (old) | hash-based (current) |
 |--------|------------|----------------------|
 | shared_secret derivation | `ephemeral * V` (EC math) | `sha256(V \|\| nonce)` |
-| on-chain data | ephemeral_pubkey (33 bytes) | nonce (32 bytes) |
+| scanner metadata | ephemeral_pubkey (33 bytes) | encrypted nonce blob (92 bytes in the simulator) |
 | proving cost in zkVM | ~2M cycles | ~10K cycles |
 | receiver derives from pubkey | yes | needs nonce |
 
@@ -305,7 +313,7 @@ Output:
 
 ## simulator
 
-local privacy-preserving blockchain simulator that generates real zero-knowledge proofs.
+local privacy-preserving ledger simulator. it is not a network or consensus implementation. SP1/RISC Zero modes generate real zero-knowledge proofs; mock mode exercises protocol behavior without cryptographic proofs.
 
 ### quick start
 
@@ -464,9 +472,9 @@ note: both `sim_demo.sh` and cargo default to sp1.
 4. **merkle tree attacks**
    - tree depth bounded (max 64) to prevent DoS
 
-5. **front-running**
-   - nullifier revealed in mempool could be front-run
-   - use commit-reveal or encrypted mempool
+5. **future network submission leakage**
+   - no mempool exists today
+   - a future public submission path exposes nullifiers before finalization unless it adds encrypted transport/mempool or another mitigation
 
 ### comparison to other systems
 
@@ -474,9 +482,9 @@ note: both `sim_demo.sh` and cargo default to sp1.
 |--------|------------------|--------|
 | zcash | `hash(note_commitment)` | yes |
 | tornado cash | `hash(secret \|\| nullifier_secret)` | yes |
-| veil | `hash(serial_number \|\| program_hash \|\| amount)` | yes |
+| veil | `hash(domain \|\| tail_hash \|\| serial_number \|\| program_hash \|\| amount_be)` | yes |
 
-veil's scheme includes program_hash to bind nullifier to specific puzzle logic, enabling programmable spending conditions.
+veil's v2 scheme binds the asset type, puzzle logic, and amount while keeping the serial number private inside the proof.
 
 ---
 
