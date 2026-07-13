@@ -66,7 +66,7 @@ cargo run-sp1 -- prove \
 
 ## What is private?
 
-A current spend proof establishes knowledge of coin secrets and membership against a host-supplied commitment root. The local simulator supplies its current root. Network validation is not implemented yet; the proposed network protocol will also expose that root in the verified journal so a validator can compare it with canonical ledger state.
+A spend proof establishes knowledge of coin secrets and membership against a host-supplied commitment root. Legacy simulator proofs rely on the simulator to supply its current root. Network-mode proofs expose that same root and anchor height in a typed public journal; the storage-independent ledger policy can compare it with a caller-supplied canonical root. Persistent canonical state and a node are not implemented yet.
 
 | Kept private | Revealed for verification |
 |---|---|
@@ -99,7 +99,7 @@ The core has no backend-specific dependencies; cryptographic implementations are
 
 ## Project status
 
-The compiler/evaluator core, SP1 and RISC Zero backends, private-coin primitives, simulator, and experimental offers infrastructure are implemented. A persistent node, canonical validator state machine, RPC, independent replicas, and Chia checkpoints are proposed but not implemented. See the [alpha architecture](docs/architecture.md) and [draft network protocol](docs/network-protocol-v1.md).
+The compiler/evaluator core, SP1 and RISC Zero backends, typed network proof journal, storage-independent root policy, private-coin primitives, simulator, and experimental offers infrastructure are implemented. A persistent canonical state machine, node, RPC, independent replicas, and Chia checkpoints are proposed but not implemented. See the [alpha architecture](docs/architecture.md) and [draft network protocol](docs/network-protocol-v1.md).
 
 Veil currently targets research and experimentation around:
 

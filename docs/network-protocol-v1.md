@@ -1,6 +1,6 @@
 # proposed network protocol v1
 
-status: **draft; not implemented or active on any network**
+status: **draft; typed proof journal and storage-independent root policy implemented, but no node or network is active**
 
 this document defines the intended validator boundary for Veil's first faucet-only alpha. current proof and simulator behavior remains documented in [`../DOCUMENTATION.md`](../DOCUMENTATION.md). implementation sequencing and acceptance evidence live in [`.plans/`](../.plans/).
 
@@ -26,29 +26,40 @@ implemented today:
 - guests derive public nullifiers and committed outputs;
 - the local simulator supplies its current root and rejects repeated nullifiers.
 
-missing today:
+implemented for network-mode proofs:
 
-- spend journals do not expose the root used for membership;
-- no canonical validator compares a proof root with ledger state;
-- no persistent nullifier/commitment state, block format, node, RPC, or network exists.
+- `Input.network` carries a typed context plus faucet/private-transfer intent;
+- spend guests require every membership root to equal the context root;
+- SP1, RISC Zero, and mock commit the typed journal below as strict Borsh bytes;
+- `veil-ledger` validates network/version, exact canonical root, root window, expiry, proof lifetime, faucet asset, note count, and note metadata without mutating state.
 
-protocol v1 completes the intended validator contract. it does not replace the existing commitment or nullifier constructions.
+still missing:
+
+- persistent canonical root/nullifier/commitment state;
+- transaction and block formats, node, RPC, sequencing, and follower replay;
+- a production adapter wiring the pure `ProofVerifier` boundary to node configuration.
+
+legacy simulator proofs still use `ProofOutput` and do not expose a canonical root. network protocol v1 does not replace the existing commitment or nullifier constructions.
 
 ## proof journal
 
 network proofs commit a strictly encoded, versioned journal:
 
 ```text
-NetworkProofOutputV1 {
+NetworkProofRequestV1 {
   context: {
     network_id,
     protocol_version,
-    proof_kind,
     ledger_root,
     anchor_height,
     expiry_height,
     metadata_hash,
   },
+  intent: FaucetMint { request_id } | PrivateTransfer,
+}
+
+NetworkProofOutputV1 {
+  context,
   program_hash,
   transition,
   public_conditions,
@@ -58,6 +69,7 @@ NetworkProofOutputV1 {
 transition =
   FaucetMint {
     request_id,
+    asset_tail_hash,
     public_amount,
     output_commitment,
   }
@@ -67,7 +79,7 @@ transition =
   }
 ```
 
-all fields above are zkVM public output. private coin secrets, amounts for ordinary transfers, Merkle paths, program source, and program inputs remain private.
+the transition variant is the proof kind; it is not encoded a second time in the context where the two values could disagree. all output fields above are zkVM public output. private coin secrets, amounts for ordinary transfers, Merkle paths, program source, and program inputs remain private.
 
 `metadata_hash` binds the encrypted output notes carried in the transaction envelope. the validator requires one note per output commitment in the same order.
 
@@ -79,7 +91,7 @@ for a private transfer:
 2. guest proves membership against the supplied commitment root;
 3. guest commits that exact root and anchor height in `NetworkProofOutputV1`;
 4. validator verifies the proof before decoding the journal;
-5. validator requires `roots[anchor_height].commitment_root == ledger_root`;
+5. validator resolves `CanonicalRootV1 { height, commitment_root }` and requires both `height == anchor_height` and `commitment_root == ledger_root`;
 6. validator requires the anchor to remain inside the accepted-root window;
 7. validator checks expiry and nullifier freshness;
 8. validator atomically appends nullifiers and output commitments.

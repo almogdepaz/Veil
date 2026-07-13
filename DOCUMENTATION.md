@@ -2,7 +2,7 @@
 
 comprehensive technical documentation for veil's implemented privacy-preserving chialisp zkvm and local simulator.
 
-> **status:** veil does not currently have a public network, canonical validator, persistent node, mempool, or chia bridge. references below to “blockchain validation” describe the intended validator contract. current end-to-end state mutation happens only in the local simulator. the proposed network design is documented in [`docs/network-protocol-v1.md`](docs/network-protocol-v1.md).
+> **status:** veil does not currently have a public network, persistent canonical state, node, mempool, or chia bridge. the repository includes a typed network proof journal and storage-independent root policy, but current end-to-end state mutation happens only in the local simulator. the proposed network design is documented in [`docs/network-protocol-v1.md`](docs/network-protocol-v1.md).
 
 **quick links:**
 - [nullifier protocol](#nullifier-protocol) - double-spend prevention
@@ -60,7 +60,7 @@ each coin has a unique serial number that generates a deterministic nullifier wh
 - validates output commitments and conditions
 - atomically appends nullifiers and output commitments
 
-current spend guests verify membership against a root supplied as private input, but the spend journal does not yet expose that root. the local simulator supplies an honest current root; completing the public root/journal check is the first network protocol milestone.
+network-mode spend guests now expose the exact membership root and anchor height through `NetworkProofOutputV1`; `veil-ledger` can compare them with a caller-supplied canonical root and freshness policy. legacy simulator proofs still use `ProofOutput`, and no persistent canonical root history exists yet.
 
 ### security guarantees
 

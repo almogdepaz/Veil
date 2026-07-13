@@ -20,7 +20,7 @@ clvm_zk_core
   └─ Merkle membership verification
         │
         ▼
-ProofOutput + proof bytes
+legacy ProofOutput or NetworkProofOutputV1 + proof bytes
 ```
 
 module ownership:
@@ -29,10 +29,11 @@ module ownership:
 - `backends/sp1/` — SP1 host adapter and guest programs;
 - `backends/risc0/` — RISC Zero host adapter and guest programs;
 - `backends/mock/` — non-cryptographic test backend;
+- `crates/veil-ledger/` — storage-independent proof-verifier boundary and canonical-root/freshness policy;
 - `src/simulator.rs` — local in-memory/file-backed ledger simulation;
 - `src/wallet/` and `src/protocol/` — experimental wallet, spend, CAT, offer, and settlement logic.
 
-there is no node, canonical validator, persistent state machine, RPC service, peer-to-peer network, or Chia integration in the repository today.
+network-mode guests and the pure canonical-root validation contract now exist. there is still no persistent canonical state machine, node, RPC service, peer-to-peer network, or Chia integration.
 
 ## architecture invariants
 
@@ -77,9 +78,9 @@ this topology is selected because it exercises the missing validator/state/netwo
 
 owns guest-compatible consensus primitives and typed public proof output. it must remain no_std and network/storage agnostic.
 
-### `veil-ledger` (proposed)
+### `veil-ledger` (partially implemented)
 
-owns canonical transaction/block types, domain-separated hashes, validation order, root policy, deterministic state deltas, and the one O(depth) Merkle append/witness algorithm. it has no HTTP or SP1 implementation dependency.
+currently owns the backend-neutral `ProofVerifier` boundary, strict journal decode, metadata hash, and canonical root/freshness policy. slice 2 adds transaction/block types, deterministic state deltas, and the one O(depth) Merkle append/witness algorithm. it has no HTTP or SP1 implementation dependency.
 
 ### `veil-node` (proposed)
 
