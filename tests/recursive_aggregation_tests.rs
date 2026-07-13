@@ -69,6 +69,7 @@ fn generate_test_proof(
         additional_coins: None,
         tail_source: None,
         tail_params: vec![],
+        network: None,
     };
 
     backend

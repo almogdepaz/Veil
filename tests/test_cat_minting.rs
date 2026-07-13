@@ -62,6 +62,7 @@ mod cat_minting {
             tail_source: None,
             tail_params: vec![],
             additional_coins: None,
+            network: None,
         }
     }
 
@@ -314,6 +315,7 @@ mod cat_minting {
             tail_source: None,
             tail_params: vec![],
             additional_coins: None,
+            network: None,
         };
 
         let result = backend.prove_with_input(input);

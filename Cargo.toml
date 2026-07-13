@@ -11,7 +11,8 @@ members = [
     "backends/sp1/program",        # sp1 guest
     "backends/sp1/program_recursive", # sp1 recursive aggregation guest
     "backends/sp1/program_settlement", # sp1 settlement guest
-    "backends/mock"                # mock backend for testing
+    "backends/mock",               # mock backend for testing
+    "crates/veil-ledger"            # canonical network validation contract
 ]
 
 # Workspace-level dependencies to ensure canonical paths

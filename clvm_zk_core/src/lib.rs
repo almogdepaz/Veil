@@ -13,10 +13,12 @@ pub mod backend_utils;
 pub mod clvm_parser;
 pub mod coin_commitment;
 pub mod merkle;
+pub mod network;
 pub mod operators;
 pub mod types;
 
 pub use clvm_parser::*;
+pub use network::*;
 pub use operators::*;
 pub use types::*;
 

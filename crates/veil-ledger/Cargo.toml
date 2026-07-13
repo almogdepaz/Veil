@@ -1,0 +1,11 @@
+[package]
+name = "veil-ledger"
+version = "0.1.0"
+edition = "2021"
+description = "canonical validation contract for the Veil alpha ledger"
+
+[dependencies]
+clvm-zk-core = { path = "../../clvm_zk_core" }
+borsh = { version = "1.5.7", features = ["derive"] }
+sha2 = "0.10"
+thiserror = "2.0.12"

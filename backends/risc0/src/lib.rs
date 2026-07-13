@@ -29,13 +29,35 @@ impl Risc0Backend {
         !CLVM_RISC0_GUEST_ELF.is_empty()
     }
 
+    fn generate_receipt(&self, inputs: &Input) -> Result<risc0_zkvm::Receipt, ClvmZkError> {
+        use risc0_zkvm::{default_prover, ExecutorEnv};
+
+        let env = ExecutorEnv::builder()
+            .write(inputs)
+            .map_err(|error| {
+                ClvmZkError::ProofGenerationFailed(format!(
+                    "failed to write private inputs: {error}"
+                ))
+            })?
+            .build()
+            .map_err(|error| {
+                ClvmZkError::ProofGenerationFailed(format!("failed to build executor env: {error}"))
+            })?;
+        let prover = default_prover();
+        use std::panic::AssertUnwindSafe;
+        std::panic::catch_unwind(AssertUnwindSafe(move || {
+            prover.prove(env, CLVM_RISC0_GUEST_ELF)
+        }))
+        .map_err(|_| ClvmZkError::ProofGenerationFailed("RISC0 proving panicked".to_string()))?
+        .map_err(|error| convert_proving_error(error, "RISC0"))
+        .map(|info| info.receipt)
+    }
+
     pub fn prove_chialisp_program(
         &self,
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        use risc0_zkvm::{default_prover, ExecutorEnv};
-
         let inputs = Input {
             chialisp_source: chialisp_source.to_string(),
             program_parameters: program_parameters.to_vec(),
@@ -44,27 +66,9 @@ impl Risc0Backend {
             additional_coins: None, // single-coin spend
             tail_source: None,
             tail_params: vec![],
+            network: None,
         };
-        let env = ExecutorEnv::builder()
-            .write(&inputs)
-            .map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("failed to write private inputs: {e}"))
-            })?
-            .build()
-            .map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("failed to build executor env: {e}"))
-            })?;
-
-        let prover = default_prover();
-
-        let receipt = {
-            let elf = CLVM_RISC0_GUEST_ELF;
-            prover
-                .prove(env, elf)
-                .map_err(|e| convert_proving_error(e, "RISC0"))?
-        };
-
-        let receipt_obj = receipt.receipt;
+        let receipt_obj = self.generate_receipt(&inputs)?;
         let result: ProofOutput = receipt_obj.journal.decode().map_err(|e| {
             ClvmZkError::InvalidProofFormat(format!("failed to decode journal: {e}"))
         })?;
@@ -104,84 +108,13 @@ impl Risc0Backend {
         &self,
         inputs: clvm_zk_core::Input,
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        use risc0_zkvm::{default_prover, ExecutorEnv};
-
-        // guard: Execute mode with a non-zero tail_hash is semantically invalid —
-        // TAIL is never run in Execute mode, producing a misleading CAT-labelled proof.
-        if matches!(inputs.coin_mode, CoinMode::Execute) {
-            if inputs.tail_hash.map_or(false, |h| h != [0u8; 32]) {
-                return Err(ClvmZkError::ProofGenerationFailed(
-                    "Execute mode with non-zero tail_hash is not allowed — use CoinMode::Spend for CAT operations".to_string(),
-                ));
-            }
-        }
-
-        // host-side guard: CAT spend without tail_source produces an opaque guest panic.
-        // surface a clean error here instead.
-        let is_cat = inputs.tail_hash.map_or(false, |h| h != [0u8; 32]);
-        if is_cat && matches!(inputs.coin_mode, CoinMode::Spend(_)) && inputs.tail_source.is_none()
-        {
-            return Err(ClvmZkError::ProofGenerationFailed(
-                "CAT spend requires tail_source: tail_hash is set but tail_source was not provided"
-                    .to_string(),
+        if inputs.network.is_some() {
+            return Err(ClvmZkError::InvalidInput(
+                "network input requires prove_network_with_input".to_string(),
             ));
         }
-
-        // guard: CAT ring coins without tail_source produce opaque guest panics.
-        if let Some(ref additional_coins) = inputs.additional_coins {
-            for (i, coin) in additional_coins.iter().enumerate() {
-                if coin.tail_hash != [0u8; 32] && coin.tail_source.is_none() {
-                    return Err(ClvmZkError::ProofGenerationFailed(format!(
-                        "CAT ring coin {i} requires tail_source: tail_hash is set but tail_source was not provided"
-                    )));
-                }
-            }
-        }
-
-        // host-side guard: leaf_index values must fit in u32 since the guest runs on 32-bit RISC-V.
-        // catch this here to avoid an opaque guest panic.
-        const MAX_LEAF: u64 = u32::MAX as u64;
-        if let CoinMode::Spend(ref d) = inputs.coin_mode {
-            if d.leaf_index > MAX_LEAF {
-                return Err(ClvmZkError::ProofGenerationFailed(format!(
-                    "primary coin leaf_index {} exceeds 32-bit platform limit ({})",
-                    d.leaf_index, MAX_LEAF
-                )));
-            }
-        }
-        if let Some(ref additional_coins) = inputs.additional_coins {
-            for (i, coin) in additional_coins.iter().enumerate() {
-                if coin.serial_commitment_data.leaf_index > MAX_LEAF {
-                    return Err(ClvmZkError::ProofGenerationFailed(format!(
-                        "ring coin {i} leaf_index {} exceeds 32-bit platform limit ({})",
-                        coin.serial_commitment_data.leaf_index, MAX_LEAF
-                    )));
-                }
-            }
-        }
-
-        let env = ExecutorEnv::builder()
-            .write(&inputs)
-            .map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("failed to write private inputs: {e}"))
-            })?
-            .build()
-            .map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("failed to build executor env: {e}"))
-            })?;
-
-        let prover = default_prover();
-        let receipt = {
-            use std::panic::AssertUnwindSafe;
-            let elf = CLVM_RISC0_GUEST_ELF;
-            std::panic::catch_unwind(AssertUnwindSafe(move || prover.prove(env, elf)))
-                .map_err(|_| {
-                    ClvmZkError::ProofGenerationFailed("RISC0 proving panicked".to_string())
-                })?
-                .map_err(|e| convert_proving_error(e, "RISC0"))?
-        };
-
-        let receipt_obj = receipt.receipt;
+        clvm_zk_core::backend_utils::validate_guest_input(&inputs)?;
+        let receipt_obj = self.generate_receipt(&inputs)?;
         let result: ProofOutput = receipt_obj.journal.decode().map_err(|e| {
             ClvmZkError::InvalidProofFormat(format!("failed to decode journal: {e}"))
         })?;
@@ -214,6 +147,62 @@ impl Risc0Backend {
         Ok(ZKClvmResult {
             proof_bytes,
             proof_output: result,
+        })
+    }
+
+    pub fn prove_network_with_input(
+        &self,
+        inputs: clvm_zk_core::Input,
+    ) -> Result<clvm_zk_core::ZKNetworkResultV1, ClvmZkError> {
+        clvm_zk_core::validate_network_request_v1(&inputs)
+            .map_err(|error| ClvmZkError::InvalidInput(error.to_string()))?;
+        clvm_zk_core::backend_utils::validate_guest_input(&inputs)?;
+        let receipt = self.generate_receipt(&inputs)?;
+        let output =
+            borsh::from_slice::<clvm_zk_core::NetworkProofOutputV1>(&receipt.journal.bytes)
+                .map_err(|error| {
+                    ClvmZkError::InvalidProofFormat(format!(
+                        "failed to decode RISC Zero network journal: {error}"
+                    ))
+                })?;
+        let proof_bytes = borsh::to_vec(&receipt).map_err(|error| {
+            ClvmZkError::SerializationError(format!("failed to serialize receipt: {error}"))
+        })?;
+        Ok(clvm_zk_core::ZKNetworkResultV1 {
+            proof_output: output,
+            proof_bytes,
+        })
+    }
+
+    pub fn network_program_id() -> [u8; 32] {
+        let digest = risc0_zkvm::sha::Digest::new(CLVM_RISC0_GUEST_ID);
+        let mut program_id = [0; 32];
+        program_id.copy_from_slice(digest.as_bytes());
+        program_id
+    }
+
+    pub fn verify_network_proof_and_decode(
+        &self,
+        proof: &[u8],
+        max_proof_bytes: usize,
+    ) -> Result<clvm_zk_core::NetworkProofOutputV1, ClvmZkError> {
+        if proof.len() > max_proof_bytes {
+            return Err(ClvmZkError::InvalidInput(
+                "RISC Zero proof exceeds configured byte limit".to_string(),
+            ));
+        }
+        let receipt: risc0_zkvm::Receipt = borsh::from_slice(proof).map_err(|error| {
+            ClvmZkError::InvalidProofFormat(format!(
+                "failed to deserialize RISC Zero receipt: {error}"
+            ))
+        })?;
+        receipt.verify(CLVM_RISC0_GUEST_ID).map_err(|error| {
+            ClvmZkError::VerificationFailed(format!("RISC Zero verification failed: {error}"))
+        })?;
+        borsh::from_slice(&receipt.journal.bytes).map_err(|error| {
+            ClvmZkError::InvalidProofFormat(format!(
+                "failed to decode RISC Zero network journal: {error}"
+            ))
         })
     }
 

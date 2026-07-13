@@ -3,8 +3,8 @@ use clvm_zk_core::{
     compile_chialisp_to_bytecode, compute_coin_commitment, compute_genesis_nullifier,
     compute_nullifier_v2, compute_serial_commitment, create_veil_evaluator, enforce_ring_balance,
     is_clvm_nil, parse_variable_length_amount, run_clvm_with_conditions, serialize_params_to_clvm,
-    verify_merkle_proof, ClvmResult, ClvmZkError, CoinMode, Condition, ProgramParameter,
-    ProofOutput, ZKClvmResult, BLS_DST,
+    verify_merkle_proof, ClvmResult, ClvmZkError, CoinMode, Condition, NetworkExecutionResultV1,
+    NetworkProofIntentV1, ProgramParameter, ProofOutput, ZKClvmResult, ZKNetworkResultV1, BLS_DST,
 };
 use sha2::{Digest, Sha256};
 
@@ -214,6 +214,11 @@ impl MockBackend {
         &self,
         inputs: clvm_zk_core::Input,
     ) -> Result<ZKClvmResult, ClvmZkError> {
+        if inputs.network.is_some() {
+            return Err(ClvmZkError::InvalidInput(
+                "network input requires prove_network_with_input".to_string(),
+            ));
+        }
         let (instance_bytecode, program_hash) =
             compile_chialisp_to_bytecode(hash_data, &inputs.chialisp_source).map_err(|e| {
                 ClvmZkError::ProofGenerationFailed(format!("chialisp compilation failed: {:?}", e))
@@ -562,6 +567,82 @@ impl MockBackend {
 
         Ok(ZKClvmResult {
             proof_output,
+            proof_bytes,
+        })
+    }
+
+    pub fn prove_network_with_input(
+        &self,
+        inputs: clvm_zk_core::Input,
+    ) -> Result<ZKNetworkResultV1, ClvmZkError> {
+        let request = clvm_zk_core::validate_network_request_v1(&inputs)
+            .map_err(|error| ClvmZkError::InvalidInput(error.to_string()))?;
+        let intent = request.intent.clone();
+        let mut legacy_inputs = inputs.clone();
+        legacy_inputs.network = None;
+        let legacy = self.prove_with_input(legacy_inputs)?.proof_output;
+
+        let (output_commitments, mint_output_commitment) = match intent {
+            NetworkProofIntentV1::FaucetMint { .. } => {
+                let commitment = legacy
+                    .public_values
+                    .first()
+                    .and_then(|bytes| <[u8; 32]>::try_from(bytes.as_slice()).ok())
+                    .ok_or_else(|| {
+                        ClvmZkError::InvalidProofFormat(
+                            "faucet mint did not produce one 32-byte commitment".to_string(),
+                        )
+                    })?;
+                (vec![], Some(commitment))
+            }
+            NetworkProofIntentV1::PrivateTransfer => {
+                let conditions =
+                    clvm_zk_core::deserialize_clvm_output_to_conditions(&legacy.clvm_res.output)
+                        .map_err(|error| {
+                            ClvmZkError::InvalidProofFormat(format!(
+                                "failed to decode private transfer conditions: {error}"
+                            ))
+                        })?;
+                let commitments = conditions
+                    .iter()
+                    .filter(|condition| condition.opcode == 51)
+                    .map(|condition| {
+                        if condition.args.len() != 1 {
+                            return Err(ClvmZkError::InvalidProofFormat(
+                                "network CREATE_COIN output is not private".to_string(),
+                            ));
+                        }
+                        <[u8; 32]>::try_from(condition.args[0].as_slice()).map_err(|_| {
+                            ClvmZkError::InvalidProofFormat(
+                                "network output commitment must be 32 bytes".to_string(),
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                (commitments, None)
+            }
+        };
+
+        let output = clvm_zk_core::build_network_proof_output_v1(
+            &inputs,
+            NetworkExecutionResultV1 {
+                program_hash: legacy.program_hash,
+                public_conditions: legacy.clvm_res.output,
+                execution_cost: legacy.clvm_res.cost,
+                nullifiers: legacy.nullifiers,
+                output_commitments,
+                mint_output_commitment,
+            },
+        )
+        .map_err(|error| ClvmZkError::InvalidProofFormat(error.to_string()))?;
+        let proof_bytes = borsh::to_vec(&output).map_err(|error| {
+            ClvmZkError::SerializationError(format!(
+                "failed to serialize mock network proof: {error}"
+            ))
+        })?;
+
+        Ok(ZKNetworkResultV1 {
+            proof_output: output,
             proof_bytes,
         })
     }

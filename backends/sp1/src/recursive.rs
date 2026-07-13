@@ -164,6 +164,7 @@ mod tests {
             additional_coins: None,
             tail_source: None,
             tail_params: vec![],
+            network: None,
         };
 
         backend

@@ -127,6 +127,114 @@ pub struct ZKClvmResult {
     pub proof_bytes: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ZKNetworkResultV1 {
+    pub proof_output: NetworkProofOutputV1,
+    pub proof_bytes: Vec<u8>,
+}
+
+pub const NETWORK_PROTOCOL_V1: u16 = 1;
+
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+)]
+pub struct NetworkContextV1 {
+    pub network_id: [u8; 32],
+    pub protocol_version: u16,
+    pub ledger_root: [u8; 32],
+    pub anchor_height: u64,
+    pub expiry_height: u64,
+    pub metadata_hash: [u8; 32],
+}
+
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+)]
+pub enum NetworkProofIntentV1 {
+    FaucetMint { request_id: [u8; 32] },
+    PrivateTransfer,
+}
+
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+)]
+pub struct NetworkProofRequestV1 {
+    pub context: NetworkContextV1,
+    pub intent: NetworkProofIntentV1,
+}
+
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+)]
+pub enum NetworkTransitionV1 {
+    FaucetMint {
+        request_id: [u8; 32],
+        asset_tail_hash: [u8; 32],
+        public_amount: u64,
+        output_commitment: [u8; 32],
+    },
+    PrivateTransfer {
+        nullifiers: Vec<[u8; 32]>,
+        output_commitments: Vec<[u8; 32]>,
+    },
+}
+
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+)]
+pub struct NetworkProofOutputV1 {
+    pub context: NetworkContextV1,
+    pub program_hash: [u8; 32],
+    pub transition: NetworkTransitionV1,
+    pub public_conditions: Vec<u8>,
+    pub execution_cost: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkExecutionResultV1 {
+    pub program_hash: [u8; 32],
+    pub public_conditions: Vec<u8>,
+    pub execution_cost: u64,
+    pub nullifiers: Vec<[u8; 32]>,
+    pub output_commitments: Vec<[u8; 32]>,
+    pub mint_output_commitment: Option<[u8; 32]>,
+}
+
 /// Coin execution mode — determines what the zkVM guest does with this input.
 /// Enforces at compile time that spend and mint are mutually exclusive.
 #[derive(
@@ -186,6 +294,10 @@ pub struct Input {
     /// - Some(vec): multi-coin ring spend (all coins share same tail_hash)
     #[serde(default)]
     pub additional_coins: Option<Vec<AdditionalCoinInput>>,
+
+    /// Versioned network proof request. Legacy simulator/prover calls use `None`.
+    #[serde(default)]
+    pub network: Option<NetworkProofRequestV1>,
 }
 
 /// mint data for CAT issuance proofs
