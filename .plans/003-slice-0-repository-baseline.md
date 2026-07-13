@@ -212,7 +212,7 @@ acceptance:
 
 ### 0.5 — repair CI topology
 
-status: implementation complete — required local command set passes; GitHub execution pending pushed PR; committed as `4c85bb5`
+status: correction pending CI — initial GitHub run exposed stale local SP1 ELF false positive; workflow now builds actual pinned guests; clean local rebuild passes
 
 workflow design:
 
@@ -480,3 +480,4 @@ stop before proceeding if:
 - 2026-07-13: classified PR #17's final-tree differences; closed it as superseded after preserving signature-mode/RISC Zero E2E candidates in issue #24. demo/performance experiments intentionally remain git history only.
 - 2026-07-13: created network-alpha delivery tracker issue #23, including the approved `mint_cat` TODO.
 - 2026-07-13: pushed `network/00-baseline` and opened PR #25: https://github.com/almogdepaz/Veil/pull/25. no merge performed.
+- 2026-07-13: initial required run 29231383225 passed mock and RISC Zero but failed SP1 because `SP1_SKIP_PROGRAM_BUILD` omitted ELFs that `include_elf!` requires. local checks had passed only because stale ELFs existed. clean local actual SP1 rebuild generated all three ELFs and passed; required workflow corrected to install/build pinned SP1.
