@@ -1,6 +1,6 @@
 # network implementation design
 
-status: slice 0 final acceptance in progress under `.plans/003-slice-0-repository-baseline.md`; PR #25 open, governance active, required and real-backend evidence green on implementation head
+status: slice 0 implementation and evidence complete under `.plans/003-slice-0-repository-baseline.md`; stopped for explicit user acceptance with PR #25 open and unmerged; slice 1 not started
 
 references:
 
@@ -687,7 +687,7 @@ plus:
 - clean-clone build records pinned revisions;
 - docs explicitly distinguish guest membership verification from block validator root acceptance.
 
-status evidence: implementation through docs/governance preparation complete on `network/00-baseline`; local required command set passes; stale PRs reconciled; PR push, GitHub checks/rules, and final acceptance pending. exact evidence is in `.plans/003-slice-0-repository-baseline.md`.
+status evidence: complete on `network/00-baseline`; required GitHub checks, real SP1/RISC Zero proof evidence, macOS smoke, stale-PR reconciliation, truthful docs, and governance rules verified. PR #25 remains unmerged pending explicit acceptance. exact evidence is in `.plans/003-slice-0-repository-baseline.md`.
 
 ### slice 1 — canonical-root proof contract
 

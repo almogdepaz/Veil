@@ -1,6 +1,6 @@
 # slice 0 — repository baseline execution plan
 
-status: in progress — slices 0.1–0.9 complete; final acceptance active
+status: implementation and evidence complete — stopped for explicit user acceptance; PR #25 remains unmerged
 
 parent plans:
 
@@ -418,7 +418,7 @@ acceptance:
 
 ### 0.10 — final acceptance and stop
 
-status: pending
+status: evidence complete — awaiting explicit user acceptance; merge and slice 1 prohibited until then
 
 user runs from the PR branch:
 
@@ -486,3 +486,4 @@ stop before proceeding if:
 - 2026-07-13: real local `test_arithmetic_operations` passed on SP1 (6 proofs, 682s) and RISC Zero (6 proofs, 3,154s). scheduled evidence reduced to a single proof plus verification test.
 - 2026-07-13: required run 29239605072 and backend evidence run 29239612481 passed on `58074a1`; SP1/RISC Zero logs uploaded as 14-day artifacts; macOS smoke passed.
 - 2026-07-13: replaced malformed ruleset 8769462 with exact required checks, strict up-to-date policy, zero solo-maintainer approvals, no code-owner/last-push requirement, resolved-conversation requirement, squash-only merge, deletion/force-push blocks, and emergency-only admin bypass. Copilot auto-review remains advisory, not required.
+- 2026-07-13: governance documentation head `a592625` passed final required run 29241701273. slice 0 stopped for explicit acceptance without merging PR #25 or starting slice 1.
