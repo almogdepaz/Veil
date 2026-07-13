@@ -132,7 +132,8 @@ pub struct ZKClvmResult {
 #[derive(
     Serialize, Deserialize, Debug, Clone, Default, borsh::BorshSerialize, borsh::BorshDeserialize,
 )]
-#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+// Keep Serde's default external tag: SP1 stdin uses bincode, which cannot decode
+// the identifiers required by internally tagged enums.
 pub enum CoinMode {
     /// Pure program execution: no coin commitment, no nullifier emitted.
     /// Used for BLS verification tests and other non-spending proofs.

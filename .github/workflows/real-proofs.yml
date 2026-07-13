@@ -59,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo test-sp1 --locked --test proof_validation_tests test_arithmetic_operations -- --exact --nocapture \
+          cargo test-sp1 --locked --test proof_validation_tests test_verification_rejects_wrong_program -- --exact --nocapture \
             2>&1 | tee sp1-proof.log
 
       - name: Upload SP1 evidence
@@ -105,25 +105,16 @@ jobs:
           echo "5699878af779351ec0f931fa84c3d5e35263279f66bd915af225f530a77341bf  /tmp/rzup.sh" | sha256sum -c -
           bash /tmp/rzup.sh
           echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
-          if ! "$HOME/.risc0/bin/rzup" default cargo-risczero 3.0.4; then
-            "$HOME/.risc0/bin/rzup" install cargo-risczero 3.0.4
-          fi
-          if ! "$HOME/.risc0/bin/rzup" default r0vm 3.0.4; then
-            "$HOME/.risc0/bin/rzup" install r0vm 3.0.4
-          fi
-          if ! "$HOME/.risc0/bin/rzup" default rust 1.88.0; then
-            "$HOME/.risc0/bin/rzup" install rust 1.88.0
-          fi
-          "$HOME/.risc0/bin/rzup" default cargo-risczero 3.0.4
-          "$HOME/.risc0/bin/rzup" default r0vm 3.0.4
-          "$HOME/.risc0/bin/rzup" default rust 1.88.0
+          "$HOME/.risc0/bin/rzup" install cargo-risczero 3.0.4
+          "$HOME/.risc0/bin/rzup" install r0vm 3.0.4
+          "$HOME/.risc0/bin/rzup" install rust 1.88.0
           "$HOME/.cargo/bin/cargo-risczero" risczero --version | grep '3.0.4'
 
       - name: Generate and verify one RISC Zero proof
         shell: bash
         run: |
           set -o pipefail
-          cargo test-risc0 --locked --test proof_validation_tests test_arithmetic_operations -- --exact --nocapture \
+          cargo test-risc0 --locked --test proof_validation_tests test_verification_rejects_wrong_program -- --exact --nocapture \
             2>&1 | tee risc0-proof.log
 
       - name: Upload RISC Zero evidence

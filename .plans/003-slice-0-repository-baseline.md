@@ -212,7 +212,7 @@ acceptance:
 
 ### 0.5 — repair CI topology
 
-status: correction pending CI — initial GitHub run exposed stale local SP1 ELF false positive; workflow now builds actual pinned guests; clean local rebuild passes
+status: correction pending CI — required run is green; real-proof run exposed and reproduced SP1 input serialization plus RISC Zero install bugs; fixes await rerun
 
 workflow design:
 
@@ -481,3 +481,6 @@ stop before proceeding if:
 - 2026-07-13: created network-alpha delivery tracker issue #23, including the approved `mint_cat` TODO.
 - 2026-07-13: pushed `network/00-baseline` and opened PR #25: https://github.com/almogdepaz/Veil/pull/25. no merge performed.
 - 2026-07-13: initial required run 29231383225 passed mock and RISC Zero but failed SP1 because `SP1_SKIP_PROGRAM_BUILD` omitted ELFs that `include_elf!` requires. local checks had passed only because stale ELFs existed. clean local actual SP1 rebuild generated all three ELFs and passed; required workflow corrected to install/build pinned SP1.
+- 2026-07-13: required run 29232231673 passed all three jobs on clean GitHub runners, including actual SP1 ELF builds.
+- 2026-07-13: backend evidence run 29232249490 passed macOS but exposed two independent bugs: `rzup default` returns success for absent components, and internally tagged `CoinMode` cannot cross SP1's bincode stdin. added a red/green SP1 bincode regression, restored bincode-compatible external enum tagging, and made exact RISC Zero installs unconditional/idempotent.
+- 2026-07-13: real local `test_arithmetic_operations` passed on SP1 (6 proofs, 682s) and RISC Zero (6 proofs, 3,154s). scheduled evidence reduced to a single proof plus verification test.
