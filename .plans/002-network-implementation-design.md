@@ -1,6 +1,6 @@
 # network implementation design
 
-status: slice 0 in progress under `.plans/003-slice-0-repository-baseline.md`; local implementation through documentation complete; PR/governance/final acceptance pending
+status: slice 0 final acceptance in progress under `.plans/003-slice-0-repository-baseline.md`; PR #25 open, governance active, required and real-backend evidence green on implementation head
 
 references:
 

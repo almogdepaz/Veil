@@ -131,6 +131,7 @@ Each real zkVM backend can use roughly 1 GB of build artifacts. For a faster com
 - [Protocol documentation](DOCUMENTATION.md) — implemented nullifiers, stealth addresses, CATs, simulator, and CLVM opcodes
 - [Proposed network protocol](docs/network-protocol-v1.md) — draft validator and block contract
 - [Alpha architecture](docs/architecture.md) — selected topology, trust model, and boundaries
+- [Repository governance](docs/governance.md) — required checks, review policy, and emergency bypass
 - [`examples/alice_bob_lock.rs`](examples/alice_bob_lock.rs) — private puzzle execution
 - [`examples/recursive_aggregation.rs`](examples/recursive_aggregation.rs) — recursive proofs
 - [`clvm_zk_core`](clvm_zk_core) — backend-agnostic execution core

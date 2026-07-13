@@ -1,6 +1,6 @@
 # slice 0 — repository baseline execution plan
 
-status: in progress — slices 0.1–0.8 complete; slice 0.9 active after CI evidence
+status: in progress — slices 0.1–0.9 complete; final acceptance active
 
 parent plans:
 
@@ -212,7 +212,7 @@ acceptance:
 
 ### 0.5 — repair CI topology
 
-status: correction pending CI — required run is green; real-proof run exposed and reproduced SP1 input serialization plus RISC Zero install bugs; fixes await rerun
+status: complete — clean required CI and real-proof evidence pass on `58074a1`; exposed SP1/RISC Zero regressions fixed with evidence
 
 workflow design:
 
@@ -384,7 +384,7 @@ acceptance:
 
 ### 0.9 — correct GitHub governance
 
-status: pending
+status: complete — active `main` ruleset requires three exact checks without impossible solo-maintainer approvals; emergency admin bypass documented
 
 apply after the new checks have appeared on the PR so their exact contexts can be selected.
 
@@ -484,3 +484,5 @@ stop before proceeding if:
 - 2026-07-13: required run 29232231673 passed all three jobs on clean GitHub runners, including actual SP1 ELF builds.
 - 2026-07-13: backend evidence run 29232249490 passed macOS but exposed two independent bugs: `rzup default` returns success for absent components, and internally tagged `CoinMode` cannot cross SP1's bincode stdin. added a red/green SP1 bincode regression, restored bincode-compatible external enum tagging, and made exact RISC Zero installs unconditional/idempotent.
 - 2026-07-13: real local `test_arithmetic_operations` passed on SP1 (6 proofs, 682s) and RISC Zero (6 proofs, 3,154s). scheduled evidence reduced to a single proof plus verification test.
+- 2026-07-13: required run 29239605072 and backend evidence run 29239612481 passed on `58074a1`; SP1/RISC Zero logs uploaded as 14-day artifacts; macOS smoke passed.
+- 2026-07-13: replaced malformed ruleset 8769462 with exact required checks, strict up-to-date policy, zero solo-maintainer approvals, no code-owner/last-push requirement, resolved-conversation requirement, squash-only merge, deletion/force-push blocks, and emergency-only admin bypass. Copilot auto-review remains advisory, not required.
