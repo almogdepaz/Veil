@@ -55,11 +55,11 @@ jobs:
           "$HOME/.sp1/bin/sp1up" --version v5.2.4
           "$HOME/.sp1/bin/cargo-prove" prove --version | grep '2a51f3d'
 
-      - name: Generate and verify one SP1 proof
+      - name: Generate and verify SP1 network proofs
         shell: bash
         run: |
           set -o pipefail
-          cargo test-sp1 --locked --test proof_validation_tests test_verification_rejects_wrong_program -- --exact --nocapture \
+          cargo test-sp1 --locked --test network_root_contract_backend -- --nocapture --test-threads=1 \
             2>&1 | tee sp1-proof.log
 
       - name: Upload SP1 evidence
@@ -110,11 +110,11 @@ jobs:
           "$HOME/.risc0/bin/rzup" install rust 1.88.0
           "$HOME/.cargo/bin/cargo-risczero" risczero --version | grep '3.0.4'
 
-      - name: Generate and verify one RISC Zero proof
+      - name: Generate and verify RISC Zero network proofs
         shell: bash
         run: |
           set -o pipefail
-          cargo test-risc0 --locked --test proof_validation_tests test_verification_rejects_wrong_program -- --exact --nocapture \
+          cargo test-risc0 --locked --test network_root_contract_backend -- --nocapture --test-threads=1 \
             2>&1 | tee risc0-proof.log
 
       - name: Upload RISC Zero evidence
