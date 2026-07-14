@@ -73,9 +73,17 @@ jobs:
 
   risc0-proof:
     if: github.event_name != 'pull_request' || github.event.label.name == 'backend-evidence'
-    name: evidence / risc0 proof
+    name: evidence / risc0 proof / ${{ matrix.proof.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        proof:
+          - name: faucet
+            test: real_backend_faucet_proof_commits_typed_network_output
+          - name: private-transfer
+            test: real_backend_private_transfer_commits_canonical_root_and_outputs
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -110,19 +118,19 @@ jobs:
           "$HOME/.risc0/bin/rzup" install rust 1.88.0
           "$HOME/.cargo/bin/cargo-risczero" risczero --version | grep '3.0.4'
 
-      - name: Generate and verify RISC Zero network proofs
+      - name: Generate and verify RISC Zero ${{ matrix.proof.name }} proof
         shell: bash
         run: |
           set -o pipefail
-          cargo test-risc0 --locked --test network_root_contract_backend -- --nocapture --test-threads=1 \
-            2>&1 | tee risc0-proof.log
+          cargo test-risc0 --locked --test network_root_contract_backend "${{ matrix.proof.test }}" -- --exact --nocapture \
+            2>&1 | tee "risc0-${{ matrix.proof.name }}-proof.log"
 
       - name: Upload RISC Zero evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: risc0-proof-evidence
-          path: risc0-proof.log
+          name: risc0-${{ matrix.proof.name }}-proof-evidence
+          path: risc0-${{ matrix.proof.name }}-proof.log
           if-no-files-found: warn
           retention-days: 14
 
