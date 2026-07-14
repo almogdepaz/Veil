@@ -1,6 +1,6 @@
 //! Common utilities shared between different zkVM backends
 
-use crate::{ClvmZkError, ProofOutput};
+use crate::{ClvmZkError, CoinMode, Input, ProofOutput};
 use alloc::{format, string::ToString};
 use core::fmt::Display;
 
@@ -19,6 +19,53 @@ pub fn convert_proving_error(error: impl Display, backend_name: &str) -> ClvmZkE
     } else {
         ClvmZkError::ProofGenerationFailed(format!("{} proving failed: {error}", backend_name))
     }
+}
+
+/// Reject inputs that would otherwise fail opaquely inside a 32-bit zkVM guest.
+pub fn validate_guest_input(input: &Input) -> Result<(), ClvmZkError> {
+    if matches!(input.coin_mode, CoinMode::Execute)
+        && input.tail_hash.is_some_and(|hash| hash != [0; 32])
+    {
+        return Err(ClvmZkError::ProofGenerationFailed(
+            "Execute mode with non-zero tail_hash is not allowed — use CoinMode::Spend for CAT operations".to_string(),
+        ));
+    }
+    let is_cat = input.tail_hash.is_some_and(|hash| hash != [0; 32]);
+    if is_cat && matches!(input.coin_mode, CoinMode::Spend(_)) && input.tail_source.is_none() {
+        return Err(ClvmZkError::ProofGenerationFailed(
+            "CAT spend requires tail_source: tail_hash is set but tail_source was not provided"
+                .to_string(),
+        ));
+    }
+    if let Some(additional_coins) = &input.additional_coins {
+        for (index, coin) in additional_coins.iter().enumerate() {
+            if coin.tail_hash != [0; 32] && coin.tail_source.is_none() {
+                return Err(ClvmZkError::ProofGenerationFailed(format!(
+                    "CAT ring coin {index} requires tail_source: tail_hash is set but tail_source was not provided"
+                )));
+            }
+        }
+    }
+    const MAX_LEAF: u64 = u32::MAX as u64;
+    if let CoinMode::Spend(spend) = &input.coin_mode {
+        if spend.leaf_index > MAX_LEAF {
+            return Err(ClvmZkError::ProofGenerationFailed(format!(
+                "primary coin leaf_index {} exceeds 32-bit platform limit ({MAX_LEAF})",
+                spend.leaf_index
+            )));
+        }
+    }
+    if let Some(additional_coins) = &input.additional_coins {
+        for (index, coin) in additional_coins.iter().enumerate() {
+            if coin.serial_commitment_data.leaf_index > MAX_LEAF {
+                return Err(ClvmZkError::ProofGenerationFailed(format!(
+                    "ring coin {index} leaf_index {} exceeds 32-bit platform limit ({MAX_LEAF})",
+                    coin.serial_commitment_data.leaf_index
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Validate that proof output contains expected values

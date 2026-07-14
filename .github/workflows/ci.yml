@@ -45,10 +45,15 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo clippy-mock --locked -- -D warnings
+        run: |
+          cargo clippy-mock --locked -- -D warnings
+          cargo clippy --locked -p veil-ledger --all-targets -- -D warnings
 
       - name: Run mock tests
-        run: cargo test-mock --locked
+        run: |
+          cargo test-mock --locked
+          cargo test --locked -p clvm-zk-core --features sha2-hasher
+          cargo test --locked -p veil-ledger
 
   sp1:
     name: build / sp1
@@ -88,7 +93,7 @@ jobs:
         shell: bash
         run: |
           for attempt in 1 2 3; do
-            cargo check-sp1 --locked && exit 0
+            cargo check-sp1 --locked --tests && exit 0
             if [ "$attempt" -eq 3 ]; then exit 1; fi
             sleep $((attempt * 10))
           done
@@ -126,7 +131,7 @@ jobs:
       - name: Check RISC Zero host integration
         env:
           RISC0_SKIP_BUILD: "1"
-        run: cargo check-risc0 --locked
+        run: cargo check-risc0 --locked --tests
 
       - name: Check RISC Zero guest crates
         run: >-

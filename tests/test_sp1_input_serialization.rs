@@ -12,6 +12,7 @@ fn input_round_trips_through_sp1_bincode() {
         tail_source: None,
         tail_params: vec![],
         additional_coins: None,
+        network: None,
     };
 
     let encoded = clvm_zk_sp1::bincode::serialize(&input).expect("SP1 host input should serialize");

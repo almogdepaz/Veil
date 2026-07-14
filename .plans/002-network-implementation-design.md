@@ -117,19 +117,23 @@ add to `clvm_zk_core/src/types.rs` or a referenced `network.rs` module:
 ```rust
 pub const NETWORK_PROTOCOL_V1: u16 = 1;
 
-pub enum NetworkProofKindV1 {
-    FaucetMint,
-    PrivateTransfer,
-}
-
 pub struct NetworkContextV1 {
     pub network_id: [u8; 32],
     pub protocol_version: u16,
-    pub proof_kind: NetworkProofKindV1,
     pub ledger_root: [u8; 32],
     pub anchor_height: u64,
     pub expiry_height: u64,
     pub metadata_hash: [u8; 32],
+}
+
+pub struct NetworkProofRequestV1 {
+    pub context: NetworkContextV1,
+    pub intent: NetworkProofIntentV1,
+}
+
+pub enum NetworkProofIntentV1 {
+    FaucetMint { request_id: [u8; 32] },
+    PrivateTransfer,
 }
 
 pub struct NetworkProofOutputV1 {
@@ -143,6 +147,7 @@ pub struct NetworkProofOutputV1 {
 pub enum NetworkTransitionV1 {
     FaucetMint {
         request_id: [u8; 32],
+        asset_tail_hash: [u8; 32],
         public_amount: u64,
         output_commitment: [u8; 32],
     },
@@ -160,20 +165,20 @@ pub enum NetworkTransitionV1 {
 extend `Input` with:
 
 ```rust
-pub network_context: Option<NetworkContextV1>
+pub network: Option<NetworkProofRequestV1>
 ```
 
-legacy simulator calls may use `None`. network submission requires `Some`.
+legacy simulator calls use `None`. network submission requires `Some`. the intent variant is the proof kind; it is not duplicated in `NetworkContextV1`.
 
 network-mode guest checks:
 
 1. `context.protocol_version == NETWORK_PROTOCOL_V1`;
-2. proof kind matches the executed `CoinMode`/network transition;
+2. proof intent matches the executed `CoinMode`/network transition;
 3. `context.anchor_height <= context.expiry_height` for every network proof;
 4. primary `SerialCommitmentData.merkle_root == context.ledger_root` for spends;
 5. every additional coin root equals `context.ledger_root`;
 6. normal commitment, membership, puzzle, balance, TAIL, mint, and nullifier checks run unchanged;
-7. faucet mint output commits the public amount, request ID, and resulting coin commitment;
+7. faucet mint output commits the request ID, configured asset TAIL, public amount, and resulting coin commitment;
 8. transformed spend CREATE_COIN commitments are collected directly into `PrivateTransfer.output_commitments`;
 9. guest commits `NetworkProofOutputV1`.
 
@@ -723,7 +728,7 @@ git diff --check
 
 manual evidence: decode one real SP1 proof and print only network ID, kind, root/height/expiry, nullifier count, and output count.
 
-status evidence: not run.
+status evidence: implementation and local evidence complete on `network/01-canonical-root`; typed request/output, strict Borsh journals, mock/SP1/RISC Zero faucet and private-transfer proofs, pure root policy, metadata checks, verifier boundary, full local suite, and differential reviews pass. commit/PR/GitHub evidence pending.
 
 ### slice 2 — ledger + persistent state
 

@@ -590,6 +590,7 @@ impl CLVMZkSimulator {
             tail_source: None,
             tail_params: vec![],
             additional_coins: None,
+            network: None,
         };
 
         // Step 4: prove

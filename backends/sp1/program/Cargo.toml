@@ -7,6 +7,7 @@ edition = "2021"
 sp1-zkvm = "=5.2.4"
 sp1-lib = "=5.2.4"
 clvm-zk-core = { path = "../../../clvm_zk_core", default-features = false, features = ["sp1"] }
+borsh = { version = "1.5.7", default-features = false }
 # use sp1's patched sha2 for syscall optimization
 sha2 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", package = "sha2", rev = "1f224388fdede7cef649bce0d63876d1a9e3f515", default-features = false }
 # BLS signature verification support with SP1 precompiles (v2 = digest 0.9 compatible)

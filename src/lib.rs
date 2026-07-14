@@ -188,6 +188,7 @@ impl ClvmZkProver {
             additional_coins: None, // single-coin API
             tail_source,
             tail_params,
+            network: None,
         };
 
         #[cfg(feature = "risc0")]
@@ -239,6 +240,7 @@ impl ClvmZkProver {
             additional_coins: Some(additional_coins),
             tail_source,
             tail_params,
+            network: None,
         };
 
         #[cfg(feature = "risc0")]

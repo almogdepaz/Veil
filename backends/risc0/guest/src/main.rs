@@ -7,10 +7,11 @@ use risc0_zkvm::guest::env;
 use risc0_zkvm::sha::{Impl, Sha256 as RiscSha256};
 
 use clvm_zk_core::{
-    compile_chialisp_to_bytecode, compute_coin_commitment, compute_genesis_nullifier,
-    compute_nullifier_v2, compute_serial_commitment, create_veil_evaluator, is_clvm_nil,
-    parse_variable_length_amount, run_clvm_with_conditions, serialize_params_to_clvm,
-    verify_merkle_proof, ClvmResult, CoinMode, Input, ProofOutput, BLS_DST,
+    build_network_proof_output_v1, compile_chialisp_to_bytecode, compute_coin_commitment,
+    compute_genesis_nullifier, compute_nullifier_v2, compute_serial_commitment,
+    create_veil_evaluator, is_clvm_nil, parse_variable_length_amount, run_clvm_with_conditions,
+    serialize_params_to_clvm, validate_network_request_v1, verify_merkle_proof, ClvmResult,
+    CoinMode, Input, NetworkExecutionResultV1, ProofOutput, BLS_DST,
 };
 
 use bls12_381::hash_to_curve::{ExpandMsgXmd, HashToCurve};
@@ -114,6 +115,9 @@ fn main() {
     let start_cycles = env::cycle_count();
 
     let private_inputs: Input = env::read();
+    if private_inputs.network.is_some() {
+        validate_network_request_v1(&private_inputs).expect("invalid network proof request");
+    }
 
     // // PROFILING: measure compilation cycles
     // let compile_start = env::cycle_count();
@@ -162,13 +166,17 @@ fn main() {
 
     // Transform CREATE_COIN conditions for output privacy
     let mut has_transformations = false;
+    let mut output_commitments = vec![];
     for condition in conditions.iter_mut() {
         if condition.opcode == 51 {
             // CREATE_COIN opcode
             match condition.args.len() {
                 2 => {
-                    // Transparent mode: CREATE_COIN(puzzle_hash, amount)
-                    // Leave as-is for testing/debugging
+                    assert!(
+                        private_inputs.network.is_none(),
+                        "network CREATE_COIN outputs must use private commitments"
+                    );
+                    // Transparent legacy mode: leave as-is.
                 }
                 4 => {
                     // Private mode: CREATE_COIN(puzzle_hash, amount, serial_num, serial_rand)
@@ -199,6 +207,7 @@ fn main() {
                         &serial_commitment,
                     );
 
+                    output_commitments.push(coin_commitment);
                     condition.args = vec![coin_commitment.to_vec()];
                     has_transformations = true;
                 }
@@ -378,6 +387,24 @@ fn main() {
             let nullifiers = genesis_nullifier.map(|n| vec![n]).unwrap_or_default();
             let end_cycles = env::cycle_count();
             let total_cycles = end_cycles.saturating_sub(start_cycles);
+            if private_inputs.network.is_some() {
+                let output = build_network_proof_output_v1(
+                    &private_inputs,
+                    NetworkExecutionResultV1 {
+                        program_hash,
+                        public_conditions: final_output,
+                        execution_cost: total_cycles,
+                        nullifiers,
+                        output_commitments: vec![],
+                        mint_output_commitment: Some(output_coin_commitment),
+                    },
+                )
+                .expect("failed to build network faucet output");
+                let journal = borsh::to_vec(&output)
+                    .expect("serializing network output into memory cannot fail");
+                env::commit_slice(&journal);
+                return;
+            }
             env::commit(&ProofOutput {
                 program_hash,
                 nullifiers,
@@ -487,11 +514,6 @@ fn main() {
 
     let end_cycles = env::cycle_count();
     let total_cycles = end_cycles.saturating_sub(start_cycles);
-    let clvm_output = ClvmResult {
-        output: final_output,
-        cost: total_cycles,
-    };
-
     // // PROFILING: encode cycle counts in public_values for analysis
     // // format: single vec containing [compile_cycles (8 bytes), exec_cycles (8 bytes), total_cycles (8 bytes)]
     // let mut profiling_data = Vec::new();
@@ -499,10 +521,32 @@ fn main() {
     // profiling_data.extend_from_slice(&exec_cycles.to_le_bytes());
     // profiling_data.extend_from_slice(&total_cycles.to_le_bytes());
 
+    if private_inputs.network.is_some() {
+        let output = build_network_proof_output_v1(
+            &private_inputs,
+            NetworkExecutionResultV1 {
+                program_hash,
+                public_conditions: final_output,
+                execution_cost: total_cycles,
+                nullifiers,
+                output_commitments,
+                mint_output_commitment: None,
+            },
+        )
+        .expect("failed to build network transfer output");
+        let journal =
+            borsh::to_vec(&output).expect("serializing network output into memory cannot fail");
+        env::commit_slice(&journal);
+        return;
+    }
+
     env::commit(&ProofOutput {
         program_hash,
         nullifiers,
-        clvm_res: clvm_output,
+        clvm_res: ClvmResult {
+            output: final_output,
+            cost: total_cycles,
+        },
         proof_type: 0, // Transaction type (default)
         public_values: vec![],
     });

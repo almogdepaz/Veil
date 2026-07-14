@@ -84,6 +84,7 @@ mod cat_tail_enforcement {
             tail_source,
             tail_params,
             additional_coins: None,
+            network: None,
         }
     }
 
@@ -169,6 +170,7 @@ mod cat_tail_enforcement {
             tail_source: None,
             tail_params: vec![],
             additional_coins: None,
+            network: None,
         };
 
         let backend = MockBackend::new().expect("backend");

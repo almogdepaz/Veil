@@ -60,13 +60,53 @@ impl Sp1Backend {
         }
     }
 
+    fn validate_input(input: &Input) -> Result<(), ClvmZkError> {
+        clvm_zk_core::backend_utils::validate_guest_input(input)
+    }
+
+    fn generate_proof(
+        &self,
+        inputs: &Input,
+    ) -> Result<sp1_sdk::SP1ProofWithPublicValues, ClvmZkError> {
+        use sp1_sdk::{ProverClient, SP1Stdin};
+
+        let mut stdin = SP1Stdin::new();
+        stdin.write(inputs);
+        let client = ProverClient::from_env();
+        let (proving_key, _) = client.setup(CLVM_ZK_SP1_ELF);
+
+        if !self.skip_execution {
+            let execute_start = std::time::Instant::now();
+            client
+                .execute(CLVM_ZK_SP1_ELF, &stdin)
+                .run()
+                .map_err(|error| {
+                    ClvmZkError::ProofGenerationFailed(format!("sp1 execution failed: {error}"))
+                })?;
+            println!(
+                "sp1 execute took: {}ms",
+                execute_start.elapsed().as_millis()
+            );
+        } else {
+            println!("sp1 cycle counting skipped - cost will be 0");
+        }
+
+        use std::panic::AssertUnwindSafe;
+        std::panic::catch_unwind(AssertUnwindSafe(|| {
+            client
+                .prove(&proving_key, &stdin)
+                .mode(self.parse_proof_mode())
+                .run()
+        }))
+        .map_err(|_| ClvmZkError::ProofGenerationFailed("SP1 proving panicked".to_string()))?
+        .map_err(|error| convert_proving_error(error, "SP1"))
+    }
+
     pub fn prove_chialisp_program(
         &self,
         chialisp_source: &str,
         program_parameters: &[ProgramParameter],
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        use sp1_sdk::{ProverClient, SP1Stdin};
-
         let inputs = Input {
             chialisp_source: chialisp_source.to_string(),
             program_parameters: program_parameters.to_vec(),
@@ -75,34 +115,9 @@ impl Sp1Backend {
             additional_coins: None, // single-coin spend
             tail_source: None,
             tail_params: vec![],
+            network: None,
         };
-
-        let mut stdin = SP1Stdin::new();
-        stdin.write(&inputs);
-
-        let client = ProverClient::from_env();
-        let (pk, _vk) = client.setup(CLVM_ZK_SP1_ELF);
-
-        if !self.skip_execution {
-            let execute_start = std::time::Instant::now();
-            let _ = client.execute(CLVM_ZK_SP1_ELF, &stdin).run().map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("sp1 execution failed: {e}"))
-            })?;
-            let execute_time = execute_start.elapsed();
-            println!("sp1 execute took: {}ms", execute_time.as_millis());
-        } else {
-            println!("sp1 cycle counting skipped - cost will be 0");
-        }
-
-        let proof_mode = self.parse_proof_mode();
-        let mut proof = {
-            use std::panic::AssertUnwindSafe;
-            std::panic::catch_unwind(AssertUnwindSafe(|| {
-                client.prove(&pk, &stdin).mode(proof_mode).run()
-            }))
-            .map_err(|_| ClvmZkError::ProofGenerationFailed("SP1 proving panicked".to_string()))?
-            .map_err(|e| convert_proving_error(e, "SP1"))?
-        };
+        let mut proof = self.generate_proof(&inputs)?;
 
         let output: ProofOutput = proof.public_values.read();
 
@@ -122,100 +137,85 @@ impl Sp1Backend {
         &self,
         inputs: clvm_zk_core::Input,
     ) -> Result<ZKClvmResult, ClvmZkError> {
-        use sp1_sdk::{ProverClient, SP1Stdin};
-
-        // guard: Execute mode with a non-zero tail_hash is semantically invalid —
-        // TAIL is never run in Execute mode, producing a misleading CAT-labelled proof.
-        if matches!(inputs.coin_mode, CoinMode::Execute) {
-            if inputs.tail_hash.map_or(false, |h| h != [0u8; 32]) {
-                return Err(ClvmZkError::ProofGenerationFailed(
-                    "Execute mode with non-zero tail_hash is not allowed — use CoinMode::Spend for CAT operations".to_string(),
-                ));
-            }
-        }
-
-        // host-side guard: CAT spend without tail_source produces an opaque guest panic.
-        // surface a clean error here instead.
-        let is_cat = inputs.tail_hash.map_or(false, |h| h != [0u8; 32]);
-        if is_cat && matches!(inputs.coin_mode, CoinMode::Spend(_)) && inputs.tail_source.is_none()
-        {
-            return Err(ClvmZkError::ProofGenerationFailed(
-                "CAT spend requires tail_source: tail_hash is set but tail_source was not provided"
-                    .to_string(),
+        if inputs.network.is_some() {
+            return Err(ClvmZkError::InvalidInput(
+                "network input requires prove_network_with_input".to_string(),
             ));
         }
-
-        // guard: CAT ring coins without tail_source produce opaque guest panics.
-        if let Some(ref additional_coins) = inputs.additional_coins {
-            for (i, coin) in additional_coins.iter().enumerate() {
-                if coin.tail_hash != [0u8; 32] && coin.tail_source.is_none() {
-                    return Err(ClvmZkError::ProofGenerationFailed(format!(
-                        "CAT ring coin {i} requires tail_source: tail_hash is set but tail_source was not provided"
-                    )));
-                }
-            }
-        }
-
-        // host-side guard: leaf_index values must fit in u32 since the guest runs on 32-bit RISC-V.
-        // catch this here to avoid an opaque guest panic.
-        const MAX_LEAF: u64 = u32::MAX as u64;
-        if let CoinMode::Spend(ref d) = inputs.coin_mode {
-            if d.leaf_index > MAX_LEAF {
-                return Err(ClvmZkError::ProofGenerationFailed(format!(
-                    "primary coin leaf_index {} exceeds 32-bit platform limit ({})",
-                    d.leaf_index, MAX_LEAF
-                )));
-            }
-        }
-        if let Some(ref additional_coins) = inputs.additional_coins {
-            for (i, coin) in additional_coins.iter().enumerate() {
-                if coin.serial_commitment_data.leaf_index > MAX_LEAF {
-                    return Err(ClvmZkError::ProofGenerationFailed(format!(
-                        "ring coin {i} leaf_index {} exceeds 32-bit platform limit ({})",
-                        coin.serial_commitment_data.leaf_index, MAX_LEAF
-                    )));
-                }
-            }
-        }
-
-        let mut stdin = SP1Stdin::new();
-        stdin.write(&inputs);
-
-        let client = ProverClient::from_env();
-        let (pk, _vk) = client.setup(CLVM_ZK_SP1_ELF);
-
-        if !self.skip_execution {
-            let execute_start = std::time::Instant::now();
-            let _ = client.execute(CLVM_ZK_SP1_ELF, &stdin).run().map_err(|e| {
-                ClvmZkError::ProofGenerationFailed(format!("sp1 execution failed: {e}"))
-            })?;
-            let execute_time = execute_start.elapsed();
-            println!("sp1 execute took: {}ms", execute_time.as_millis());
-        } else {
-            println!("sp1 cycle counting skipped - cost will be 0");
-        }
-
-        let proof_mode = self.parse_proof_mode();
-        let mut proof = {
-            use std::panic::AssertUnwindSafe;
-            std::panic::catch_unwind(AssertUnwindSafe(|| {
-                client.prove(&pk, &stdin).mode(proof_mode).run()
-            }))
-            .map_err(|_| ClvmZkError::ProofGenerationFailed("SP1 proving panicked".to_string()))?
-            .map_err(|e| convert_proving_error(e, "SP1"))?
-        };
-
+        Self::validate_input(&inputs)?;
+        let mut proof = self.generate_proof(&inputs)?;
         let output: ProofOutput = proof.public_values.read();
-
         validate_nullifier_proof_output(&output, "SP1")?;
-
-        let proof_bytes = bincode::serialize(&proof).map_err(|e| {
-            ClvmZkError::SerializationError(format!("failed to serialize proof: {e}"))
+        let proof_bytes = bincode::serialize(&proof).map_err(|error| {
+            ClvmZkError::SerializationError(format!("failed to serialize proof: {error}"))
         })?;
-
         Ok(ZKClvmResult {
             proof_output: output,
             proof_bytes,
+        })
+    }
+
+    pub fn prove_network_with_input(
+        &self,
+        inputs: clvm_zk_core::Input,
+    ) -> Result<clvm_zk_core::ZKNetworkResultV1, ClvmZkError> {
+        clvm_zk_core::validate_network_request_v1(&inputs)
+            .map_err(|error| ClvmZkError::InvalidInput(error.to_string()))?;
+        Self::validate_input(&inputs)?;
+        let proof = self.generate_proof(&inputs)?;
+        let output =
+            borsh::from_slice::<clvm_zk_core::NetworkProofOutputV1>(proof.public_values.as_slice())
+                .map_err(|error| {
+                    ClvmZkError::InvalidProofFormat(format!(
+                        "failed to decode SP1 network journal: {error}"
+                    ))
+                })?;
+        let proof_bytes = bincode::serialize(&proof).map_err(|error| {
+            ClvmZkError::SerializationError(format!("failed to serialize proof: {error}"))
+        })?;
+        Ok(clvm_zk_core::ZKNetworkResultV1 {
+            proof_output: output,
+            proof_bytes,
+        })
+    }
+
+    pub fn network_program_id() -> [u8; 32] {
+        use sp1_sdk::{HashableKey, ProverClient};
+
+        let client = ProverClient::from_env();
+        let (_, verifying_key) = client.setup(CLVM_ZK_SP1_ELF);
+        verifying_key.bytes32_raw()
+    }
+
+    pub fn verify_network_proof_and_decode(
+        &self,
+        proof: &[u8],
+        max_proof_bytes: usize,
+    ) -> Result<clvm_zk_core::NetworkProofOutputV1, ClvmZkError> {
+        if proof.len() > max_proof_bytes {
+            return Err(ClvmZkError::InvalidInput(
+                "SP1 proof exceeds configured byte limit".to_string(),
+            ));
+        }
+        use bincode::Options;
+        use sp1_sdk::{ProverClient, SP1ProofWithPublicValues};
+
+        let proof: SP1ProofWithPublicValues = bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .reject_trailing_bytes()
+            .deserialize(proof)
+            .map_err(|error| {
+                ClvmZkError::InvalidProofFormat(format!("failed to deserialize SP1 proof: {error}"))
+            })?;
+        let client = ProverClient::from_env();
+        let (_, verifying_key) = client.setup(CLVM_ZK_SP1_ELF);
+        client.verify(&proof, &verifying_key).map_err(|error| {
+            ClvmZkError::VerificationFailed(format!("SP1 verification failed: {error}"))
+        })?;
+        borsh::from_slice(proof.public_values.as_slice()).map_err(|error| {
+            ClvmZkError::InvalidProofFormat(format!(
+                "failed to decode SP1 network journal: {error}"
+            ))
         })
     }
 
